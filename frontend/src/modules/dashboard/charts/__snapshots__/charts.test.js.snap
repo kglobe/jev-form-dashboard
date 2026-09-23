@@ -39,6 +39,61 @@ exports[`toOption > bar 1`] = `
 }
 `;
 
+exports[`toOption > heatmap turns long rows into index triples 1`] = `
+{
+  "grid": {
+    "bottom": 60,
+  },
+  "series": [
+    {
+      "data": [
+        [
+          0,
+          0,
+          100,
+        ],
+        [
+          1,
+          0,
+          50,
+        ],
+        [
+          0,
+          1,
+          200,
+        ],
+      ],
+      "type": "heatmap",
+    },
+  ],
+  "tooltip": {
+    "position": "top",
+  },
+  "visualMap": {
+    "bottom": 0,
+    "calculable": true,
+    "left": "center",
+    "max": 200,
+    "min": 0,
+    "orient": "horizontal",
+  },
+  "xAxis": {
+    "data": [
+      "北",
+      "南",
+    ],
+    "type": "category",
+  },
+  "yAxis": {
+    "data": [
+      "A",
+      "B",
+    ],
+    "type": "category",
+  },
+}
+`;
+
 exports[`toOption > line 1`] = `
 {
   "dataset": {
@@ -116,6 +171,49 @@ exports[`toOption > pie 1`] = `
 }
 `;
 
+exports[`toOption > radar gives each measure its own axis max 1`] = `
+{
+  "legend": {
+    "bottom": 0,
+    "type": "scroll",
+  },
+  "radar": {
+    "indicator": [
+      {
+        "max": 110.00000000000001,
+        "name": "amount",
+      },
+      {
+        "max": 6.6000000000000005,
+        "name": "qty",
+      },
+    ],
+  },
+  "series": [
+    {
+      "data": [
+        {
+          "name": "北區",
+          "value": [
+            100,
+            4,
+          ],
+        },
+        {
+          "name": "南區",
+          "value": [
+            50,
+            6,
+          ],
+        },
+      ],
+      "type": "radar",
+    },
+  ],
+  "tooltip": {},
+}
+`;
+
 exports[`toOption > scatter 1`] = `
 {
   "dataset": {
@@ -152,6 +250,48 @@ exports[`toOption > scatter 1`] = `
   },
   "yAxis": {
     "name": "qty",
+    "type": "value",
+  },
+}
+`;
+
+exports[`toOption > stacked_bar pivots long rows into one series per group and fills gaps with 0 1`] = `
+{
+  "legend": {
+    "bottom": 0,
+    "type": "scroll",
+  },
+  "series": [
+    {
+      "data": [
+        10,
+        5,
+      ],
+      "name": "北",
+      "stack": "total",
+      "type": "bar",
+    },
+    {
+      "data": [
+        20,
+        0,
+      ],
+      "name": "南",
+      "stack": "total",
+      "type": "bar",
+    },
+  ],
+  "tooltip": {
+    "trigger": "axis",
+  },
+  "xAxis": {
+    "data": [
+      "2024-01",
+      "2024-02",
+    ],
+    "type": "category",
+  },
+  "yAxis": {
     "type": "value",
   },
 }
