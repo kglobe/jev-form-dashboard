@@ -17,21 +17,27 @@ const error = ref('')
 const specById = computed(() => Object.fromEntries(props.config.layout.map((s) => [s.chartId, s])))
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 
+let loadSeq = 0
+
 async function load() {
+  const seq = ++loadSeq
   layout.value = props.config.layout.map((s) => ({ i: s.chartId, ...s.gridPos }))
   dataById.value = {}
   highlightById.value = {}
   error.value = ''
   try {
     const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id)
+    if (seq !== loadSeq) return
     dataById.value = Object.fromEntries(data.map((d) => [d.chartId, d]))
   } catch (e) {
+    if (seq !== loadSeq) return
     error.value = e.message
     return
   }
   if (props.preview) return
   // 異常檢查失敗就不標註，不顯示錯誤
   const found = await api.highlights(props.config.id).catch(() => [])
+  if (seq !== loadSeq) return
   highlightById.value = Object.fromEntries(found.map((h) => [h.chartId, h]))
 }
 
