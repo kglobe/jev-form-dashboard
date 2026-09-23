@@ -1,0 +1,158 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`toOption > bar 1`] = `
+{
+  "dataset": {
+    "dimensions": [
+      "region",
+      "amount",
+    ],
+    "source": [
+      [
+        "北區",
+        7400,
+      ],
+      [
+        "南區",
+        2400,
+      ],
+    ],
+  },
+  "series": [
+    {
+      "encode": {
+        "x": 0,
+        "y": 1,
+      },
+      "type": "bar",
+    },
+  ],
+  "tooltip": {
+    "trigger": "axis",
+  },
+  "xAxis": {
+    "type": "category",
+  },
+  "yAxis": {
+    "type": "value",
+  },
+}
+`;
+
+exports[`toOption > line 1`] = `
+{
+  "dataset": {
+    "dimensions": [
+      "order_date",
+      "amount",
+    ],
+    "source": [
+      [
+        "2024-01",
+        2000,
+      ],
+      [
+        "2024-02",
+        2100,
+      ],
+    ],
+  },
+  "series": [
+    {
+      "encode": {
+        "x": 0,
+        "y": 1,
+      },
+      "type": "line",
+    },
+  ],
+  "tooltip": {
+    "trigger": "axis",
+  },
+  "xAxis": {
+    "type": "category",
+  },
+  "yAxis": {
+    "type": "value",
+  },
+}
+`;
+
+exports[`toOption > pie 1`] = `
+{
+  "dataset": {
+    "dimensions": [
+      "region",
+      "amount",
+    ],
+    "source": [
+      [
+        "北區",
+        7400,
+      ],
+      [
+        "南區",
+        2400,
+      ],
+    ],
+  },
+  "legend": {
+    "bottom": 0,
+    "type": "scroll",
+  },
+  "series": [
+    {
+      "encode": {
+        "itemName": 0,
+        "value": 1,
+      },
+      "radius": "60%",
+      "type": "pie",
+    },
+  ],
+  "tooltip": {
+    "trigger": "item",
+  },
+}
+`;
+
+exports[`toOption > scatter 1`] = `
+{
+  "dataset": {
+    "dimensions": [
+      "amount",
+      "qty",
+    ],
+    "source": [
+      [
+        1200,
+        3,
+      ],
+      [
+        800,
+        2,
+      ],
+    ],
+  },
+  "series": [
+    {
+      "encode": {
+        "x": 0,
+        "y": 1,
+      },
+      "type": "scatter",
+    },
+  ],
+  "tooltip": {
+    "trigger": "item",
+  },
+  "xAxis": {
+    "name": "amount",
+    "type": "value",
+  },
+  "yAxis": {
+    "name": "qty",
+    "type": "value",
+  },
+}
+`;
