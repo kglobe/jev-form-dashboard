@@ -154,7 +154,7 @@ ERP 資料通常有 20 到 50 個欄位。50 個欄位兩兩組合就有 1225 �
 #### 第二輪：選圖
 
 1. 候選欄位：角色不是 `ignore`、重要性 `round(score) >= 1` 的欄位，依重要性取前 8 個。
-2. 後端依下表列出所有合法組合，每組的分數是組內欄位重要性加總，取分數最高的 2K 組。
+2. 後端依下表列出所有合法組合，每組的分數是組內欄位重要性的平均（用平均而不是加總，欄位多的組合才不會永遠排前面），取分數最高的 2K 組，同分時照產生順序：先兩欄組合，再雷達，再三欄組合。
 3. 每組問一題 `choice`，選項是該組合法的圖表類型，再加一個 `none`（「這組欄位不值得畫圖」）。
 
 | 角色組合 | 合法圖表 |
@@ -183,7 +183,9 @@ ERP 資料通常有 20 到 50 個欄位。50 個欄位兩兩組合就有 1225 �
 
 前端先畫完圖表，再呼叫 `/api/jev/highlight/{dashboardId}`。失敗或逾時就不顯示標註，圖表不受影響。
 
-後端為每張卡片產生摘要，只處理 x 是時間欄位的卡片，比較最後一期和前一期（期間依 `timeGrain`）的 value，每個 series 列出兩期數值和變化百分比。沒有時間欄位的卡片不檢查。只送摘要，不送原始資料。
+用到任何敏感欄位的卡片整張跳過，不會送進異常檢查。剩下的卡片裡，只有 `line`、`bar`、`stacked_bar`、`heatmap` 這四種圖會被摘要，而且要已經彙總過、x 是時間欄位（有 `timeGrain`）；逐筆列出的卡片（`aggregate: none`）一律跳過，因為那些等於是原始資料列。
+
+後端為每張符合條件的卡片產生摘要：比較最後一期和前一期（期間依 `timeGrain`），今天所在的那一期還沒結束，連同更後面的期都不算，只比已經結束的兩期。每個 series 列出兩期數值和變化百分比；series 超過 10 個時只留變化量（|本期 − 前期|）最大的 10 個，其餘加總成一個「其他」。只送這段摘要，不送原始資料。
 
 所有卡片的題目併成一次請求，每張卡片兩題：
 
@@ -192,7 +194,7 @@ ERP 資料通常有 20 到 50 個欄位。50 個欄位兩兩組合就有 1225 �
 
 `noul` 大於 0.7 才在該卡片上顯示標註，標註文字用 `round(score)` 對應的嚴重程度。
 
-結果依（dashboardId、資料指紋）用 Spring `@Cacheable` 快取在記憶體，資料沒變就不重打 JEV。資料指紋是各卡片 ChartData 的雜湊值。
+結果依（dashboardId、資料指紋、今天日期）用 Spring `@Cacheable` 快取在記憶體；資料和日期都沒變就不重打 JEV，換日期要重算，因為哪一期算「還沒結束」會跟著今天的日期變。資料指紋是沒用到敏感欄位的卡片、其 ChartData 的雜湊值。
 
 ## 6. 資料來源
 
@@ -200,12 +202,13 @@ ERP 資料通常有 20 到 50 個欄位。50 個欄位兩兩組合就有 1225 �
 
 - CSV：先試 UTF-8（有沒有 BOM 都可以），解碼失敗就改用 MS950。第一列是標題。
 - Excel：預設讀第一個 sheet，上傳時可以指定 sheet 名稱。第一列是標題。日期儲存格轉成 ISO 日期字串。
-- 上限 100,000 筆（設定 `jev.upload.max-rows`），超過就拒絕並告知筆數。轉換器在 Java 記憶體裡聚合，這是它的上限；之後資料量變大，要改成用 SQL 的 `jsonb` 運算聚合。
+- 上限 100,000 筆（設定 `jev.upload.max-rows`）。邊讀邊數，一超過上限就中止，不用等整份資料讀完；訊息只報上限，不報實際筆數（讀到一半就停了，還不知道總共有幾筆），例如「資料超過上限 100000 筆」。轉換器在 Java 記憶體裡聚合，這是它的上限；之後資料量變大，要改成用 SQL 的 `jsonb` 運算聚合。
 
 ### 6.2 外部 API
 
-- 只允許打設定檔 `jev.datasource.allowed-hosts` 裡的 host，清單為空時不開放註冊 API。解析 DNS 後，如果是私有 IP 或 loopback 也拒絕，避免被拿來掃內網。
-- 驗證資訊不存進資料庫。`api_headers_json` 裡的值只能寫 `${環境變數名}`，呼叫時從 Spring Environment 取值，例如 `{"Authorization": "${ERP_API_TOKEN}"}`。
+- 只允許打設定檔 `jev.datasource.allowed-hosts` 裡的 host，清單為空時不開放註冊 API。允許清單就是 SSRF 的防線：ERP 的 API 多半在內網，所以私有 IP 不擋，只要 host 明列在清單裡就能連。解析 DNS 後如果是 loopback（`127.0.0.0/8`、`::1`、`0.0.0.0`）則一律拒絕，避免打到應用程式自己。不跟隨 redirect。
+- 網址不能帶帳密（`user:pass@host` 或只有 `user@host`）或帳密類的 query 參數（`access_token`、`token`、`api_key`、`apikey`、`secret`、`password`、`passwd`、`pwd`、`auth`、`authorization`、`signature`、`sig`，不分大小寫），一律拒絕註冊；這些值要改放 headers。
+- 驗證資訊不存進資料庫。`api_headers_json` 裡的值只能寫 `${DS_環境變數名}`，呼叫時從 Spring Environment 取值，例如 `{"Authorization": "${DS_ERP_AUTH}"}`。只認得 `DS_` 開頭的環境變數，`DB_PASSWORD`、`TYPESAFE_API_KEY` 這類其他機敏設定就算照格式寫也讀不到，送不出去。
 - 回應必須是 JSON 陣列，每個元素是一筆資料。
 - v1 每次載入都重打外部 API，不做快取，讀取逾時 10 秒。
 
@@ -238,6 +241,8 @@ spring.flyway:
 
 `docker/postgres/` 放 `Dockerfile`，以官方 `postgres` image 為底。schema 和表都交給 Flyway 在應用程式啟動時建立，不另放 `init.sql`。搬到大型主機時直接 build 這個 image。
 
+這是選用項目：目前的開發環境沒有 Docker，`docker/postgres/Dockerfile` 還沒建立，需要時再補。
+
 ## 8. 錯誤處理
 
 | 狀況 | 處理 |
@@ -247,9 +252,10 @@ spring.flyway:
 | JEV 選圖答案是 `none` 或 confidence 低於 0.5 | 那張圖不產生 |
 | 一張圖都沒選出來 | 只產生明細表，預覽顯示「找不到適合的圖表」 |
 | mapping 指到的欄位已不存在（資料源改版） | 該卡片顯示「欄位遺失」，其他卡片照常 |
-| 上傳檔案格式錯誤 | 回傳錯誤訊息，註明出錯的行號 |
-| 上傳超過筆數上限 | 拒絕，告知實際筆數和上限 |
+| 上傳檔案格式錯誤 | 回傳中文錯誤訊息；資料列格式錯誤會附行號，標題名稱、密碼保護這類整檔問題不附行號 |
+| 上傳或外部 API 超過筆數上限 | 邊讀邊數，一超過上限就中止；訊息只報上限，不報實際筆數，例如「資料超過上限 100000 筆」 |
 | 外部 API 的 host 不在允許清單 | 註冊時拒絕 |
+| 存檔或預覽時卡片設定不合法（缺 mapping 欄位、chartId 重複或空白、gridPos 超出格線、儀表板名稱空白等） | 400，回傳中文訊息，整份都不存檔 |
 
 JEV 逾時：連線 5 秒；讀取時分析用 30 秒、異常檢查用 10 秒。JEV 的速率上限是每分鐘 1200 次請求，異常檢查的快取就是為了不碰到這個上限。
 
@@ -259,6 +265,7 @@ JEV 逾時：連線 5 秒；讀取時分析用 30 秒、異常檢查用 10 秒�
 - `backend/.env`：實作時建立，由使用者填入 JEV key，列入 `.gitignore`
 - Spring Boot 不會自己讀 `.env`，`application.yml` 要加 `spring.config.import: optional:file:.env[.properties]`
 - 其他設定：`jev.model`、`jev.upload.max-rows`、`jev.datasource.allowed-hosts`
+- `server.address`：預設 `127.0.0.1`，只聽本機連線；要對外開放用 `--server.address=0.0.0.0` 或環境變數 `SERVER_ADDRESS`。身分只靠 `X-User-Id` header（見第 11 節），不是真的登入驗證，對外開放前要知道這一點——任何人都能改這個 header 冒充別人。
 
 ## 10. 測試
 
@@ -266,7 +273,7 @@ JEV 逾時：連線 5 秒；讀取時分析用 30 秒、異常檢查用 10 秒�
 - `ConfigAssembler`：純函式測試。給定 schema 和一組答案，檢查候選組合、`none` 和低 confidence 的過濾、張數換算、`gridPos` 排版。
 - `AnalyzeService`：用錄好的 JEV 回應 JSON 當 fixture，不實際呼叫 API。
 - CSV 解析：UTF-8 和 MS950 各一個檔案。
-- 外部 API 註冊：不在允許清單的 host、私有 IP 都要被拒絕。
+- 外部 API 註冊：不在允許清單的 host、loopback 都要被拒絕；清單內的私有 IP 可以通過。
 - 前端 `toOption`：每種圖一個 snapshot 測試。
 
 ## 11. 不在這次範圍內

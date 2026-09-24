@@ -1,0 +1,10 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "anomaly_c1": {"type": "noul", "noul": 0.85},
+    "severity_c1": {"type": "score", "score": 2.4, "confidence": 0.8},
+    "anomaly_c2": {"type": "noul", "noul": 0.3},
+    "severity_c2": {"type": "score", "score": 0.2, "confidence": 0.9}
+  },
+  "usage": {"input_tokens": 400, "output_tokens": 20}
+}

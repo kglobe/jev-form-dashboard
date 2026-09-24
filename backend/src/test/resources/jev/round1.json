@@ -1,0 +1,19 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "imp_0": {"type": "score", "score": 3.0, "confidence": 0.9},
+    "role_0": {"type": "choice", "choice": "time", "confidence": 0.95},
+    "imp_1": {"type": "score", "score": 2.75, "confidence": 0.9},
+    "role_1": {"type": "choice", "choice": "measure", "confidence": 0.9},
+    "imp_2": {"type": "score", "score": 2.0, "confidence": 0.8},
+    "role_2": {"type": "choice", "choice": "dimension", "confidence": 0.9},
+    "imp_3": {"type": "score", "score": 1.25, "confidence": 0.7},
+    "role_3": {"type": "choice", "choice": "dimension", "confidence": 0.8},
+    "imp_4": {"type": "score", "score": 1.0, "confidence": 0.7},
+    "role_4": {"type": "choice", "choice": "measure", "confidence": 0.85},
+    "imp_5": {"type": "score", "score": 0.25, "confidence": 0.9},
+    "role_5": {"type": "choice", "choice": "ignore", "confidence": 0.9},
+    "chart_count": {"type": "score", "score": 2.2, "confidence": 0.6}
+  },
+  "usage": {"input_tokens": 1200, "output_tokens": 90}
+}
