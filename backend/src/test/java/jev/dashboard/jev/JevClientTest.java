@@ -40,6 +40,8 @@ class JevClientTest {
             assertThatThrownBy(() -> client.ask(Map.of(), ONE))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("JEV 呼叫失敗")
+                .hasMessageContaining("HTTP 500")
+                .hasMessageNotContaining("boom")
                 .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
         }
     }
