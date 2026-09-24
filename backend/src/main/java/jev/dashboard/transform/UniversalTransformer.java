@@ -147,14 +147,18 @@ public final class UniversalTransformer {
     private static ChartData project(ChartSpec spec, List<Map<String, Object>> rows, List<String> fields,
                                      boolean skipNulls, int limit) {
         List<List<Object>> out = new ArrayList<>();
+        boolean truncated = false;
         for (Map<String, Object> row : rows) {
-            if (out.size() >= limit) break;
             List<Object> r = new ArrayList<>(fields.size());
             for (String f : fields) r.add(row.get(f));
             if (skipNulls && r.contains(null)) continue;
+            if (out.size() >= limit) {
+                truncated = true;
+                break;
+            }
             out.add(r);
         }
-        return new ChartData(spec.chartId(), spec.type(), List.copyOf(fields), out, null, null);
+        return new ChartData(spec.chartId(), spec.type(), List.copyOf(fields), out, null, null, truncated ? Boolean.TRUE : null);
     }
 
     private static double result(String agg, double[] a) {

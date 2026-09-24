@@ -2,6 +2,8 @@ package jev.dashboard.transform;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +12,8 @@ import jev.dashboard.transform.ChartSpec.GridPos;
 import org.junit.jupiter.api.Test;
 
 class UniversalTransformerTest {
+    static final ObjectMapper JSON = new ObjectMapper();
+
     static Map<String, Object> row(String d, Double amount, String region, String product, Double qty) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("order_date", d);
@@ -81,6 +85,28 @@ class UniversalTransformerTest {
         assertThat(d.dimensions()).containsExactly("order_date", "region");
         assertThat(d.rows()).hasSize(4);
         assertThat(d.rows().get(0)).isEqualTo(List.of("2024-01-05", "北"));
+    }
+
+    static ChartData table(int rowCount) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < rowCount; i++) rows.add(row("2024-01-05", (double) i, "北", "A", 1.0));
+        return UniversalTransformer.transform(new ChartSpec("c1", "table", "明細", new GridPos(0, 0, 12, 5),
+            new Mapping(null, null, null, null, null, List.of("amount"), null, null), Map.of()), rows, FIELDS);
+    }
+
+    @Test
+    void tableOverTheRowLimitIsCutAndFlaggedTruncated() throws Exception {
+        ChartData d = table(UniversalTransformer.TABLE_ROW_LIMIT + 1);
+        assertThat(d.rows()).hasSize(UniversalTransformer.TABLE_ROW_LIMIT);
+        assertThat(JSON.writeValueAsString(d)).contains("\"truncated\":true");
+    }
+
+    @Test
+    void tableWithinTheRowLimitHasNoTruncatedField() throws Exception {
+        ChartData d = table(UniversalTransformer.TABLE_ROW_LIMIT);
+        assertThat(d.rows()).hasSize(UniversalTransformer.TABLE_ROW_LIMIT);
+        assertThat(JSON.writeValueAsString(d)).doesNotContain("truncated");
+        assertThat(JSON.writeValueAsString(run("bar", xv("region", "amount", null, null)))).doesNotContain("truncated");
     }
 
     @Test
