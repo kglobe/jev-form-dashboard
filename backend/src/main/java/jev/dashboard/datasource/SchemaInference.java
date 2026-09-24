@@ -15,7 +15,8 @@ public final class SchemaInference {
     // ponytail: 只取日期部分，時間捨去；分桶最細到 day，夠用
     private static final Pattern DATE = Pattern.compile(
         "(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})([ T]\\d{1,2}:\\d{2}(:\\d{2}(\\.\\d+)?)?)?(Z|[+-]\\d{2}:?\\d{2})?");
-    private static final Pattern NUMBER = Pattern.compile("[-+]?\\d+(\\.\\d+)?");
+    // 0 開頭又接數字的（手機 0912…、統編 04595257、工號 007）是代碼不是數字，當數字會掉前導零
+    private static final Pattern NUMBER = Pattern.compile("[-+]?(0|[1-9]\\d*)(\\.\\d+)?");
 
     private SchemaInference() {}
 

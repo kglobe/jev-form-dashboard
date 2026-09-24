@@ -5,11 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.LocalDate;
+import java.util.List;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
@@ -63,5 +66,35 @@ class ExcelParserTest {
         assertThatThrownBy(() -> ExcelParser.parse(new ByteArrayInputStream(workbook()), null, 0))
             .isInstanceOf(UploadParseException.class)
             .hasMessageContaining("超過上限 0 筆");
+    }
+
+    /** 每個陣列是一列：String 寫成文字儲存格、Number 寫成數字、Boolean 寫成布林、null 不建儲存格。 */
+    static byte[] sheet(Workbook wb, Object[]... rows) throws IOException {
+        try (wb; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet s = wb.createSheet("資料");
+            for (int r = 0; r < rows.length; r++) {
+                Row row = s.createRow(r);
+                for (int c = 0; c < rows[r].length; c++) {
+                    Object v = rows[r][c];
+                    if (v instanceof String str) row.createCell(c).setCellValue(str);
+                    else if (v instanceof Number n) row.createCell(c).setCellValue(n.doubleValue());
+                    else if (v instanceof Boolean b) row.createCell(c).setCellValue(b);
+                }
+            }
+            wb.write(out);
+            return out.toByteArray();
+        }
+    }
+
+    static ParsedTable parse(byte[] bytes) {
+        return ExcelParser.parse(new ByteArrayInputStream(bytes), null);
+    }
+
+    @Test
+    void zeroPaddedTextCellsKeepTheirText() throws Exception {
+        ParsedTable t = parse(sheet(new XSSFWorkbook(), new Object[] {"phone", "qty"}, new Object[] {"0912345678", 7}));
+        List<FieldSchema> schema = SchemaInference.infer(t.headers(), t.rows());
+        assertThat(schema).extracting(FieldSchema::type).containsExactly(FieldType.STRING, FieldType.NUMBER);
+        assertThat(SchemaInference.normalize(t.rows(), schema).get(0)).containsEntry("phone", "0912345678");
     }
 }

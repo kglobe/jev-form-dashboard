@@ -54,6 +54,26 @@ class SchemaInferenceTest {
     }
 
     @Test
+    void zeroPaddedCodesStayTextExactly() {
+        List<Map<String, Object>> rows = List.of(
+            Map.of("phone", "0912345678", "tax_id", "04595257", "emp", "007"),
+            Map.of("phone", "0987654321", "tax_id", "12345675", "emp", "12"));
+        List<FieldSchema> s = SchemaInference.infer(List.of("phone", "tax_id", "emp"), rows);
+        assertThat(s).extracting(FieldSchema::type).containsExactly(STRING, STRING, STRING);
+        assertThat(s.get(0).samples()).containsExactly("0912345678", "0987654321");
+        assertThat(SchemaInference.normalize(rows, s).get(0))
+            .containsEntry("phone", "0912345678").containsEntry("tax_id", "04595257").containsEntry("emp", "007");
+    }
+
+    @Test
+    void plainNumbersStillParseAsNumbers() {
+        List<Map<String, Object>> rows = List.of(Map.of("a", "0"), Map.of("a", "0.5"), Map.of("a", "-12"), Map.of("a", "1,200"));
+        List<FieldSchema> s = SchemaInference.infer(List.of("a"), rows);
+        assertThat(s.get(0).type()).isEqualTo(NUMBER);
+        assertThat(SchemaInference.normalize(rows, s)).extracting(r -> r.get("a")).containsExactly(0.0, 0.5, -12.0, 1200.0);
+    }
+
+    @Test
     void normalizeLeavesOutFieldsMissingFromTheRow() {
         List<FieldSchema> s = SchemaInference.infer(List.of("d", "a", "r", "m"), ROWS);
         Map<String, Object> normalized = SchemaInference.normalize(List.of(Map.of("a", "5")), s).get(0);
