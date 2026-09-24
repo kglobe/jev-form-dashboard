@@ -1,6 +1,7 @@
 package jev.dashboard.datasource;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -17,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/datasources")
 public class DatasourceController {
     public record SensitiveFields(List<String> fields) {}
+    public record ApiRegistration(String name, String url, Map<String, String> headers) {}
 
     private final DatasourceService service;
 
@@ -30,6 +32,11 @@ public class DatasourceController {
                              @RequestParam("name") String name,
                              @RequestParam(value = "sheet", required = false) String sheet) {
         return service.upload(userId, name, file, sheet);
+    }
+
+    @PostMapping("/api")
+    public Datasource registerApi(@RequestHeader("X-User-Id") String userId, @RequestBody ApiRegistration body) {
+        return service.registerApi(userId, body.name(), body.url(), body.headers());
     }
 
     @GetMapping

@@ -4,6 +4,7 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -22,11 +23,14 @@ public class DatasourceService {
     private final DatasourceRepository repo;
     private final List<DataSourceProvider> providers;
     private final int maxRows;
+    private final ApiUrlGuard guard;
 
-    public DatasourceService(DatasourceRepository repo, List<DataSourceProvider> providers, JevProperties props) {
+    public DatasourceService(DatasourceRepository repo, List<DataSourceProvider> providers, JevProperties props,
+                             ApiUrlGuard guard) {
         this.repo = repo;
         this.providers = providers;
         this.maxRows = props.upload().maxRows();
+        this.guard = guard;
     }
 
     @Transactional
@@ -45,6 +49,18 @@ public class DatasourceService {
         Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null);
         repo.insert(ds);
         repo.insertRows(ds.id(), SchemaInference.normalize(table.rows(), schema));
+        return get(userId, ds.id());
+    }
+
+    public Datasource registerApi(String userId, String name, String url, Map<String, String> headers) {
+        Map<String, String> h = headers == null ? Map.of() : headers;
+        guard.check(url);
+        HttpApiDataSourceProvider.validateHeaders(h);
+        Datasource draft = new Datasource(UUID.randomUUID(), name, "api", List.of(), url, h, userId, null);
+        List<Map<String, Object>> raw = provider("api").fetchRows(draft);
+        checkRows(raw.size());
+        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(raw.get(0).keySet()), raw));
+        repo.insert(ds);
         return get(userId, ds.id());
     }
 

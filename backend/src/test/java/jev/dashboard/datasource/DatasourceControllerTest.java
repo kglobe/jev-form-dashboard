@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -90,5 +91,23 @@ class DatasourceControllerTest {
         mvc.perform(multipart("/api/datasources/upload").file(csv("data.txt", "a\n1\n"))
                 .param("name", "文字檔").header("X-User-Id", "u1"))
             .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void registerApiRejectsHostNotInAllowList() throws Exception {
+        mvc.perform(post("/api/datasources/api").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"erp\",\"url\":\"https://evil.example/sales\",\"headers\":{}}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", containsString("不在允許清單")));
+    }
+
+    @Test
+    void registerApiRejectsLiteralHeaderValues() throws Exception {
+        mvc.perform(post("/api/datasources/api").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{\"Authorization\":\"Bearer x\"}}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error", containsString("${DS_環境變數名}")));
     }
 }
