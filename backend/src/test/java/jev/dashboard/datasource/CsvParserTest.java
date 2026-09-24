@@ -32,4 +32,12 @@ class CsvParserTest {
             .isInstanceOf(UploadParseException.class)
             .hasMessageContaining("第 3 行");
     }
+
+    @Test
+    void stopsParsingAsSoonAsRowCountExceedsCap() {
+        byte[] bytes = "a\n1\n2\n3\n".getBytes(UTF_8);
+        assertThatThrownBy(() -> CsvParser.parse(bytes, 2))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessageContaining("超過上限 2 筆");
+    }
 }

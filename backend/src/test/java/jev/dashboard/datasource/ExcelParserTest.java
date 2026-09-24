@@ -57,4 +57,11 @@ class ExcelParserTest {
             .isInstanceOf(UploadParseException.class)
             .hasMessageContaining("找不到工作表");
     }
+
+    @Test
+    void stopsParsingAsSoonAsRowCountExceedsCap() throws Exception {
+        assertThatThrownBy(() -> ExcelParser.parse(new ByteArrayInputStream(workbook()), null, 0))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessageContaining("超過上限 0 筆");
+    }
 }

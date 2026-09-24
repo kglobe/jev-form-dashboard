@@ -21,6 +21,10 @@ public final class CsvParser {
     private CsvParser() {}
 
     public static ParsedTable parse(byte[] bytes) {
+        return parse(bytes, Integer.MAX_VALUE);
+    }
+
+    public static ParsedTable parse(byte[] bytes, int maxRows) {
         String text = decode(bytes);
         if (text.startsWith("﻿")) text = text.substring(1);
         CSVFormat format = CSVFormat.DEFAULT.builder()
@@ -34,6 +38,10 @@ public final class CsvParser {
                 line++;
                 if (record.size() != headers.size()) {
                     throw new UploadParseException("第 " + line + " 行有 " + record.size() + " 欄，標題列是 " + headers.size() + " 欄");
+                }
+                // ponytail: 一超過上限就中止解析，避免整檔先塞進記憶體才發現太大
+                if (rows.size() >= maxRows) {
+                    throw new UploadParseException("資料超過上限 " + maxRows + " 筆");
                 }
                 Map<String, Object> row = new LinkedHashMap<>();
                 for (int i = 0; i < headers.size(); i++) row.put(headers.get(i), record.get(i));

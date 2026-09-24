@@ -17,11 +17,19 @@ public final class ExcelParser {
     private ExcelParser() {}
 
     public static ParsedTable parse(InputStream in, String sheetName) {
+        return parse(in, sheetName, Integer.MAX_VALUE);
+    }
+
+    public static ParsedTable parse(InputStream in, String sheetName, int maxRows) {
         try (Workbook wb = WorkbookFactory.create(in)) {
             Sheet sheet = sheetName == null || sheetName.isBlank() ? wb.getSheetAt(0) : wb.getSheet(sheetName);
             if (sheet == null) throw new UploadParseException("找不到工作表：" + sheetName);
             Row head = sheet.getRow(sheet.getFirstRowNum());
             if (head == null) throw new UploadParseException("第 1 行沒有標題列");
+            // ponytail: 用列數上限先檔掉超大檔，不必先把每一列都讀進記憶體才發現太大
+            if (sheet.getLastRowNum() - head.getRowNum() > maxRows) {
+                throw new UploadParseException("資料超過上限 " + maxRows + " 筆");
+            }
             List<String> headers = new ArrayList<>();
             for (int c = 0; c < head.getLastCellNum(); c++) {
                 String name = String.valueOf(value(head.getCell(c))).trim();

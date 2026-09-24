@@ -34,8 +34,8 @@ public class DatasourceService {
         String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
         ParsedTable table;
         try {
-            if (filename.endsWith(".csv")) table = CsvParser.parse(file.getBytes());
-            else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) table = ExcelParser.parse(file.getInputStream(), sheet);
+            if (filename.endsWith(".csv")) table = CsvParser.parse(file.getBytes(), maxRows);
+            else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) table = ExcelParser.parse(file.getInputStream(), sheet, maxRows);
             else throw new ApiException(BAD_REQUEST, "只支援 .csv、.xlsx、.xls");
         } catch (IOException e) {
             throw new UploadParseException("讀取檔案失敗：" + e.getMessage());
