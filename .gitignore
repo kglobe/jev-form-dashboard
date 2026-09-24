@@ -2,3 +2,6 @@ backend/.env
 backend/target/
 frontend/node_modules/
 frontend/dist/
+.claude/
+.mcp.json
+.serena/
