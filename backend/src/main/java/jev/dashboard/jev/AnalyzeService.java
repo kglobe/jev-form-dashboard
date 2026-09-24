@@ -70,8 +70,10 @@ public class AnalyzeService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", f.name());
             m.put("type", f.type());
-            m.put("distinctCount", f.distinctCount());
-            if (!f.sensitive()) m.put("samples", f.samples());
+            if (!f.sensitive()) {
+                m.put("distinctCount", f.distinctCount());
+                m.put("samples", f.samples());
+            }
             fields.add(m);
         }
         Map<String, Object> state = new LinkedHashMap<>();

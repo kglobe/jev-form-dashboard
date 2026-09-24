@@ -2,7 +2,11 @@ package jev.dashboard.jev;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.Map;
 import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.Fixtures;
@@ -11,8 +15,10 @@ import jev.dashboard.transform.ChartSpec;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeServiceTest {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     @Test
-    void runsTwoRoundsAndSkipsSamplesOfSensitiveFields() {
+    void runsTwoRoundsAndSkipsSamplesOfSensitiveFields() throws Exception {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
             AnalyzeService service = new AnalyzeService(
                 new JevClient(server.url(), "k", "jev-1.13.0", Duration.ofSeconds(5)));
@@ -30,9 +36,18 @@ class AnalyzeServiceTest {
                 .contains("\"rowCount\":12")
                 .contains("memo").doesNotContain("機密備註")
                 .contains("北區");
+            assertThat(memoField(server.bodies.get(0))).isEqualTo(Map.of("name", "memo", "type", "string"));
             assertThat(server.bodies.get(1))
                 .contains("\"combo_5\"").doesNotContain("\"combo_6\"")
-                .contains("\"none\"");
+                .contains("\"none\"").doesNotContain("機密備註");
         }
+    }
+
+    /** 解析 request body，找出 memo 欄位在 state.fields 裡的完整內容。 */
+    private static Map<String, Object> memoField(String body) throws Exception {
+        for (JsonNode f : JSON.readTree(body).at("/state/fields")) {
+            if (f.get("name").asText().equals("memo")) return JSON.convertValue(f, new TypeReference<Map<String, Object>>() {});
+        }
+        throw new AssertionError("memo field not found in body: " + body);
     }
 }
