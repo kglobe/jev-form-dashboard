@@ -52,6 +52,33 @@ describe('ChartCard', () => {
     ])
   })
 
+  it('shows a fallback message instead of throwing for an unsupported spec.type', () => {
+    const wrapper = mountCard({
+      spec: { chartId: 'c1', type: 'funnel', title: 'T', mapping: {} },
+      data: { chartId: 'c1', type: 'funnel', values: [1, 2, 3] },
+      highlight: null,
+    })
+    expect(wrapper.text()).toContain('不支援的圖表類型：funnel')
+    expect(wrapper.find('.v-chart-stub').exists()).toBe(false)
+  })
+
+  it('shows a truncation caption when data.truncated is true, and not otherwise', () => {
+    const spec = { chartId: 'c1', type: 'table', title: 'T', mapping: { columns: ['region'] } }
+    const truncated = mountCard({
+      spec,
+      data: { chartId: 'c1', type: 'table', dimensions: ['region'], rows: [['北區']], truncated: true },
+      highlight: null,
+    })
+    expect(truncated.text()).toContain('僅顯示前 500 筆')
+
+    const full = mountCard({
+      spec,
+      data: { chartId: 'c1', type: 'table', dimensions: ['region'], rows: [['北區']] },
+      highlight: null,
+    })
+    expect(full.text()).not.toContain('僅顯示前 500 筆')
+  })
+
   it('shows the severity chip when a highlight is present, and none when it is null', () => {
     const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
     const withHighlight = mountCard({ spec, data: null, highlight: { chartId: 'c1', severity: '嚴重警示', noul: 0.9 } })

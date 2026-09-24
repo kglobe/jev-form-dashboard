@@ -13,9 +13,12 @@ const props = defineProps({
 const SEVERITY_COLOR = { 正常波動: 'success', 值得注意: 'info', 需要關注: 'warning', 嚴重警示: 'error' }
 
 const ready = computed(() => props.data && !props.data.error)
+const unsupportedType = computed(() => ready.value && !(props.spec.type in toOption))
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
-  ready.value && props.spec.type !== 'table' ? toOption[props.spec.type](props.data, props.spec.mapping) : null,
+  ready.value && props.spec.type !== 'table' && props.spec.type in toOption
+    ? toOption[props.spec.type](props.data, props.spec.mapping)
+    : null,
 )
 </script>
 
@@ -33,16 +36,22 @@ const option = computed(() =>
       <v-alert v-else-if="data.error === 'FIELD_MISSING'" type="warning" density="compact">
         欄位遺失：{{ data.missingField }}
       </v-alert>
-      <v-table v-else-if="table" density="compact" fixed-header height="100%">
-        <thead>
-          <tr><th v-for="h in table.headers" :key="h">{{ h }}</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="(row, i) in table.rows" :key="i">
-            <td v-for="(cell, j) in row" :key="j">{{ cell }}</td>
-          </tr>
-        </tbody>
-      </v-table>
+      <v-alert v-else-if="unsupportedType" type="warning" density="compact">
+        不支援的圖表類型：{{ spec.type }}
+      </v-alert>
+      <template v-else-if="table">
+        <div v-if="data.truncated" class="text-caption text-medium-emphasis">僅顯示前 500 筆</div>
+        <v-table density="compact" fixed-header height="100%">
+          <thead>
+            <tr><th v-for="h in table.headers" :key="h">{{ h }}</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in table.rows" :key="i">
+              <td v-for="(cell, j) in row" :key="j">{{ cell }}</td>
+            </tr>
+          </tbody>
+        </v-table>
+      </template>
       <VChart v-else :option="option" autoresize />
     </v-card-text>
   </v-card>

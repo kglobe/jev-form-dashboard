@@ -69,6 +69,48 @@ describe('AnalyzeButton', () => {
     expect(wrapper.findComponent({ name: 'VDialog' }).props('modelValue')).toBe(false)
   })
 
+  it('requires a dashboard name: labels the field, shows an error for blank/whitespace, and disables 存為我的儀表板', async () => {
+    const previewConfig = { name: 'preview', layout: [] }
+    api.analyze.mockResolvedValue(previewConfig)
+
+    const wrapper = mountButton('ds1')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    const nameField = wrapper.findComponent({ name: 'VTextField' })
+    expect(nameField.props('label')).toBe('儀表板名稱')
+
+    await nameField.find('input').setValue('   ')
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('請輸入儀表板名稱')
+    const saveBtn = byText(document.body, 'button', '存為我的儀表板')
+    expect(saveBtn.disabled).toBe(true)
+  })
+
+  it('存為我的儀表板 guards against double submission: only one createDashboard call goes out', async () => {
+    const previewConfig = { name: 'preview', layout: [] }
+    api.analyze.mockResolvedValue(previewConfig)
+    let resolveCreate
+    api.createDashboard.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
+
+    const wrapper = mountButton('ds1')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    const saveBtn = byText(document.body, 'button', '存為我的儀表板')
+    saveBtn.click()
+    saveBtn.click()
+    await flushPromises()
+
+    expect(api.createDashboard).toHaveBeenCalledTimes(1)
+
+    resolveCreate({ id: 'd9' })
+    await flushPromises()
+
+    expect(wrapper.emitted('saved')).toEqual([['d9']])
+  })
+
   it('shows the error message and keeps the dialog closed when analyze rejects', async () => {
     api.analyze.mockRejectedValue(new Error('未設定 TYPESAFE_API_KEY'))
 

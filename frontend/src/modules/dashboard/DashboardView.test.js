@@ -127,7 +127,7 @@ describe('DashboardView', () => {
     }
   })
 
-  it('shows an error alert with the rejection message when dashboardData fails', async () => {
+  it('shows an error alert with the rejection message when dashboardData fails, and does not render the grid', async () => {
     api.dashboardData.mockRejectedValue(new Error('找不到儀表板'))
 
     const wrapper = mountView({ config: makeConfig(), preview: false })
@@ -135,6 +135,7 @@ describe('DashboardView', () => {
 
     expect(wrapper.text()).toContain('找不到儀表板')
     expect(api.highlights).not.toHaveBeenCalled()
+    expect(wrapper.find('.grid-layout-stub').exists()).toBe(false)
   })
 
   it('shows the no-chart notice only when every chart in the layout is a table', async () => {

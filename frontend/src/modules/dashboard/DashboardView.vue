@@ -55,6 +55,7 @@ async function saveLayout() {
   <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
   <v-alert v-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
   <GridLayout
+    v-if="!error"
     v-model:layout="layout"
     :col-num="12"
     :row-height="80"
