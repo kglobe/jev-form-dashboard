@@ -1,6 +1,6 @@
 # JEV 動態儀表板
 
-使用者上傳 CSV/Excel，或是註冊一個外部 API 當資料源，交給 JEV（[jevtypesafeai.com](https://jevtypesafeai.com)）分析後，自動產生一份可拖拉、可縮放版面的個人儀表板。存檔後每次載入都直接用同一份配置畫圖，不會重新分析，畫完圖再非同步跑一次異常檢查。完整設計請看 [`docs/superpowers/specs/2026-09-23-jev-dashboard-design.md`](docs/superpowers/specs/2026-09-23-jev-dashboard-design.md)。
+使用者上傳 CSV/Excel，或是註冊一個外部 API 當資料源，交給 JEV（[jevtypesafeai.com](https://jevtypesafeai.com)）分析後，自動產生一份可拖拉、可縮放版面的個人儀表板。存檔後每次載入都直接用同一份配置畫圖，不會重新分析，畫完圖再非同步跑一次異常檢查。完整設計請看 [`docs/superpowers/specs/2026-09-23-jev-dashboard-design.md`](docs/superpowers/specs/2026-09-23-jev-dashboard-design.md)；JEV 怎麼判斷欄位、怎麼組出圖表，則寫在 [`docs/JEV智慧化產製儀表板的流程與方法.md`](docs/JEV智慧化產製儀表板的流程與方法.md)。
 
 ## 目錄結構
 
@@ -40,6 +40,7 @@ cp backend/.env.example backend/.env
 
 | Key | 預設值 | 說明 |
 |---|---|---|
+| `server.address` | `127.0.0.1` | 只聽本機連線；對外開放前看下面的身分識別警語 |
 | `jev.api-url` | `https://api.typesafe.ai/v1/systemone` | JEV 分析 API 端點 |
 | `jev.model` | `jev-1.13.0` | 呼叫 JEV 用的模型版本 |
 | `jev.upload.max-rows` | `100000` | 上傳檔案或外部 API 回應可接受的最大列數 |
@@ -50,6 +51,8 @@ cp backend/.env.example backend/.env
 | `spring.flyway.schemas` | `jev_dashboard` | Flyway 管理的 schema |
 | `spring.flyway.create-schemas` | `true` | 啟動時自動建立 schema，不用手動下 `CREATE SCHEMA` |
 | `spring.flyway.table` | `jev_flyway_history` | Flyway history table 名稱 |
+
+`server.address` 比較特別：預設 `127.0.0.1`，只有本機連得到。要讓區網其他機器連，啟動時加 `--server.address=0.0.0.0`，或設定環境變數 `SERVER_ADDRESS=0.0.0.0`。開放前請注意，身分目前只靠 `X-User-Id` header（見下面「前端設定」），不是真的登入驗證，對外開放等於讓任何人都能改這個 header 冒充別人的儀表板。
 
 命令列覆寫範例（開放 `erp.example.com` 這個外部 API host）：
 
@@ -72,6 +75,7 @@ export JEV_DATASOURCE_ALLOWED_HOSTS=erp.example.com,another.example.com
 - 解析出來如果是 loopback 位址（例如 `127.0.0.1`）一律拒絕，避免打到後端自己或本機其他服務；私有網段（`10.x`、`192.168.x` 等）不擋，因為 ERP 之類的 API 通常在內網。
 - 不會跟隨 redirect。
 - 連線逾時 5 秒、讀取逾時 10 秒。
+- 網址不能帶帳密（`https://user:pass@host/...`）或帳密類的 query 參數（`access_token`、`token`、`api_key`、`apikey`、`secret`、`password`、`passwd`、`pwd`、`auth`、`authorization`、`signature`、`sig`，不分大小寫），這些一律改放 headers。
 - header 的值只能寫 `${DS_環境變數名}`，不能寫死字串。這是為了避免使用者不小心把 `DB_PASSWORD` 之類的機敏設定當成 header 值送出去，程式只認得 `DS_` 開頭的環境變數，實際值在呼叫當下才去讀。
 
 完整範例，註冊時的 body：
@@ -94,6 +98,8 @@ export DS_ERP_AUTH="Bearer xxx"
 
 在資料源列表裡把某個欄位勾選為敏感（`PATCH /api/datasources/{id}/sensitive`）之後，呼叫 JEV 分析時這個欄位只會送出欄位名稱和型別，不會送實際的相異值數量或樣本內容。用到敏感欄位的卡片，異常檢查會直接跳過；異常檢查本身也只摘要 `line`、`bar`、`stacked_bar`、`heatmap` 這幾種有做彙總的卡片，原始資料列不會送到 JEV。
 
+異常檢查比較的是最後兩個「已經結束」的期間：今天所在的那一期還沒結束，不拿來比，不然月初資料還沒累積完就會被標成異常下跌。一張卡片的 series 超過 10 個時，只送變化最大的 10 個給 JEV，其餘加總成「其他」，避免請求太大。
+
 ## 前端設定
 
 | 變數 | 預設值 | 說明 |
@@ -102,7 +108,12 @@ export DS_ERP_AUTH="Bearer xxx"
 
 要改的話在 `frontend/.env` 加一行 `VITE_USER_ID=xxx`，或啟動前用 shell 設定同名環境變數（Vite 只會把 `VITE_` 開頭的變數暴露給前端程式碼）。這只是示範用的使用者識別，後端拿它來判斷「這是誰的儀表板」，並不是真正的登入驗證，換一個字串就能看到別人的資料。
 
-開發伺服器（`vite.config.js`）把 `/api` proxy 到 `http://localhost:8080`，本機開發不用另外處理 CORS。
+開發伺服器（`vite.config.js`）把 `/api` proxy 到 `http://127.0.0.1:8080`（不是 `localhost`：後端現在只聽 `127.0.0.1`，`localhost` 在某些系統會先解析成 `::1`，反而連不到），本機開發不用另外處理 CORS。
+
+幾個介面上的小提示：
+- 上傳檔案送出前會先在瀏覽器檢查大小，超過 50MB 直接顯示「檔案太大，上限 50MB」，不會先送到後端才被拒絕。
+- 明細表最多顯示 500 筆，超過時卡片上方會出現「僅顯示前 500 筆」。
+- 側欄刪除儀表板前會先跳確認對話框，按「刪除」才會真的呼叫 API。
 
 ## 啟動方式
 
@@ -159,5 +170,10 @@ npm run build
 | `503`、`未設定 TYPESAFE_API_KEY` | `backend/.env` 裡 `TYPESAFE_API_KEY` 是空的 | 申請 JEV 金鑰後填入 `.env`，重啟後端 |
 | `未開放註冊外部 API：jev.datasource.allowed-hosts 是空的` | `jev.datasource.allowed-hosts` 預設是空清單 | 用命令列參數或環境變數加上要開放的 host（見「`application.yml` 常用設定」） |
 | `header「...」的值只能寫 ${DS_環境變數名}` | 註冊外部 API 時 header 值寫了字面字串，不是 `${DS_XXX}` 格式 | 改成 `${DS_你的變數名}`，實際值透過同名環境變數提供 |
+| `網址不能包含帳密或 token，請改放在 headers，值寫 ${DS_環境變數名}` | 註冊外部 API 時網址裡帶了 `user:pass@`，或帶了 `token`／`api_key`／`password` 之類的 query 參數 | 把驗證資訊改放進 headers，值寫成 `${DS_你的變數名}` |
+| `CSV 第 N 行格式錯誤` | 該行的欄位數量、引號沒對齊等，CSV 格式跟 commons-csv 的預期不符 | 用試算表軟體另存一次，或檢查該行的逗號、引號有沒有用對 |
+| `欄位名稱不能空白` / `欄位名稱重複：<名稱>` | CSV 或 Excel 的標題列有空白欄名，或兩個欄位同名 | 補上欄名，或把重複的欄名改成不同名稱 |
+| `檔案太大，上限 50MB` | 上傳的檔案超過 50MB（前端會先擋一次，後端也會再擋一次） | 拆成多個檔案，或調整 `spring.servlet.multipart.max-file-size`（見上面設定表） |
+| 存檔或預覽儀表板時出現中文錯誤（例如 `儀表板名稱不能空白`、`圖表 c1：line 需要 mapping.x`） | 卡片設定不合法：mapping 缺欄位、`gridPos` 超出格線、chartId 重複或空白、名稱空白等 | 照訊息修正對應欄位再存一次；預覽時也會擋，不會存進一份壞掉的設定 |
 | 找不到 `java` 或 `JAVA_HOME` | mvnw 印出 `The JAVA_HOME environment variable is not defined correctly, so mvnw cannot run.` 或 `The java/javac command does not exist in PATH nor is JAVA_HOME set, so mvnw cannot run.` | 確認 JDK 21 已安裝，`export JAVA_HOME` 指到正確路徑；已開啟的 Git Bash 視窗看不到新設的系統環境變數，要關掉重開 |
 | 連不上資料庫 | PostgreSQL 沒開，或 `.env` 裡的 `DB_USER`／`DB_PASSWORD` 跟本機資料庫不符 | 確認 PostgreSQL 17 服務有在跑，`.env` 帳密正確 |
