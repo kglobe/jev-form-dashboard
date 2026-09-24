@@ -38,10 +38,19 @@ async function run(action) {
   }
 }
 
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
 function upload() {
   // v-file-input 在不同版本可能回傳 File 或 File[]
   const f = Array.isArray(file.value) ? file.value[0] : file.value
-  if (!f) return
+  if (!f) {
+    error.value = '請先選擇檔案'
+    return
+  }
+  if (f.size > MAX_UPLOAD_BYTES) {
+    error.value = '檔案太大，上限 50MB'
+    return
+  }
   const form = new FormData()
   form.append('file', f)
   form.append('name', name.value || f.name)

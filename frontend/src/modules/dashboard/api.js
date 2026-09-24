@@ -4,11 +4,16 @@ async function request(method, url, body) {
   const isForm = body instanceof FormData
   const headers = { 'X-User-Id': USER_ID }
   if (body != null && !isForm) headers['Content-Type'] = 'application/json'
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body == null ? undefined : isForm ? body : JSON.stringify(body),
-  })
+  let res
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body == null ? undefined : isForm ? body : JSON.stringify(body),
+    })
+  } catch {
+    throw new Error('無法連線到伺服器')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.error || `HTTP ${res.status}`)

@@ -55,6 +55,11 @@ describe('api', () => {
     await expect(api.listDatasources()).rejects.toThrow('HTTP 500')
   })
 
+  it('rejects with "無法連線到伺服器" when fetch itself rejects (server down)', async () => {
+    fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(api.listDatasources()).rejects.toThrow('無法連線到伺服器')
+  })
+
   it('resolves a 204 response to null', async () => {
     fetch.mockResolvedValueOnce({
       ok: true,

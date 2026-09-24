@@ -80,6 +80,25 @@ describe('DatasourcePanel', () => {
     checkboxes(wrapper).forEach((el) => expect(el.element.disabled).toBe(false))
   })
 
+  it('a successful sensitive toggle clears a previous toggle error', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.setSensitive
+      .mockRejectedValueOnce(new Error('找不到資料源'))
+      .mockResolvedValueOnce(undefined)
+
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await checkboxes(wrapper)[0].setValue(true) // region: fails
+    await flushPromises()
+    expect(wrapper.text()).toContain('找不到資料源')
+
+    await checkboxes(wrapper)[1].setValue(false) // memo: succeeds
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('找不到資料源')
+  })
+
   it('uploads the selected file as FormData with name/sheet, and emits select on success', async () => {
     api.listDatasources.mockResolvedValue([ds1])
     api.uploadDatasource.mockResolvedValue({ id: 'ds2' })
@@ -109,6 +128,36 @@ describe('DatasourcePanel', () => {
     expect(api.uploadDatasource).toHaveBeenCalledTimes(2)
     const form2 = api.uploadDatasource.mock.calls[1][0]
     expect(form2.get('sheet')).toBe('Sheet2')
+  })
+
+  it('upload(): shows an error and does not call the API when no file is selected', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const uploadBtn = wrapper.findAll('button').find((b) => b.text() === '上傳')
+    await uploadBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('請先選擇檔案')
+    expect(api.uploadDatasource).not.toHaveBeenCalled()
+  })
+
+  it('upload(): shows an error and does not call the API when the file exceeds 50MB', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const bigFile = new File(['x'], 'big.csv', { type: 'text/csv' })
+    Object.defineProperty(bigFile, 'size', { value: 50 * 1024 * 1024 + 1 })
+    await wrapper.findComponent({ name: 'VFileInput' }).vm.$emit('update:modelValue', bigFile)
+
+    const uploadBtn = wrapper.findAll('button').find((b) => b.text() === '上傳')
+    await uploadBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('檔案太大，上限 50MB')
+    expect(api.uploadDatasource).not.toHaveBeenCalled()
   })
 
   it('shows a JSON hint/example and the DS_-prefixed label on the headers field', async () => {
