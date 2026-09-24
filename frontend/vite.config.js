@@ -5,7 +5,7 @@ import vuetify from 'vite-plugin-vuetify'
 export default defineConfig({
   plugins: [vue(), vuetify({ autoImport: true })],
   server: {
-    proxy: { '/api': 'http://localhost:8080' },
+    proxy: { '/api': 'http://127.0.0.1:8080' },
   },
   test: {
     environment: 'node',

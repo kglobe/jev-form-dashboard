@@ -99,6 +99,16 @@ describe('DatasourcePanel', () => {
     expect(wrapper.text()).not.toContain('找不到資料源')
   })
 
+  it('labels sensitive checkboxes with 敏感 and shows an explanatory caption above the field list', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    const checkboxLabels = wrapper.findAllComponents({ name: 'VCheckbox' }).map((c) => c.props('label'))
+    expect(checkboxLabels).toEqual(['region（string）敏感', 'memo（string）敏感', 'qty（number）敏感'])
+    expect(wrapper.text()).toContain('勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。')
+  })
+
   it('uploads the selected file as FormData with name/sheet, and emits select on success', async () => {
     api.listDatasources.mockResolvedValue([ds1])
     api.uploadDatasource.mockResolvedValue({ id: 'ds2' })

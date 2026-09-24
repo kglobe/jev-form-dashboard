@@ -130,10 +130,13 @@ async function toggleSensitive(ds, field, on) {
             @click="emit('select', ds.id)"
           />
         </template>
+        <v-list-item density="compact">
+          <p class="text-caption text-medium-emphasis">勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。</p>
+        </v-list-item>
         <v-list-item v-for="f in ds.schema" :key="f.name" density="compact">
           <v-checkbox
             :model-value="f.sensitive"
-            :label="`${f.name}（${f.type}）不送樣本`"
+            :label="`${f.name}（${f.type}）敏感`"
             density="compact"
             hide-details
             :disabled="busy"
