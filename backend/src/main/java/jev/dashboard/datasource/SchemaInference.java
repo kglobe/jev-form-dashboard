@@ -42,6 +42,13 @@ public final class SchemaInference {
         return out;
     }
 
+    /** 所有資料列 key 的聯集，依第一次出現的順序；外部 API 常省略值是 null 的欄位，只看第一列會漏。 */
+    public static Set<String> fieldNames(List<Map<String, Object>> rows) {
+        Set<String> names = new LinkedHashSet<>();
+        rows.forEach(r -> names.addAll(r.keySet()));
+        return names;
+    }
+
     public static List<Map<String, Object>> normalize(List<Map<String, Object>> rows, List<FieldSchema> schema) {
         List<Map<String, Object>> out = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {

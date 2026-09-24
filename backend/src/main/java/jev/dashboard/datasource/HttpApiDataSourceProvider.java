@@ -96,7 +96,10 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
                 throw new ApiException(BAD_GATEWAY, "外部 API 呼叫失敗（回應必須是 JSON 陣列）");
             }
             List<Map<String, Object>> rows = new ArrayList<>();
-            while (parser.nextToken() != JsonToken.END_ARRAY) {
+            for (JsonToken t = parser.nextToken(); t != JsonToken.END_ARRAY; t = parser.nextToken()) {
+                if (t != JsonToken.START_OBJECT) {
+                    throw new ApiException(BAD_GATEWAY, "外部 API 回應格式錯誤：陣列元素必須是物件");
+                }
                 rows.add(parser.readValueAs(ROW_TYPE));
                 if (rows.size() > maxRows) {
                     throw new ApiException(BAD_REQUEST, "資料超過上限 " + maxRows + " 筆");

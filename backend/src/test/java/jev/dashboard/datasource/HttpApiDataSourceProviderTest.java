@@ -63,6 +63,16 @@ class HttpApiDataSourceProviderTest {
     }
 
     @Test
+    void arrayElementsMustBeObjects() {
+        for (String body : List.of("[null]", "[1]", "[{\"a\":1},\"x\"]", "[[1]]")) {
+            assertThatThrownBy(() -> HttpApiDataSourceProvider.parseCapped(new ByteArrayInputStream(body.getBytes(UTF_8)), 10))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("外部 API 回應格式錯誤：陣列元素必須是物件")
+                .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        }
+    }
+
+    @Test
     void errorResponseMessageDoesNotLeakUpstreamBody() throws Exception {
         String secretBody = "{\"error\":\"DB_PASSWORD=super-secret-value\"}";
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

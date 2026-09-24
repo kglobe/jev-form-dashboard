@@ -59,7 +59,7 @@ public class DatasourceService {
         Datasource draft = new Datasource(UUID.randomUUID(), name, "api", List.of(), url, h, userId, null);
         List<Map<String, Object>> raw = provider("api").fetchRows(draft);
         checkRows(raw.size());
-        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(raw.get(0).keySet()), raw));
+        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(SchemaInference.fieldNames(raw)), raw));
         repo.insert(ds);
         return get(userId, ds.id());
     }
