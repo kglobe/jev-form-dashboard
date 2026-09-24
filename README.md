@@ -171,7 +171,8 @@ npm run build
 | `未開放註冊外部 API：jev.datasource.allowed-hosts 是空的` | `jev.datasource.allowed-hosts` 預設是空清單 | 用命令列參數或環境變數加上要開放的 host（見「`application.yml` 常用設定」） |
 | `header「...」的值只能寫 ${DS_環境變數名}` | 註冊外部 API 時 header 值寫了字面字串，不是 `${DS_XXX}` 格式 | 改成 `${DS_你的變數名}`，實際值透過同名環境變數提供 |
 | `網址不能包含帳密或 token，請改放在 headers，值寫 ${DS_環境變數名}` | 註冊外部 API 時網址裡帶了 `user:pass@`，或帶了 `token`／`api_key`／`password` 之類的 query 參數 | 把驗證資訊改放進 headers，值寫成 `${DS_你的變數名}` |
-| `CSV 第 N 行格式錯誤` | 該行的欄位數量、引號沒對齊等，CSV 格式跟 commons-csv 的預期不符 | 用試算表軟體另存一次，或檢查該行的逗號、引號有沒有用對 |
+| `CSV 第 N 行格式錯誤` | 引號沒對齊等，CSV 格式跟 commons-csv 的預期不符 | 用試算表軟體另存一次，或檢查該行的逗號、引號有沒有用對 |
+| `第 N 行有 X 欄，標題列是 Y 欄` | 該行的欄位數量跟標題列對不起來 | 補齊或刪掉多餘的欄位，讓每一行的欄數跟標題列一致 |
 | `欄位名稱不能空白` / `欄位名稱重複：<名稱>` | CSV 或 Excel 的標題列有空白欄名，或兩個欄位同名 | 補上欄名，或把重複的欄名改成不同名稱 |
 | `檔案太大，上限 50MB` | 上傳的檔案超過 50MB（前端會先擋一次，後端也會再擋一次） | 拆成多個檔案，或調整 `spring.servlet.multipart.max-file-size`（見上面設定表） |
 | 存檔或預覽儀表板時出現中文錯誤（例如 `儀表板名稱不能空白`、`圖表 c1：line 需要 mapping.x`） | 卡片設定不合法：mapping 缺欄位、`gridPos` 超出格線、chartId 重複或空白、名稱空白等 | 照訊息修正對應欄位再存一次；預覽時也會擋，不會存進一份壞掉的設定 |

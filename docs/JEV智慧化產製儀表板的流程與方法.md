@@ -30,7 +30,7 @@ flowchart TD
 - **Excel**：預設讀第一個工作表，上傳時可以指定工作表名稱（大小寫不分）。`.xlsx` 用 SAX 串流讀，整本活頁簿不會一次進記憶體；`.xls` 檔案本來就有 65536 列的上限，照舊用 POI usermodel 一次讀。
 - **外部 API**：host 要在允許清單裡（SSRF 防線）、不跟隨 redirect、header 只認得 `${DS_XXX}` 這種寫法並在呼叫當下才從環境變數取值、網址不能帶帳密或帳密類的 query 參數。
 
-不管哪種來源，第一列都當標題，標題不能空白也不能重複。
+CSV 和 Excel 都拿第一列當標題，標題不能空白也不能重複；外部 API 沒有標題列，欄位名稱是所有資料列的 JSON key 取聯集而來。
 
 型別推斷（`datasource/SchemaInference.java`）對每個欄位的所有非空值做判斷，依序試：
 
@@ -50,10 +50,10 @@ flowchart TD
 {
   "rowCount": 3200,
   "fields": [
-    { "name": "訂單日期", "type": "DATE", "distinctCount": 180, "samples": ["2024-01-05", "2024-01-06", "2024-01-08"] },
-    { "name": "地區", "type": "STRING", "distinctCount": 6, "samples": ["北區", "中區", "南區"] },
-    { "name": "金額", "type": "NUMBER", "distinctCount": 950, "samples": ["1200", "3400", "890"] },
-    { "name": "客戶信箱", "type": "STRING" }
+    { "name": "訂單日期", "type": "date", "distinctCount": 180, "samples": ["2024-01-05", "2024-01-06", "2024-01-08"] },
+    { "name": "地區", "type": "string", "distinctCount": 6, "samples": ["北區", "中區", "南區"] },
+    { "name": "金額", "type": "number", "distinctCount": 950, "samples": ["1200", "3400", "890"] },
+    { "name": "客戶信箱", "type": "string" }
   ]
 }
 ```
@@ -166,9 +166,9 @@ JEV 的回答：
 | `stacked_bar` | `[x, series, value 或 "count"]` | `[x 值, series 值, 聚合結果]` | 依 `(x, series)` 分組聚合 |
 | `heatmap` | `[x, y, value 或 "count"]` | `[x 值, y 值, 聚合結果]` | 依 `(x, y)` 分組聚合 |
 | `scatter` | `[x, y]` | `[x 值, y 值]` | 不聚合，逐筆列出；`x` 或 `y` 是 null 的列直接丟掉 |
-| `radar` | `[series, measure1, measure2, ...]` | `[series 值, 各 measure 的聚合結果]` | 依 `series` 分組，每個 measure 各自聚合 |
+| `radar` | `[series, measure1, measure2, ...]` | `[series 值, 各 measure 的聚合結果]` | 依 `series` 分組，每個 measure 各自聚合；`aggregate: none` 一樣視同 `sum`，不會列出原始資料 |
 | `table` | `columns[]` | 對應欄位的原始值 | 不聚合，最多 500 筆 |
-| 上面幾種但 `aggregate: none` | 同該圖表的 dimensions | 對應欄位的原始值 | 不分組，逐筆列出 |
+| `bar`／`line`／`pie`／`stacked_bar`／`heatmap` 但 `aggregate: none` | 同該圖表的 dimensions | 對應欄位的原始值 | 不分組，逐筆列出 |
 
 `aggregate` 可以是 `sum`／`count`／`avg`／`none`；`count` 時 `value` 可以省略，直接算筆數。
 
@@ -219,7 +219,7 @@ JEV 或外部 API 呼叫失敗時，回給使用者的 502 只帶 HTTP 狀態碼
 |---|---|
 | 沒有設定 `TYPESAFE_API_KEY` | 503「未設定 TYPESAFE_API_KEY」，連 HTTP 請求都不會發 |
 | JEV 呼叫失敗（非 2xx、沒有 answers、連不上） | 502，訊息只帶狀態碼或「無法連線」；分析時直接把錯誤丟給使用者，不產生配置 |
-| 異常檢查呼叫 JEV 失敗 | 後端記一行 WARN，回傳 `null`，controller 轉成空陣列；圖表照常顯示，只是沒有標註 |
+| 異常檢查呼叫 JEV 失敗 | 後端記兩行 WARN（`JevClient` 呼叫失敗當下先記一行、含堆疊追蹤；`HighlightService` 接住例外後再記一行），回傳 `null`，controller 轉成空陣列；圖表照常顯示，只是沒有標註 |
 | 一張圖都沒選出來（見第 7 節丟棄規則） | 只產生固定的明細表，畫面顯示「找不到適合的圖表」 |
 
 ## 13. 限制與後續方向
