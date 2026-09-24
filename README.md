@@ -27,7 +27,7 @@ cp backend/.env.example backend/.env
 
 | Key | 說明 | 預設值 |
 |---|---|---|
-| `TYPESAFE_API_KEY` | 呼叫 JEV 用的金鑰，沒填的話分析、異常檢查會回 503 | 空 |
+| `TYPESAFE_API_KEY` | 呼叫 JEV 用的金鑰，沒填的話「分析」會回 503（`未設定 TYPESAFE_API_KEY`）；「異常檢查」不會報錯，只是不顯示任何標註 | 空 |
 | `DB_URL` | PostgreSQL JDBC 連線字串 | `jdbc:postgresql://localhost:5432/postgres` |
 | `DB_USER` | 資料庫帳號 | `postgres` |
 | `DB_PASSWORD` | 資料庫密碼 | 空 |
@@ -92,7 +92,7 @@ export DS_ERP_AUTH="Bearer xxx"
 
 ### 敏感欄位
 
-在資料源列表裡把某個欄位勾選為敏感（`PATCH /api/datasources/{id}/sensitive`）之後，呼叫 JEV 分析時這個欄位只會送出欄位名稱和型別，不會送實際的相異值數量或樣本內容。
+在資料源列表裡把某個欄位勾選為敏感（`PATCH /api/datasources/{id}/sensitive`）之後，呼叫 JEV 分析時這個欄位只會送出欄位名稱和型別，不會送實際的相異值數量或樣本內容。用到敏感欄位的卡片，異常檢查會直接跳過；異常檢查本身也只摘要 `line`、`bar`、`stacked_bar`、`heatmap` 這幾種有做彙總的卡片，原始資料列不會送到 JEV。
 
 ## 前端設定
 
