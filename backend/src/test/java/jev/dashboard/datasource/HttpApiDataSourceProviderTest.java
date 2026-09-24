@@ -18,6 +18,7 @@ import java.net.Socket;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
 import org.junit.jupiter.api.Test;
@@ -34,17 +35,22 @@ class HttpApiDataSourceProviderTest {
         return new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), new MockEnvironment(), props(maxRows));
     }
 
-    /** 讀完請求標頭後原樣寫出 response 就關掉連線，用來模擬回應讀到一半斷線。 */
-    private static ServerSocket rawServer(String response) throws IOException {
+    /**
+     * 讀完請求標頭後原樣寫出 response。dropAfterWrite 就立刻斷線（模擬讀到一半斷線）；
+     * 否則連線掛著不收尾，直到 client 自己關（模擬後面永遠不來的壞尾巴）。
+     */
+    private static ServerSocket rawServer(String response, boolean dropAfterWrite) throws IOException {
         ServerSocket server = new ServerSocket(0, 1, InetAddress.getLoopbackAddress());
         Thread t = new Thread(() -> {
             try (Socket s = server.accept()) {
+                s.setSoTimeout(15_000);
                 BufferedReader r = new BufferedReader(new InputStreamReader(s.getInputStream(), UTF_8));
                 for (String line = r.readLine(); line != null && !line.isEmpty(); line = r.readLine()) {
                     // 丟掉請求標頭
                 }
                 s.getOutputStream().write(response.getBytes(UTF_8));
                 s.getOutputStream().flush();
+                if (!dropAfterWrite) s.getInputStream().read();
             } catch (IOException ignored) {
                 // 測試結束關掉 server 時會走到這裡
             }
@@ -61,11 +67,75 @@ class HttpApiDataSourceProviderTest {
     @Test
     void connectionDroppedMidBodyIsAReadFailureNotAJsonError() throws Exception {
         String response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n[{\"a\":1},";
-        try (ServerSocket server = rawServer(response)) {
+        try (ServerSocket server = rawServer(response, true)) {
             assertThatThrownBy(() -> provider(100).fetchFrom(uri(server), Map.of()))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("外部 API 回應讀取失敗")
                 .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        }
+    }
+
+    @Test
+    void redirectIsNotFollowed() throws Exception {
+        AtomicInteger targetRequests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        server.createContext("/x", exchange -> {
+            exchange.getResponseHeaders().add("Location", base + "/elsewhere");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.createContext("/elsewhere", exchange -> {
+            targetRequests.incrementAndGet();
+            byte[] body = "[{\"a\":1}]".getBytes(UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            assertThatThrownBy(() -> provider(100).fetchFrom(URI.create(base + "/x"), Map.of()))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("外部 API 回應錯誤（HTTP 302）")
+                .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
+            assertThat(targetRequests).hasValue(0);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void overCapResponseFailsWithTheCapMessageThroughRealHttp() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/x", exchange -> {
+            byte[] body = "[{\"a\":1},{\"a\":2},{\"a\":3}]".getBytes(UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            URI uri = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/x");
+            assertThatThrownBy(() -> provider(2).fetchFrom(uri, Map.of()))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("資料超過上限 2 筆")
+                .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void capIsHitWhileStreamingBeforeABrokenTail() throws Exception {
+        // 送完上限 + 1 筆後，陣列沒收尾、chunk 也沒結束，連線就掛著；先把 body 讀完才數的做法永遠等不到結尾
+        String chunk = "[{\"a\":1},{\"a\":2},{\"a\":3},{\"a\":";
+        String response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n"
+            + Integer.toHexString(chunk.length()) + "\r\n" + chunk + "\r\n";
+        try (ServerSocket server = rawServer(response, false)) {
+            assertThatThrownBy(() -> provider(2).fetchFrom(uri(server), Map.of()))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("資料超過上限 2 筆")
+                .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
         }
     }
 

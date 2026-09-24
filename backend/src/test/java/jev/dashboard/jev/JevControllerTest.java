@@ -69,7 +69,8 @@ class JevControllerTest {
         String ds = TestData.uploadSales(mvc, "u1");
         mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
         assertThat(JEV.bodies).isEmpty();
     }
 
@@ -92,7 +93,9 @@ class JevControllerTest {
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c3").doesNotContain("anomaly_c4");
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
     }
 
     @Test

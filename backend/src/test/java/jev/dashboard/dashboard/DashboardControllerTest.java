@@ -53,7 +53,9 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$.createdBy").value("u1"))
             .andExpect(jsonPath("$.layout.length()").value(4))
             .andExpect(jsonPath("$.layout[0].gridPos.x").value(0));
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u2")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
         mvc.perform(get("/api/dashboards").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(1));
         mvc.perform(get("/api/dashboards").header("X-User-Id", "u2")).andExpect(jsonPath("$.length()").value(0));
 
@@ -65,9 +67,12 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$.layout[0].gridPos.y").value(8));
         mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content(moved))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
 
-        mvc.perform(delete("/api/dashboards/" + id).header("X-User-Id", "u2")).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/dashboards/" + id).header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
         mvc.perform(delete("/api/dashboards/" + id).header("X-User-Id", "u1")).andExpect(status().isNoContent());
         mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1")).andExpect(status().isNotFound());
     }
@@ -77,7 +82,8 @@ class DashboardControllerTest {
         String ds = TestData.uploadSales(mvc, "u1");
         mvc.perform(post("/api/dashboards").header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
     }
 
     @Test
@@ -95,6 +101,9 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$[2].rows[0][0]").value("北區"))
             .andExpect(jsonPath("$[3].error").value("FIELD_MISSING"))
             .andExpect(jsonPath("$[3].missingField").value("profit"));
+        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
     }
 
     @Test
@@ -135,6 +144,7 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$[0].rows.length()").value(6));
         mvc.perform(post("/api/dashboards/preview/data").header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
     }
 }

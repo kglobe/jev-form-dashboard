@@ -65,7 +65,8 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$.schema[0].sensitive").value(false));
         mvc.perform(patch("/api/datasources/" + id + "/sensitive").header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[]}"))
-            .andExpect(status().isNotFound());
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
     }
 
     @Test
