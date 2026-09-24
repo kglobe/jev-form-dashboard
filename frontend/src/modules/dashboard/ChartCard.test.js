@@ -62,6 +62,18 @@ describe('ChartCard', () => {
     expect(wrapper.find('.v-chart-stub').exists()).toBe(false)
   })
 
+  it('shows the fallback message instead of matching inherited Object properties like toString or __proto__', () => {
+    for (const type of ['toString', '__proto__']) {
+      const wrapper = mountCard({
+        spec: { chartId: 'c1', type, title: 'T', mapping: {} },
+        data: { chartId: 'c1', type },
+        highlight: null,
+      })
+      expect(wrapper.text()).toContain(`不支援的圖表類型：${type}`)
+      expect(wrapper.find('.v-chart-stub').exists()).toBe(false)
+    }
+  })
+
   it('shows a truncation caption when data.truncated is true, and not otherwise', () => {
     const spec = { chartId: 'c1', type: 'table', title: 'T', mapping: { columns: ['region'] } }
     const truncated = mountCard({

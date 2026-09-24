@@ -13,6 +13,7 @@ const layout = ref([])
 const dataById = ref({})
 const highlightById = ref({})
 const error = ref('')
+const loadError = ref('')
 
 const specById = computed(() => Object.fromEntries(props.config.layout.map((s) => [s.chartId, s])))
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
@@ -25,13 +26,14 @@ async function load() {
   dataById.value = {}
   highlightById.value = {}
   error.value = ''
+  loadError.value = ''
   try {
     const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id)
     if (seq !== loadSeq) return
     dataById.value = Object.fromEntries(data.map((d) => [d.chartId, d]))
   } catch (e) {
     if (seq !== loadSeq) return
-    error.value = e.message
+    loadError.value = e.message
     return
   }
   if (props.preview) return
@@ -52,10 +54,10 @@ async function saveLayout() {
 </script>
 
 <template>
-  <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
+  <v-alert v-if="loadError || error" type="error" class="mb-4">{{ loadError || error }}</v-alert>
   <v-alert v-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
   <GridLayout
-    v-if="!error"
+    v-if="!loadError"
     v-model:layout="layout"
     :col-num="12"
     :row-height="80"

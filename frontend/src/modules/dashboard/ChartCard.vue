@@ -13,10 +13,10 @@ const props = defineProps({
 const SEVERITY_COLOR = { 正常波動: 'success', 值得注意: 'info', 需要關注: 'warning', 嚴重警示: 'error' }
 
 const ready = computed(() => props.data && !props.data.error)
-const unsupportedType = computed(() => ready.value && !(props.spec.type in toOption))
+const unsupportedType = computed(() => ready.value && !Object.hasOwn(toOption, props.spec.type))
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
-  ready.value && props.spec.type !== 'table' && props.spec.type in toOption
+  ready.value && props.spec.type !== 'table' && Object.hasOwn(toOption, props.spec.type)
     ? toOption[props.spec.type](props.data, props.spec.mapping)
     : null,
 )

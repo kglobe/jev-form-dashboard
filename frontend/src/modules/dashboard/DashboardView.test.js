@@ -138,6 +138,23 @@ describe('DashboardView', () => {
     expect(wrapper.find('.grid-layout-stub').exists()).toBe(false)
   })
 
+  it('shows the error message but keeps the grid and cards rendered when a layout save fails', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    api.updateDashboard.mockRejectedValue(new Error('存檔失敗'))
+
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+
+    const [firstItem] = wrapper.findAllComponents({ name: 'GridItem' })
+    await firstItem.vm.$emit('moved')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('存檔失敗')
+    expect(wrapper.find('.grid-layout-stub').exists()).toBe(true)
+    expect(wrapper.findAll('.chart-card-stub').length).toBe(2)
+  })
+
   it('shows the no-chart notice only when every chart in the layout is a table', async () => {
     api.dashboardData.mockResolvedValue([])
     api.highlights.mockResolvedValue([])
