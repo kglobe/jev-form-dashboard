@@ -12,18 +12,33 @@ async function refresh() {
 }
 
 async function open(id) {
-  current.value = await api.getDashboard(id)
+  try {
+    current.value = await api.getDashboard(id)
+    error.value = ''
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 async function onSaved(id) {
-  await refresh()
+  try {
+    await refresh()
+  } catch (e) {
+    error.value = e.message
+    return
+  }
   await open(id)
 }
 
 async function remove(id) {
-  await api.deleteDashboard(id)
-  if (current.value?.id === id) current.value = null
-  await refresh()
+  try {
+    await api.deleteDashboard(id)
+    if (current.value?.id === id) current.value = null
+    await refresh()
+    error.value = ''
+  } catch (e) {
+    error.value = e.message
+  }
 }
 
 onMounted(() => refresh().catch((e) => (error.value = e.message)))

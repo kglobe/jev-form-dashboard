@@ -54,9 +54,17 @@ function register() {
 }
 
 async function toggleSensitive(ds, field, on) {
-  const fields = ds.schema.filter((f) => (f.name === field ? on : f.sensitive)).map((f) => f.name)
-  await api.setSensitive(ds.id, fields).catch((e) => (error.value = e.message))
-  await refresh()
+  busy.value = true
+  try {
+    const fields = ds.schema.filter((f) => (f.name === field ? on : f.sensitive)).map((f) => f.name)
+    await api.setSensitive(ds.id, fields)
+    await refresh()
+    error.value = ''
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -106,6 +114,7 @@ async function toggleSensitive(ds, field, on) {
             :label="`${f.name}（${f.type}）不送樣本`"
             density="compact"
             hide-details
+            :disabled="busy"
             @update:model-value="(on) => toggleSensitive(ds, f.name, on)"
           />
         </v-list-item>
