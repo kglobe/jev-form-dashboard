@@ -30,4 +30,19 @@ public final class TestData {
             .andReturn().getResponse().getContentAsString(UTF_8);
         return JsonPath.read(body, "$.id");
     }
+
+    /** c1、c2 有時間欄位；c3 沒有；c4 用了不存在的欄位 profit。 */
+    public static String dashboardJson(String datasourceId) {
+        return """
+            {"name":"銷售總覽","datasourceId":"%s","layout":[
+              {"chartId":"c1","type":"line","title":"月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","value":"amount","aggregate":"sum"}},
+              {"chartId":"c2","type":"bar","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}},
+              {"chartId":"c3","type":"pie","title":"地區佔比","gridPos":{"x":0,"y":4,"w":6,"h":4},
+               "mapping":{"x":"region","value":"amount","aggregate":"sum"}},
+              {"chartId":"c4","type":"bar","title":"利潤","gridPos":{"x":6,"y":4,"w":6,"h":4},
+               "mapping":{"x":"region","value":"profit","aggregate":"sum"}}
+            ]}""".formatted(datasourceId);
+    }
 }
