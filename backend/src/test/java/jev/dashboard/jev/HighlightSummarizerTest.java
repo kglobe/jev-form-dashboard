@@ -55,4 +55,16 @@ class HighlightSummarizerTest {
 
         assertThat(HighlightSummarizer.summarize(spec("line", LINE), ChartData.missing("c1", "line", "amount"))).isNull();
     }
+
+    @Test
+    void skipsTableTypeAndExplicitNoneAggregateEvenWithTimeAxisAndTwoPeriods() {
+        ChartData tableData = new ChartData("c1", "table", List.of("order_date", "amount"),
+            List.of(r("2024-05", 100.0), r("2024-06", 150.0)), null, null);
+        assertThat(HighlightSummarizer.summarize(spec("table", LINE), tableData)).isNull();
+
+        Mapping noneAgg = new Mapping("order_date", null, null, "amount", null, null, "none", "month");
+        ChartData barData = new ChartData("c1", "bar", List.of("order_date", "amount"),
+            List.of(r("2024-05", 100.0), r("2024-06", 150.0)), null, null);
+        assertThat(HighlightSummarizer.summarize(spec("bar", noneAgg), barData)).isNull();
+    }
 }

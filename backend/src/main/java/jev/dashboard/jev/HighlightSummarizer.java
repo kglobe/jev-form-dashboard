@@ -4,15 +4,20 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 
 /** 把一張卡片的資料摘要成「最後一期 vs 前一期」，只送這段摘要給 JEV，不送原始資料。 */
 public final class HighlightSummarizer {
+    // 只有這幾種類型的預設聚合結果安全可送；table/scatter/radar 或 aggregate=none 會是投影過的原始資料列
+    private static final Set<String> SUMMARIZABLE_TYPES = Set.of("line", "bar", "stacked_bar", "heatmap");
+
     private HighlightSummarizer() {}
 
     public static Map<String, Object> summarize(ChartSpec spec, ChartData data) {
-        if (data.error() != null || data.rows() == null || spec.mapping() == null || spec.mapping().timeGrain() == null) {
+        if (data.error() != null || data.rows() == null || spec.mapping() == null || spec.mapping().timeGrain() == null
+                || !SUMMARIZABLE_TYPES.contains(spec.type()) || "none".equals(spec.mapping().aggregate())) {
             return null;
         }
         List<String> periods = data.rows().stream().map(r -> String.valueOf(r.get(0))).distinct().sorted().toList();

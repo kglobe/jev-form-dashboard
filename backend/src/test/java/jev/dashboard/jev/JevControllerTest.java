@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -92,5 +93,31 @@ class JevControllerTest {
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c3").doesNotContain("anomaly_c4");
 
         mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String dashboardJson = """
+            {"name":"分區銷售","datasourceId":"%s","layout":[
+              {"chartId":"c1","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}},
+              {"chartId":"c2","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
+            ]}""".formatted(ds);
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(dashboardJson))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
+            .andExpect(status().isOk());
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1").doesNotContain("北區");
     }
 }

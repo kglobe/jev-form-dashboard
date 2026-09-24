@@ -38,7 +38,7 @@ public final class UniversalTransformer {
         };
     }
 
-    static List<String> referencedFields(Mapping m) {
+    public static List<String> referencedFields(Mapping m) {
         List<String> out = new ArrayList<>();
         Stream.of(m.x(), m.y(), m.series(), m.value()).filter(Objects::nonNull).forEach(out::add);
         if (m.measures() != null) out.addAll(m.measures());
