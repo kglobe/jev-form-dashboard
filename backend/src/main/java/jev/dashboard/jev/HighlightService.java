@@ -1,5 +1,6 @@
 package jev.dashboard.jev;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,13 +28,15 @@ public class HighlightService {
     }
 
     // ponytail: 預設的 ConcurrentMapCache 沒有上限也不會過期；儀表板 × 資料版本變多時換 Caffeine 加 TTL
-    @Cacheable(cacheNames = "highlights", key = "#dashboardId + ':' + #fingerprint", unless = "#result == null")
-    public List<Highlight> check(UUID dashboardId, int fingerprint, List<ChartSpec> specs, List<ChartData> data) {
+    // today 也放進 key：哪一期還沒結束會隨日期變，資料沒變也要重算
+    @Cacheable(cacheNames = "highlights", key = "#dashboardId + ':' + #fingerprint + ':' + #today", unless = "#result == null")
+    public List<Highlight> check(UUID dashboardId, int fingerprint, LocalDate today, List<ChartSpec> specs,
+                                 List<ChartData> data) {
         Map<String, Object> state = new LinkedHashMap<>();
         Map<String, Question> questions = new LinkedHashMap<>();
         for (int i = 0; i < specs.size(); i++) {
             ChartSpec spec = specs.get(i);
-            Map<String, Object> summary = HighlightSummarizer.summarize(spec, data.get(i));
+            Map<String, Object> summary = HighlightSummarizer.summarize(spec, data.get(i), today);
             if (summary == null) continue;
             String id = spec.chartId();
             state.put(id, summary);

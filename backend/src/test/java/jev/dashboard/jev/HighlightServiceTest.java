@@ -3,6 +3,7 @@ package jev.dashboard.jev;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,8 @@ class HighlightServiceTest {
         new ChartData("c2", "bar", List.of("order_date", "qty"), List.of(r("2024-05", 10.0), r("2024-06", 13.0)), null, null),
         new ChartData("c3", "pie", List.of("region", "amount"), List.of(r("北區", 100.0)), null, null));
 
+    static final LocalDate TODAY = LocalDate.of(2026, 9, 24);
+
     static HighlightService service(FakeJevServer server) {
         return new HighlightService(new JevClient(server.url(), "k", "jev-1.13.0", Duration.ofSeconds(5)));
     }
@@ -37,7 +40,7 @@ class HighlightServiceTest {
     @Test
     void flagsCardsAboveThresholdWithSeverityLabel() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            List<Highlight> result = service(server).check(UUID.randomUUID(), 1, List.of(LINE, BAR, PIE), DATA);
+            List<Highlight> result = service(server).check(UUID.randomUUID(), 1, TODAY, List.of(LINE, BAR, PIE), DATA);
             assertThat(result).containsExactly(new Highlight("c1", "需要關注", 0.85));
             assertThat(server.bodies).hasSize(1);
             assertThat(server.bodies.get(0))
@@ -49,14 +52,14 @@ class HighlightServiceTest {
     @Test
     void jevFailureReturnsNullSoTheResultIsNotCached() {
         try (FakeJevServer server = FakeJevServer.start(body -> null)) {
-            assertThat(service(server).check(UUID.randomUUID(), 1, List.of(LINE), List.of(DATA.get(0)))).isNull();
+            assertThat(service(server).check(UUID.randomUUID(), 1, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNull();
         }
     }
 
     @Test
     void noTimeAxisCardsSkipsJev() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            assertThat(service(server).check(UUID.randomUUID(), 1, List.of(PIE), List.of(DATA.get(2)))).isEmpty();
+            assertThat(service(server).check(UUID.randomUUID(), 1, TODAY, List.of(PIE), List.of(DATA.get(2)))).isEmpty();
             assertThat(server.bodies).isEmpty();
         }
     }

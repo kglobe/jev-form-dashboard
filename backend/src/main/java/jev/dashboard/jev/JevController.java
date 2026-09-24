@@ -1,5 +1,7 @@
 package jev.dashboard.jev;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -31,14 +33,16 @@ public class JevController {
     private final DashboardService dashboards;
     private final DashboardDataService dashboardData;
     private final HighlightService highlights;
+    private final Clock clock;
 
     public JevController(DatasourceService datasources, AnalyzeService analyzer, DashboardService dashboards,
-                         DashboardDataService dashboardData, HighlightService highlights) {
+                         DashboardDataService dashboardData, HighlightService highlights, Clock clock) {
         this.datasources = datasources;
         this.analyzer = analyzer;
         this.dashboards = dashboards;
         this.dashboardData = dashboardData;
         this.highlights = highlights;
+        this.clock = clock;
     }
 
     @PostMapping("/analyze")
@@ -67,7 +71,8 @@ public class JevController {
             }
         }
 
-        List<Highlight> result = highlights.check(dashboardId, eligibleData.hashCode(), eligibleSpecs, eligibleData);
+        List<Highlight> result = highlights.check(dashboardId, eligibleData.hashCode(), LocalDate.now(clock),
+            eligibleSpecs, eligibleData);
         return result == null ? List.of() : result;
     }
 }
