@@ -80,6 +80,10 @@ describe('DashboardView', () => {
     await item.vm.$emit('moved')
     await flushPromises()
     expect(api.updateDashboard).not.toHaveBeenCalled()
+
+    await item.vm.$emit('resized')
+    await flushPromises()
+    expect(api.updateDashboard).not.toHaveBeenCalled()
   })
 
   it('saved mode: calls dashboardData, then highlights only after it resolves, and routes a highlight to its chart', async () => {
@@ -174,9 +178,20 @@ describe('DashboardView', () => {
     ])
 
     api.updateDashboard.mockClear()
+    await gridLayout.vm.$emit('update:layout', [
+      { i: 'c1', x: 6, y: 0, w: 6, h: 4 },
+      { i: 'c2', x: 0, y: 4, w: 6, h: 3 },
+    ])
     await firstItem.vm.$emit('resized')
     await flushPromises()
+
     expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+    const [resizedId, resizedNext] = api.updateDashboard.mock.calls[0]
+    expect(resizedId).toBe('d1')
+    expect(resizedNext.layout).toEqual([
+      { chartId: 'c1', type: 'bar', title: 'A', gridPos: { x: 6, y: 0, w: 6, h: 4 }, mapping: { x: 'region', value: 'amount' } },
+      { chartId: 'c2', type: 'table', title: '明細', gridPos: { x: 0, y: 4, w: 6, h: 3 }, mapping: { columns: ['region'] } },
+    ])
   })
 
   it('stale-response guard: a late-resolving previous load does not clobber the current config’s data or highlight', async () => {
