@@ -1,3 +1,7 @@
+# 身分只靠 X-User-Id header，預設只聽本機；要對外開用 --server.address=0.0.0.0（或 SERVER_ADDRESS）
+server:
+  address: 127.0.0.1
+
 spring:
   config:
     import: optional:file:.env[.properties]

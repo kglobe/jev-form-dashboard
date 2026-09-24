@@ -6,6 +6,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 
@@ -13,6 +14,13 @@ import org.springframework.test.context.ActiveProfiles;
 @ActiveProfiles("test")
 class ApplicationTest {
     @Autowired JdbcClient jdbc;
+    @Autowired Environment env;
+
+    @Test
+    void listensOnLoopbackByDefault() {
+        // 身分只靠 X-User-Id header，預設不能對外網開；要開用 --server.address=0.0.0.0
+        assertThat(env.getProperty("server.address")).isEqualTo("127.0.0.1");
+    }
 
     @Test
     void flywayCreatesTablesInTestSchema() {
