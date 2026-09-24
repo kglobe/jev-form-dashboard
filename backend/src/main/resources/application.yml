@@ -1,0 +1,26 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:}
+    hikari:
+      schema: jev_dashboard
+  flyway:
+    schemas: jev_dashboard
+    create-schemas: true
+    table: jev_flyway_history
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+jev:
+  api-url: https://api.typesafe.ai/v1/systemone
+  api-key: ${TYPESAFE_API_KEY:}
+  model: jev-1.13.0
+  upload:
+    max-rows: 100000
+  datasource:
+    allowed-hosts: []

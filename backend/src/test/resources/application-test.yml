@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    hikari:
+      schema: jev_dashboard_test
+  flyway:
+    schemas: jev_dashboard_test
+
+jev:
+  api-key: test-key
+  upload:
+    max-rows: 20
+  datasource:
+    allowed-hosts: [10.0.0.5]
