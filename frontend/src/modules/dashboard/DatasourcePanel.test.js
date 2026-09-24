@@ -33,6 +33,12 @@ function checkboxes(wrapper) {
   return wrapper.findAll('input[type="checkbox"]')
 }
 
+async function openApiTab(wrapper) {
+  const apiTab = wrapper.findAllComponents({ name: 'VTab' }).find((t) => t.text() === '外部 API')
+  await apiTab.trigger('click')
+  await flushPromises()
+}
+
 describe('DatasourcePanel', () => {
   beforeEach(() => {
     vi.resetAllMocks()
@@ -103,5 +109,83 @@ describe('DatasourcePanel', () => {
     expect(api.uploadDatasource).toHaveBeenCalledTimes(2)
     const form2 = api.uploadDatasource.mock.calls[1][0]
     expect(form2.get('sheet')).toBe('Sheet2')
+  })
+
+  it('shows a JSON hint/example and the DS_-prefixed label on the headers field', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openApiTab(wrapper)
+
+    const headersField = wrapper.findComponent({ name: 'VTextarea' })
+    expect(headersField.props('label')).toBe('headers（JSON，值只能寫 ${DS_環境變數名}）')
+    expect(wrapper.text()).toContain('{"Authorization":"${DS_ERP_AUTH}"}')
+  })
+
+  it('register() sends {name, url, headers} parsed from the textarea', async () => {
+    api.listDatasources.mockResolvedValue([])
+    api.registerApi.mockResolvedValue({ id: 'ds9' })
+
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openApiTab(wrapper)
+
+    const nameField = wrapper.findAllComponents({ name: 'VTextField' }).find((c) => c.props('label') === '名稱')
+    await nameField.find('input').setValue('erp')
+    const urlField = wrapper.findAllComponents({ name: 'VTextField' }).find((c) => c.props('label') === '網址')
+    await urlField.find('input').setValue('https://erp.example.com')
+    const headersField = wrapper.findComponent({ name: 'VTextarea' })
+    await headersField.find('textarea').setValue('{"Authorization":"${DS_ERP_AUTH}"}')
+
+    const registerBtn = wrapper.findAll('button').find((b) => b.text() === '註冊')
+    await registerBtn.trigger('click')
+    await flushPromises()
+
+    expect(api.registerApi).toHaveBeenCalledWith({
+      name: 'erp',
+      url: 'https://erp.example.com',
+      headers: { Authorization: '${DS_ERP_AUTH}' },
+    })
+  })
+
+  it('register(): invalid JSON in headers shows the Chinese error and does not call the API', async () => {
+    api.listDatasources.mockResolvedValue([])
+
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openApiTab(wrapper)
+
+    const headersField = wrapper.findComponent({ name: 'VTextarea' })
+    await headersField.find('textarea').setValue('{not json')
+
+    const registerBtn = wrapper.findAll('button').find((b) => b.text() === '註冊')
+    await registerBtn.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('headers 必須是 JSON 物件')
+    expect(api.registerApi).not.toHaveBeenCalled()
+  })
+
+  it('register(): valid but non-object JSON in headers (array/string) shows the Chinese error and does not call the API', async () => {
+    api.listDatasources.mockResolvedValue([])
+
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openApiTab(wrapper)
+
+    const headersField = wrapper.findComponent({ name: 'VTextarea' })
+
+    await headersField.find('textarea').setValue('[]')
+    const registerBtn = wrapper.findAll('button').find((b) => b.text() === '註冊')
+    await registerBtn.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('headers 必須是 JSON 物件')
+
+    await headersField.find('textarea').setValue('"x"')
+    await registerBtn.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('headers 必須是 JSON 物件')
+
+    expect(api.registerApi).not.toHaveBeenCalled()
   })
 })

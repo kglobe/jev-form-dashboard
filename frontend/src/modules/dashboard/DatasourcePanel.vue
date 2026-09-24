@@ -50,7 +50,18 @@ function upload() {
 }
 
 function register() {
-  return run(() => api.registerApi({ name: apiName.value, url: apiUrl.value, headers: JSON.parse(apiHeaders.value || '{}') }))
+  let headers
+  try {
+    headers = JSON.parse(apiHeaders.value || '{}')
+  } catch {
+    error.value = 'headers 必須是 JSON 物件'
+    return
+  }
+  if (typeof headers !== 'object' || headers === null || Array.isArray(headers)) {
+    error.value = 'headers 必須是 JSON 物件'
+    return
+  }
+  return run(() => api.registerApi({ name: apiName.value, url: apiUrl.value, headers }))
 }
 
 async function toggleSensitive(ds, field, on) {
@@ -86,7 +97,9 @@ async function toggleSensitive(ds, field, on) {
         <v-text-field v-model="apiUrl" label="網址" density="compact" />
         <v-textarea
           v-model="apiHeaders"
-          label='headers（值只能寫 ${環境變數名}）'
+          label="headers（JSON，值只能寫 ${DS_環境變數名}）"
+          hint='範例：{"Authorization":"${DS_ERP_AUTH}"}'
+          persistent-hint
           rows="2"
           density="compact"
         />
