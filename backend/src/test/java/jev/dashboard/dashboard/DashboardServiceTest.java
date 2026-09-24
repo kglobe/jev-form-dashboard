@@ -87,7 +87,7 @@ class DashboardServiceTest {
     void gridPosMustFitTheTwelveColumnGrid() {
         rejects(config(at(null)), "圖表 c1：缺少 gridPos");
         for (GridPos bad : List.of(new GridPos(-1, 0, 6, 4), new GridPos(0, -1, 6, 4), new GridPos(0, 0, 0, 4),
-                new GridPos(0, 0, 6, 0), new GridPos(7, 0, 6, 4))) {
+                new GridPos(0, 0, 6, 0), new GridPos(7, 0, 6, 4), new GridPos(Integer.MAX_VALUE, 0, 1, 4))) {
             rejects(config(at(bad)), "圖表 c1：gridPos 要 x ≥ 0、y ≥ 0、w ≥ 1、h ≥ 1，而且 x + w ≤ 12");
         }
     }

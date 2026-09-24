@@ -9,6 +9,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URI;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
@@ -206,6 +211,34 @@ class ExcelParserTest {
         fs.writeFilesystem(out);
         assertThatThrownBy(() -> parse(out.toByteArray()))
             .isInstanceOf(UploadParseException.class).hasMessage("Excel 檔案有密碼保護，請先移除密碼");
+    }
+
+    /** 把 xlsx 的第 2 列（資料列）尾端塞一個刁鑽的儲存格參照，模擬 r="ZZZZZZ2" 這種超大欄位索引。 */
+    static byte[] withStrayCellRef(byte[] xlsx, String cellRef) throws Exception {
+        Path tmp = Files.createTempFile("jev-test-", ".xlsx");
+        try {
+            Files.write(tmp, xlsx);
+            try (FileSystem zipfs = FileSystems.newFileSystem(URI.create("jar:" + tmp.toUri()), Map.of())) {
+                Path sheetPath = zipfs.getPath("/xl/worksheets/sheet1.xml");
+                String xml = Files.readString(sheetPath, UTF_8);
+                int rowStart = xml.indexOf("r=\"2\"");
+                int rowEnd = xml.indexOf("</row>", rowStart);
+                String patched = xml.substring(0, rowEnd)
+                    + "<c r=\"" + cellRef + "\" t=\"str\"><v>stray</v></c>"
+                    + xml.substring(rowEnd);
+                Files.writeString(sheetPath, patched, UTF_8);
+            }
+            return Files.readAllBytes(tmp);
+        } finally {
+            Files.delete(tmp);
+        }
+    }
+
+    @Test
+    void hugeColumnRefInDataRowIsIgnoredInsteadOfExhaustingMemory() throws Exception {
+        byte[] xlsx = sheet(new XSSFWorkbook(), new Object[] {"a", "b"}, new Object[] {"x", 1});
+        ParsedTable t = parse(withStrayCellRef(xlsx, "ZZZZZZ2"));
+        assertThat(t.rows()).containsExactly(Map.of("a", "x", "b", 1.0));
     }
 
     @Test

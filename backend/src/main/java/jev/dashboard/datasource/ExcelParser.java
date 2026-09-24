@@ -177,6 +177,7 @@ public final class ExcelParser {
 
     /** 工作表 XML 的 SAX handler：一次只留一列；儲存格轉值的規則和 value(Cell) 一樣。 */
     private static final class SheetHandler extends DefaultHandler {
+        private static final int MAX_COLUMNS = 16_384; // Excel 最後一欄 XFD（0-indexed 上限）
         private final ReadOnlySharedStringsTable strings;
         private final Map<Integer, String> sharedStrings = new HashMap<>();
         private final StylesTable styles;
@@ -236,12 +237,21 @@ public final class ExcelParser {
                 case "is" -> inInlineString = false;
                 case "rPh" -> inPhonetic = false;
                 case "c" -> {
-                    while (cells.size() <= col) cells.add("");
-                    cells.set(col, value());
+                    if (columnInRange()) {
+                        while (cells.size() <= col) cells.add("");
+                        cells.set(col, value());
+                    }
                 }
                 case "row" -> out.add(cells);
                 default -> { }
             }
+        }
+
+        /** 標題列的欄超過 Excel 上限、或資料列的欄超過已知標題數，都沒有對應欄名，直接跳過；
+         * 欄字母溢位成負數索引時也一併跳過。避免 r="ZZZZZZ2" 這種刁鑽欄位撐爆記憶體或炸出 500。 */
+        private boolean columnInRange() {
+            if (col < 0) return false;
+            return out.headers == null ? col < MAX_COLUMNS : col < out.headers.size();
         }
 
         private Object value() {

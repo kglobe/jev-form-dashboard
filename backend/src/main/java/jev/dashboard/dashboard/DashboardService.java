@@ -74,7 +74,7 @@ public class DashboardService {
         GridPos g = s.gridPos();
         if (g == null) return "缺少 gridPos";
         // 前端格線是 12 欄
-        if (g.x() < 0 || g.y() < 0 || g.w() < 1 || g.h() < 1 || g.x() + g.w() > 12) {
+        if (g.x() < 0 || g.y() < 0 || g.w() < 1 || g.h() < 1 || g.w() > 12 || g.x() > 12 - g.w()) {
             return "gridPos 要 x ≥ 0、y ≥ 0、w ≥ 1、h ≥ 1，而且 x + w ≤ 12";
         }
         return null;
