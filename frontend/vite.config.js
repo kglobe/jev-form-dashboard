@@ -9,5 +9,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    server: {
+      deps: {
+        inline: ['vuetify'],
+      },
+    },
   },
 })
