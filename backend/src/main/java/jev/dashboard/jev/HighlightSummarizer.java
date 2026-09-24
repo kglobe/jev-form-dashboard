@@ -2,6 +2,7 @@ package jev.dashboard.jev;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,8 @@ import jev.dashboard.transform.TimeBucket;
 public final class HighlightSummarizer {
     // 只有這幾種類型的預設聚合結果安全可送；table/scatter/radar 或 aggregate=none 會是投影過的原始資料列
     private static final Set<String> SUMMARIZABLE_TYPES = Set.of("line", "bar", "stacked_bar", "heatmap");
+    // 高基數的 series（例如客戶）逐一送出會接近逐筆資料、請求也跟著變大
+    private static final int MAX_SERIES = 10;
 
     private HighlightSummarizer() {}
 
@@ -41,6 +44,7 @@ public final class HighlightSummarizer {
             Object v = row.get(row.size() - 1);
             bySeries.computeIfAbsent(name, k -> new double[2])[slot] += v instanceof Number n ? n.doubleValue() : 0;
         }
+        if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries);
 
         List<Map<String, Object>> series = new ArrayList<>();
         bySeries.forEach((name, v) -> {
@@ -59,5 +63,26 @@ public final class HighlightSummarizer {
         out.put("period", current);
         out.put("series", series);
         return out;
+    }
+
+    /** 留變化 |本期 − 前期| 最大的 MAX_SERIES 個（同分照名字排），其餘加總成「其他」；資料本來就有「其他」就併進去。 */
+    private static Map<String, double[]> keepBiggestChanges(Map<String, double[]> bySeries) {
+        List<Map.Entry<String, double[]>> ranked = bySeries.entrySet().stream()
+            .sorted(Comparator.comparingDouble((Map.Entry<String, double[]> e) -> -Math.abs(e.getValue()[1] - e.getValue()[0]))
+                .thenComparing(Map.Entry::getKey))
+            .toList();
+        Map<String, double[]> kept = new LinkedHashMap<>();
+        double[] rest = new double[2];
+        for (int i = 0; i < ranked.size(); i++) {
+            double[] v = ranked.get(i).getValue();
+            if (i < MAX_SERIES) {
+                kept.put(ranked.get(i).getKey(), v);
+            } else {
+                rest[0] += v[0];
+                rest[1] += v[1];
+            }
+        }
+        kept.merge("其他", rest, (a, b) -> new double[] {a[0] + b[0], a[1] + b[1]});
+        return kept;
     }
 }

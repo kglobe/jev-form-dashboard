@@ -3,6 +3,7 @@ package jev.dashboard.jev;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +82,57 @@ class HighlightSummarizerTest {
     void onlyOneCompletePeriodLeftSkipsTheCard() {
         ChartData d = line(r("2024-05", 100.0), r("2024-06", 20.0));
         assertThat(HighlightSummarizer.summarize(spec("line", LINE), d, LocalDate.of(2024, 6, 10))).isNull();
+    }
+
+    static final Mapping BY_CUSTOMER = new Mapping("order_date", null, "customer", "amount", null, null, "sum", "month");
+
+    static void addSeries(List<List<Object>> rows, String name, double previous, double current) {
+        rows.add(r("2024-05", name, previous));
+        rows.add(r("2024-06", name, current));
+    }
+
+    @SuppressWarnings("unchecked")
+    static List<Map<String, Object>> series(List<List<Object>> rows) {
+        ChartData d = new ChartData("c1", "stacked_bar", List.of("order_date", "customer", "amount"), rows, null, null);
+        return (List<Map<String, Object>>) HighlightSummarizer.summarize(spec("stacked_bar", BY_CUSTOMER), d, TODAY).get("series");
+    }
+
+    @Test
+    void keepsTheTenBiggestChangesAndSumsTheRestIntoOther() {
+        List<List<Object>> rows = new ArrayList<>();
+        for (int i = 4; i <= 11; i++) addSeries(rows, "s%02d".formatted(i), 100, 100 + i);
+        addSeries(rows, "s12", 112, 100); // 跌 12：比的是變化的絕對值
+        addSeries(rows, "b", 100, 103);    // a、b 變化一樣，名字小的留下
+        addSeries(rows, "a", 100, 103);
+        addSeries(rows, "s01", 100, 101);
+        addSeries(rows, "s02", 100, 102);
+
+        List<Map<String, Object>> series = series(rows);
+
+        assertThat(series).extracting(s -> s.get("name"))
+            .containsExactly("s12", "s11", "s10", "s09", "s08", "s07", "s06", "s05", "s04", "a", "其他");
+        assertThat(series.getLast()).isEqualTo(Map.of("name", "其他", "previous", 300.0, "current", 306.0, "changePercent", 2.0));
+    }
+
+    @Test
+    void aRealOtherSeriesAbsorbsTheRestInsteadOfBeingOverwritten() {
+        List<List<Object>> rows = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) addSeries(rows, "s%02d".formatted(i), 100, 110 + i); // 變化 11..20
+        addSeries(rows, "其他", 100, 150); // 資料本來就有「其他」，變化 50 排第一
+        addSeries(rows, "tiny", 100, 101);
+
+        List<Map<String, Object>> series = series(rows);
+
+        assertThat(series).hasSize(10);
+        assertThat(series.getFirst()).containsEntry("name", "其他").containsEntry("previous", 300.0).containsEntry("current", 362.0);
+    }
+
+    @Test
+    void tenSeriesOrFewerAreSentAsIs() {
+        List<List<Object>> rows = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) addSeries(rows, "s" + i, 100, 100 + i);
+        assertThat(series(rows)).extracting(s -> s.get("name"))
+            .containsExactly("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10");
     }
 
     @Test
