@@ -5,6 +5,7 @@ import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR;
 
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,6 +79,10 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
                     }
                     try (InputStream in = response.getBody()) {
                         return parseCapped(in, maxRows);
+                    } catch (IOException e) {
+                        // JSON 格式錯誤在 parseCapped 已經處理，這裡剩下讀到一半逾時、斷線
+                        log.warn("外部 API 回應讀取失敗：host={}", uri.getHost(), e);
+                        throw new ApiException(BAD_GATEWAY, "外部 API 回應讀取失敗");
                     }
                 });
         } catch (RestClientException e) {
@@ -89,8 +94,9 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
     /**
      * 用 Jackson streaming API 邊讀邊數，一超過上限就中止，不必等整個回應塞進記憶體。
      * 獨立成 package-private 方法方便直接餵 InputStream 測試，不必真的發 HTTP 請求。
+     * JSON 結構錯誤轉成 502；讀取本身失敗（逾時、斷線）照原樣丟 IOException，交給呼叫端帶 host 記 log。
      */
-    static List<Map<String, Object>> parseCapped(InputStream in, int maxRows) {
+    static List<Map<String, Object>> parseCapped(InputStream in, int maxRows) throws IOException {
         try (JsonParser parser = MAPPER.createParser(in)) {
             if (parser.nextToken() != JsonToken.START_ARRAY) {
                 throw new ApiException(BAD_GATEWAY, "外部 API 呼叫失敗（回應必須是 JSON 陣列）");
@@ -106,7 +112,7 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
                 }
             }
             return rows;
-        } catch (IOException e) {
+        } catch (JsonProcessingException e) {
             throw new ApiException(BAD_GATEWAY, "外部 API 呼叫失敗（回應必須是 JSON 陣列）");
         }
     }
