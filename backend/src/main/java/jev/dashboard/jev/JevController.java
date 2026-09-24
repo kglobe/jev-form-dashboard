@@ -1,8 +1,14 @@
 package jev.dashboard.jev;
 
+import java.util.List;
 import java.util.UUID;
 import jev.dashboard.dashboard.DashboardConfig;
+import jev.dashboard.dashboard.DashboardDataService;
+import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.datasource.DatasourceService;
+import jev.dashboard.transform.ChartData;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -16,10 +22,17 @@ public class JevController {
 
     private final DatasourceService datasources;
     private final AnalyzeService analyzer;
+    private final DashboardService dashboards;
+    private final DashboardDataService dashboardData;
+    private final HighlightService highlights;
 
-    public JevController(DatasourceService datasources, AnalyzeService analyzer) {
+    public JevController(DatasourceService datasources, AnalyzeService analyzer, DashboardService dashboards,
+                         DashboardDataService dashboardData, HighlightService highlights) {
         this.datasources = datasources;
         this.analyzer = analyzer;
+        this.dashboards = dashboards;
+        this.dashboardData = dashboardData;
+        this.highlights = highlights;
     }
 
     @PostMapping("/analyze")
@@ -27,5 +40,13 @@ public class JevController {
         DatasourceService.Loaded loaded = datasources.load(userId, body.datasourceId());
         return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
             loaded.datasource().schema(), loaded.rows().size());
+    }
+
+    @GetMapping("/highlight/{dashboardId}")
+    public List<Highlight> highlight(@RequestHeader("X-User-Id") String userId, @PathVariable UUID dashboardId) {
+        DashboardConfig c = dashboards.get(userId, dashboardId);
+        List<ChartData> data = dashboardData.load(userId, c);
+        List<Highlight> result = highlights.check(dashboardId, data.hashCode(), c.layout(), data);
+        return result == null ? List.of() : result;
     }
 }

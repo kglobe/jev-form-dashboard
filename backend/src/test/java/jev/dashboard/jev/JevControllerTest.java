@@ -1,11 +1,14 @@
 package jev.dashboard.jev;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.AfterAll;
@@ -67,5 +70,27 @@ class JevControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
             .andExpect(status().isNotFound());
         assertThat(JEV.bodies).isEmpty();
+    }
+
+    @Test
+    void highlightFlagsAnomalousCardsAndCachesTheResult() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].chartId").value("c1"))
+                .andExpect(jsonPath("$[0].severity").value("需要關注"));
+        }
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c3").doesNotContain("anomaly_c4");
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2")).andExpect(status().isNotFound());
     }
 }

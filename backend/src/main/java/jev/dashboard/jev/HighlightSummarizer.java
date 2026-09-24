@@ -1,0 +1,52 @@
+package jev.dashboard.jev;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import jev.dashboard.transform.ChartData;
+import jev.dashboard.transform.ChartSpec;
+
+/** 把一張卡片的資料摘要成「最後一期 vs 前一期」，只送這段摘要給 JEV，不送原始資料。 */
+public final class HighlightSummarizer {
+    private HighlightSummarizer() {}
+
+    public static Map<String, Object> summarize(ChartSpec spec, ChartData data) {
+        if (data.error() != null || data.rows() == null || spec.mapping() == null || spec.mapping().timeGrain() == null) {
+            return null;
+        }
+        List<String> periods = data.rows().stream().map(r -> String.valueOf(r.get(0))).distinct().sorted().toList();
+        if (periods.size() < 2) return null;
+        String current = periods.getLast();
+        String previous = periods.get(periods.size() - 2);
+        boolean hasSeries = data.dimensions().size() == 3;
+
+        Map<String, double[]> bySeries = new LinkedHashMap<>(); // [前一期, 最後一期]
+        for (List<Object> row : data.rows()) {
+            String period = String.valueOf(row.get(0));
+            int slot = period.equals(current) ? 1 : period.equals(previous) ? 0 : -1;
+            if (slot < 0) continue;
+            String name = hasSeries ? String.valueOf(row.get(1)) : "全部";
+            Object v = row.get(row.size() - 1);
+            bySeries.computeIfAbsent(name, k -> new double[2])[slot] += v instanceof Number n ? n.doubleValue() : 0;
+        }
+
+        List<Map<String, Object>> series = new ArrayList<>();
+        bySeries.forEach((name, v) -> {
+            Map<String, Object> s = new LinkedHashMap<>();
+            s.put("name", name);
+            s.put("previous", v[0]);
+            s.put("current", v[1]);
+            s.put("changePercent", v[0] == 0 ? null : Math.round((v[1] - v[0]) / Math.abs(v[0]) * 1000) / 10.0);
+            series.add(s);
+        });
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("title", spec.title());
+        out.put("metric", spec.mapping().value() == null ? "count" : spec.mapping().value());
+        out.put("previousPeriod", previous);
+        out.put("period", current);
+        out.put("series", series);
+        return out;
+    }
+}
