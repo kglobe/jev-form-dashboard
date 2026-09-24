@@ -155,6 +155,29 @@ describe('DashboardView', () => {
     expect(wrapper.findAll('.chart-card-stub').length).toBe(2)
   })
 
+  it('clears the save-error alert once a later save succeeds', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    api.updateDashboard
+      .mockRejectedValueOnce(new Error('無法連線到伺服器'))
+      .mockResolvedValueOnce(undefined)
+
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+
+    const [firstItem] = wrapper.findAllComponents({ name: 'GridItem' })
+    await firstItem.vm.$emit('moved')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('無法連線到伺服器')
+    expect(wrapper.findAll('.chart-card-stub').length).toBe(2)
+
+    await firstItem.vm.$emit('moved')
+    await flushPromises()
+
+    expect(wrapper.find('.v-alert').exists()).toBe(false)
+  })
+
   it('shows the no-chart notice only when every chart in the layout is a table', async () => {
     api.dashboardData.mockResolvedValue([])
     api.highlights.mockResolvedValue([])

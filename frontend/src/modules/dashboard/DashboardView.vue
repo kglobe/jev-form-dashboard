@@ -49,6 +49,7 @@ async function saveLayout() {
   if (props.preview) return
   const pos = Object.fromEntries(layout.value.map((l) => [l.i, { x: l.x, y: l.y, w: l.w, h: l.h }]))
   const next = { ...props.config, layout: props.config.layout.map((s) => ({ ...s, gridPos: pos[s.chartId] })) }
+  error.value = ''
   await api.updateDashboard(props.config.id, next).catch((e) => (error.value = e.message))
 }
 </script>
