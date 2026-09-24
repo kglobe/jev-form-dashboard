@@ -2,8 +2,12 @@ package jev.dashboard.transform;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.List;
 
 final class TimeBucket {
+    /** of() 認得的 grain，和下面的 switch 對齊。 */
+    static final List<String> GRAINS = List.of("day", "month", "quarter");
+
     private TimeBucket() {}
 
     static String of(Object value, String grain) {

@@ -4,12 +4,16 @@ import static jev.dashboard.datasource.FieldType.DATE;
 import static jev.dashboard.datasource.FieldType.NUMBER;
 import static jev.dashboard.datasource.FieldType.STRING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import jev.dashboard.Fixtures;
+import jev.dashboard.dashboard.DashboardConfig;
+import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
 import jev.dashboard.jev.ConfigAssembler.Combo;
@@ -121,6 +125,37 @@ class ConfigAssemblerTest {
             new GridPos(0, 0, 6, 4), new GridPos(6, 0, 6, 4), new GridPos(0, 4, 6, 4), new GridPos(0, 8, 12, 5));
         assertThat(layout).extracting(ChartSpec::title).containsExactly(
             "amount 依 order_date", "amount 依 order_date 與 region", "qty 依 order_date", "明細");
+    }
+
+    @Test
+    void everyChartTheAssemblerBuildsPassesDashboardValidation() {
+        FieldEval time = new FieldEval(new FieldSchema("order_date", DATE, 12, List.of(), false, "2024-01-05", "2024-06-20"), 3, "time");
+        FieldEval region = eval("region", STRING, 4, 2, "dimension");
+        FieldEval product = eval("product", STRING, 3, 2, "dimension");
+        FieldEval amount = eval("amount", NUMBER, 12, 2, "measure");
+        FieldEval qty = eval("qty", NUMBER, 8, 2, "measure");
+        FieldEval cost = eval("cost", NUMBER, 8, 2, "measure");
+        List<Combo> combos = List.of(
+            new Combo(List.of(time, amount), List.of("line"), 2),
+            new Combo(List.of(time, amount), List.of("bar"), 2),
+            new Combo(List.of(region, amount), List.of("bar"), 2),
+            new Combo(List.of(region, amount), List.of("pie"), 2),
+            new Combo(List.of(amount, qty), List.of("scatter"), 2),
+            new Combo(List.of(region, amount, qty, cost), List.of("radar"), 2),
+            new Combo(List.of(time, region, amount), List.of("stacked_bar"), 2),
+            new Combo(List.of(region, product, amount), List.of("stacked_bar"), 2),
+            new Combo(List.of(time, region, amount), List.of("heatmap"), 2),
+            new Combo(List.of(region, product, amount), List.of("heatmap"), 2));
+        Map<String, Answer> answers = new HashMap<>();
+        for (int i = 0; i < combos.size(); i++) {
+            answers.put("combo_" + i, new Answer("choice", combos.get(i).chartTypes().get(0), null, 0.9, null));
+        }
+        List<ChartSpec> layout = ConfigAssembler.assemble(combos, answers, combos.size(), TABLE_COLUMNS);
+
+        assertThat(layout).extracting(ChartSpec::type).containsExactly("line", "bar", "bar", "pie", "scatter", "radar",
+            "stacked_bar", "stacked_bar", "heatmap", "heatmap", "table");
+        assertThatCode(() -> DashboardService.requireComplete(
+            new DashboardConfig(null, "銷售 總覽", UUID.randomUUID(), null, layout))).doesNotThrowAnyException();
     }
 
     @Test

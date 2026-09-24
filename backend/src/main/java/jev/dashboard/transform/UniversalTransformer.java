@@ -14,11 +14,48 @@ import java.util.stream.Stream;
 public final class UniversalTransformer {
     // ponytail: 明細表只回前 500 筆，要看全部時再加分頁
     static final int TABLE_ROW_LIMIT = 500;
+    static final List<String> TYPES = List.of("line", "bar", "pie", "scatter", "table", "radar", "heatmap", "stacked_bar");
+    static final List<String> AGGREGATES = List.of("sum", "count", "avg", "none");
 
     private UniversalTransformer() {}
 
     public static String defaultAggregate(String type) {
         return type.equals("scatter") || type.equals("table") ? "none" : "sum";
+    }
+
+    /**
+     * 存檔、預覽前檢查 transform() 處理不處理得了這張卡片：可以回 null，不行回中文原因。
+     * 每種圖表必填的 mapping 欄位跟 transform() 的 switch 對齊，改一邊要一起改。
+     */
+    public static String problem(ChartSpec spec) {
+        if (spec.type() == null || !TYPES.contains(spec.type())) {
+            return "type 必須是 " + String.join("、", TYPES) + " 其中之一";
+        }
+        Mapping m = spec.mapping();
+        if (m == null) return "缺少 mapping";
+        String missing = switch (spec.type()) {
+            case "bar", "line", "pie" -> blank(m.x()) ? "x" : null;
+            case "stacked_bar" -> blank(m.x()) ? "x" : blank(m.series()) ? "series" : null;
+            case "heatmap", "scatter" -> blank(m.x()) ? "x" : blank(m.y()) ? "y" : null;
+            case "radar" -> blank(m.series()) ? "series" : blank(m.measures()) ? "measures" : null;
+            default -> blank(m.columns()) ? "columns" : null; // table
+        };
+        if (missing != null) return spec.type() + " 需要 mapping." + missing;
+        if (m.aggregate() != null && !AGGREGATES.contains(m.aggregate())) {
+            return "aggregate 必須是 " + String.join("、", AGGREGATES) + " 其中之一";
+        }
+        if (m.timeGrain() != null && !TimeBucket.GRAINS.contains(m.timeGrain())) {
+            return "timeGrain 必須是 " + String.join("、", TimeBucket.GRAINS) + " 其中之一";
+        }
+        return null;
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    private static boolean blank(List<String> fields) {
+        return fields == null || fields.isEmpty() || fields.stream().anyMatch(UniversalTransformer::blank);
     }
 
     public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields) {

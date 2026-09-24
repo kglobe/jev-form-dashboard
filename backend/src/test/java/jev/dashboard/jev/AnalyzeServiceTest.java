@@ -1,6 +1,7 @@
 package jev.dashboard.jev;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,6 +12,7 @@ import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.Fixtures;
 import jev.dashboard.dashboard.DashboardConfig;
+import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.transform.ChartSpec;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +32,7 @@ class AnalyzeServiceTest {
             assertThat(c.name()).isEqualTo("銷售 總覽");
             assertThat(c.datasourceId()).isEqualTo(ds);
             assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "stacked_bar", "bar", "table");
+            assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
             assertThat(server.bodies).hasSize(2);
             assertThat(server.bodies.get(0))
                 .contains("\"imp_5\"").contains("\"role_5\"").contains("\"chart_count\"")
