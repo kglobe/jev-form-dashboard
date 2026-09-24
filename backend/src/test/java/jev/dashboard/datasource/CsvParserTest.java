@@ -34,6 +34,35 @@ class CsvParserTest {
     }
 
     @Test
+    void malformedRecordIsReportedInChineseWithItsPhysicalLine() {
+        assertThatThrownBy(() -> CsvParser.parse("a,b\n1,2\n\"3,4\n5,6\n".getBytes(UTF_8)))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessage("CSV 第 3 行格式錯誤");
+        assertThatThrownBy(() -> CsvParser.parse("a,b\n1,\"x\"y\n".getBytes(UTF_8)))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessage("CSV 第 2 行格式錯誤");
+    }
+
+    @Test
+    void lineNumbersCountLineBreaksInsideQuotedCells() {
+        assertThatThrownBy(() -> CsvParser.parse("a,b\n\"x\ny\",1\n3\n".getBytes(UTF_8)))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessageStartingWith("第 4 行有 1 欄");
+    }
+
+    @Test
+    void blankOrDuplicateHeaderIsRejected() {
+        assertThatThrownBy(() -> CsvParser.parse("a,,c\n1,2,3\n".getBytes(UTF_8)))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessage("欄位名稱不能空白");
+        assertThatThrownBy(() -> CsvParser.parse("a, ,c\n1,2,3\n".getBytes(UTF_8)))
+            .hasMessage("欄位名稱不能空白");
+        assertThatThrownBy(() -> CsvParser.parse("a,a\n1,2\n".getBytes(UTF_8)))
+            .isInstanceOf(UploadParseException.class)
+            .hasMessage("欄位名稱重複：a");
+    }
+
+    @Test
     void stopsParsingAsSoonAsRowCountExceedsCap() {
         byte[] bytes = "a\n1\n2\n3\n".getBytes(UTF_8);
         assertThatThrownBy(() -> CsvParser.parse(bytes, 2))
