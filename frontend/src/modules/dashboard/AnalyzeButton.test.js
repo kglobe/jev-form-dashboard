@@ -43,8 +43,8 @@ const field = (wrapper, label) => wrapper.findAllComponents({ name: 'VTextField'
 const button = (text) => byText(document.body, 'button', text)
 const historyItems = () => [...document.body.querySelectorAll('.tc-intents li')].map((li) => li.textContent.trim())
 const layout4 = () => [bar('c1', 'A', 0), bar('c2', 'B', 1), bar('c3', 'C', 2), table('c4', 8)]
-const region = () => document.body.querySelector('.tc-toast-region')
-const toastEl = () => document.body.querySelector('.tc-toast')
+const region = () => document.body.querySelector('.undo-toast-region')
+const toastEl = () => document.body.querySelector('.undo-toast')
 
 async function openPreview() {
   const wrapper = mountButton('ds1')
@@ -67,6 +67,19 @@ describe('AnalyzeButton', () => {
   afterEach(() => {
     vi.useRealTimers()
     document.body.innerHTML = ''
+  })
+
+  it('Tactile look: the preview comes in as a sheet on the canvas colour, the toolbar is a surface bar, and only 存為我的儀表板 is primary inside it', async () => {
+    api.analyze.mockResolvedValue({ name: 'n', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    expect(wrapper.findComponent({ name: 'VDialog' }).props('transition')).toBe('tc-sheet')
+    expect(document.body.querySelector('.v-dialog .v-card').classList.contains('bg-background')).toBe(true)
+    expect(document.body.querySelector('.v-dialog .v-toolbar').classList.contains('bg-surface')).toBe(true)
+    // 「分析」在元件本身裡，wrapper 沒掛到 document.body，要從 wrapper 找；對話框的內容才會被 teleport 到 body
+    expect(wrapper.get('button').classes()).toContain('bg-primary')
+    expect(button('存為我的儀表板').classList.contains('bg-primary')).toBe(true)
+    expect(button('調整').classList.contains('bg-primary')).toBe(false)
   })
 
   it('disables 分析 when there is no datasource, enables it once one is selected', () => {
@@ -361,6 +374,15 @@ describe('AnalyzeButton', () => {
 
     expect(view(wrapper).props('config').layout).toEqual(layout4())
     expect(toastEl()).toBeNull()
+  })
+
+  it('復原 button keeps its full size under the global compact density', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(byText(region(), 'button', '復原').classList.contains('v-btn--density-default')).toBe(true)
   })
 
   it('復原 moves focus to the restored card ✕', async () => {

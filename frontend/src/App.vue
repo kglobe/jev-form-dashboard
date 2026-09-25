@@ -53,7 +53,8 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
 
 <template>
   <v-app>
-    <v-navigation-drawer permanent width="380">
+    <!-- spec 3.3：側欄跟主區同底色，只靠右框線分開 -->
+    <v-navigation-drawer permanent width="380" color="background">
       <DatasourcePanel :selected-id="datasourceId" @select="(id) => (datasourceId = id)" />
       <div class="px-4 pb-4">
         <AnalyzeButton :datasource-id="datasourceId" @saved="onSaved" />
@@ -71,7 +72,8 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
           <template #append>
             <v-btn
               icon="mdi-delete"
-              size="x-small"
+              size="small"
+              density="default"
               variant="text"
               aria-label="刪除儀表板"
               @click.stop="askDelete(d)"
