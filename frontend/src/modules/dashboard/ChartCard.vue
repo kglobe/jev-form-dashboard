@@ -119,7 +119,6 @@ const option = computed(() =>
    （main.js）會把它縮到 20×20，這裡才特別蓋回 default */
 .tc-remove {
   color: var(--tc-muted, rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)));
-  transition: none;
 }
 .tc-remove:hover { color: var(--tc-text, rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity))); }
 .tc-remove:active { transform: translateY(1px); }

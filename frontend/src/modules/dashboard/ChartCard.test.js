@@ -48,7 +48,6 @@ describe('ChartCard', () => {
     expect(card.get('.card-body').attributes('aria-busy')).toBeUndefined()
   })
 
-
   it('renders table headers and rows, with a null cell rendered empty', () => {
     const wrapper = mountCard({
       spec: { chartId: 'c1', type: 'table', title: 'T', mapping: { columns: ['region'] } },
@@ -126,7 +125,7 @@ describe('ChartCard', () => {
     expect(tableCard.find('button[aria-label="移除這張圖"]').exists()).toBe(false)
   })
 
-  it('✕ is size small with default density, so it still reaches 28px under the global compact density', () => {
+  it('✕ is size small with default density, so it still reaches 40×40 under the global compact density', () => {
     const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
     const card = mountCard({ spec, data: null, highlight: null, removable: true })
     const btn = card.get('button[aria-label="移除這張圖"]')

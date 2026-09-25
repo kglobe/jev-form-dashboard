@@ -376,6 +376,15 @@ describe('AnalyzeButton', () => {
     expect(toastEl()).toBeNull()
   })
 
+  it('復原 button keeps its full size under the global compact density', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(byText(region(), 'button', '復原').classList.contains('v-btn--density-default')).toBe(true)
+  })
+
   it('復原 moves focus to the restored card ✕', async () => {
     api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
     const wrapper = await openPreview()

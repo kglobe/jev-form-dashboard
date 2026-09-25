@@ -230,7 +230,7 @@ async function save() {
             @focusout="holdToast('focus', false)"
           >
             <span>已移除「{{ toast.spec.title }}」</span>
-            <v-btn variant="text" size="small" @click="undo">復原</v-btn>
+            <v-btn variant="text" size="small" density="default" @click="undo">復原</v-btn>
           </div>
         </Transition>
       </div>
