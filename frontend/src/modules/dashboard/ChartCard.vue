@@ -82,7 +82,7 @@ const option = computed(() =>
   border-bottom: 1px solid var(--tc-border-subtle, rgba(var(--v-border-color), var(--v-border-opacity)));
 }
 .card-drag { cursor: move; }
-.card-body { min-height: 0; }
+.card-body { min-height: 0; padding: 8px 8px 0; }
 /* spec 3.6：tactile 的 .tc-skeleton 預設只有 12px 高，這裡撐滿內容區；淡入時機在 motion.css */
 .card-skeleton { height: 100%; min-height: 120px; border-radius: var(--tc-radius, 4px); }
 /* spec 3.8：數字寬度一致，上下好比對 */
