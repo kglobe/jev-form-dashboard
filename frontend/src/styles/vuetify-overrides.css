@@ -74,8 +74,9 @@
 .v-btn--disabled {
   box-shadow: none !important;
 }
-/* 跟 tactile 的停用按鈕一樣變淡；Vuetify 的 disabled 外觀靠 overlay，上面已經拿掉了 */
-.v-btn--disabled.v-btn--variant-flat {
+/* 跟 tactile 的停用按鈕一樣變淡；Vuetify 的 disabled 外觀靠 overlay，上面已經拿掉了。
+   載入中的按鈕也會帶 disabled（例如「存為我的儀表板」儲存時），轉圈要看得清楚，不變淡 */
+.v-btn--disabled.v-btn--variant-flat:not(.v-btn--loading) {
   opacity: .5;
 }
 
