@@ -95,13 +95,14 @@ async function toggleSensitive(ds, field, on) {
       <v-tab value="api">外部 API</v-tab>
     </v-tabs>
     <v-window v-model="tab">
-      <v-window-item value="upload">
+      <!-- spec 4.8：兩個分頁不是前後頁，切換時直接換內容，不左右滑 -->
+      <v-window-item value="upload" :transition="false" :reverse-transition="false">
         <v-file-input v-model="file" label="CSV / Excel" accept=".csv,.xlsx,.xls" density="compact" />
         <v-text-field v-model="name" label="名稱（預設用檔名）" density="compact" />
         <v-text-field v-model="sheet" label="工作表（Excel 選填）" density="compact" />
         <v-btn block :loading="busy" @click="upload">上傳</v-btn>
       </v-window-item>
-      <v-window-item value="api">
+      <v-window-item value="api" :transition="false" :reverse-transition="false">
         <v-text-field v-model="apiName" label="名稱" density="compact" />
         <v-text-field v-model="apiUrl" label="網址" density="compact" />
         <v-textarea

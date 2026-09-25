@@ -69,6 +69,19 @@ describe('AnalyzeButton', () => {
     document.body.innerHTML = ''
   })
 
+  it('Tactile look: the preview comes in as a sheet on the canvas colour, the toolbar is a surface bar, and only 存為我的儀表板 is primary inside it', async () => {
+    api.analyze.mockResolvedValue({ name: 'n', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    expect(wrapper.findComponent({ name: 'VDialog' }).props('transition')).toBe('tc-sheet')
+    expect(document.body.querySelector('.v-dialog .v-card').classList.contains('bg-background')).toBe(true)
+    expect(document.body.querySelector('.v-dialog .v-toolbar').classList.contains('bg-surface')).toBe(true)
+    // 「分析」在元件本身裡，wrapper 沒掛到 document.body，要從 wrapper 找；對話框的內容才會被 teleport 到 body
+    expect(wrapper.get('button').classes()).toContain('bg-primary')
+    expect(button('存為我的儀表板').classList.contains('bg-primary')).toBe(true)
+    expect(button('調整').classList.contains('bg-primary')).toBe(false)
+  })
+
   it('disables 分析 when there is no datasource, enables it once one is selected', () => {
     const w1 = mountButton(null)
     expect(w1.get('button').element.disabled).toBe(true)

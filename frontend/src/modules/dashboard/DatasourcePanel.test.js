@@ -247,4 +247,12 @@ describe('DatasourcePanel', () => {
 
     expect(api.registerApi).not.toHaveBeenCalled()
   })
+
+  it('上傳檔案 and 外部 API are not pages in a sequence: switching swaps the content in place, without the window slide', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel()
+    await flushPromises()
+    const items = wrapper.findAllComponents({ name: 'VWindowItem' })
+    expect(items.map((w) => [w.props('transition'), w.props('reverseTransition')])).toEqual([[false, false], [false, false]])
+  })
 })

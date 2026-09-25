@@ -164,9 +164,11 @@ async function save() {
   <v-btn color="primary" block :loading="busy" :disabled="!datasourceId" @click="analyze">分析</v-btn>
   <v-alert v-if="error && !open" type="error" density="compact" class="mt-2">{{ error }}</v-alert>
   <!-- scrollable：捲動的是 v-card-text，工具列和下面的提示都固定不動 -->
-  <v-dialog v-model="open" fullscreen scrollable>
-    <v-card>
-      <v-toolbar title="儀表板預覽">
+  <!-- spec 4.6：往上浮入、往下淡出，取代 Vuetify 預設的「從 90% 放大」；轉場在 motion.css -->
+  <v-dialog v-model="open" fullscreen scrollable transition="tc-sheet">
+    <!-- spec 3.3：預覽的內容區用畫布底色，白卡片才不會貼在白底上 -->
+    <v-card color="background">
+      <v-toolbar title="儀表板預覽" color="surface" class="tc-preview-toolbar">
         <v-text-field
           v-if="preview"
           v-model="preview.name"
@@ -210,7 +212,7 @@ async function save() {
               :disabled="historyFull || adjusting"
               :messages="historyFull ? ['需求紀錄最多 10 句'] : []"
             />
-            <v-btn color="primary" :loading="adjusting" :disabled="!canAdjust" @click="adjust">調整</v-btn>
+            <v-btn :loading="adjusting" :disabled="!canAdjust" @click="adjust">調整</v-btn>
           </div>
           <DashboardView :config="preview" preview :busy="adjusting" @remove="remove" />
         </template>
@@ -237,6 +239,11 @@ async function save() {
 </template>
 
 <style scoped>
+/* spec 3.3：工具列跟內容區用一條下框線分開 */
+.tc-preview-toolbar {
+  border-bottom: 1px solid var(--tc-border-subtle, rgba(var(--v-border-color), var(--v-border-opacity)));
+}
+
 /* 不沿用 tactile-clean.css 裡同名的 toast class：那個 class 是 fixed 定位、translateX(-50%)，會把這個提示拉歪 */
 /* spec 3.2：預覽畫面下方中央，內容捲動時也不動；外框不擋點擊，只有提示本身可以按。
    .v-card 是 position: relative；不用 position: fixed，因為全螢幕對話框的 .v-overlay__content 有 contain: layout */
@@ -257,9 +264,11 @@ async function save() {
   gap: 8px;
   padding: 4px 8px 4px 16px;
   border-radius: 4px;
-  background: rgb(var(--v-theme-surface-variant));
-  color: rgb(var(--v-theme-on-surface-variant));
-  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14);
+  /* spec 3.3：Tactile 的浮層外觀；沒有 App 層樣式時退回原本的深色提示 */
+  border: 1px solid var(--tc-border, transparent);
+  background: var(--tc-panel, rgb(var(--v-theme-surface-variant)));
+  color: var(--tc-text, rgb(var(--v-theme-on-surface-variant)));
+  box-shadow: var(--tc-overlay-shadow, 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14));
   pointer-events: auto;
 }
 </style>
