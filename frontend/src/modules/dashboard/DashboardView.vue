@@ -9,7 +9,10 @@ import './motion.css'
 const props = defineProps({
   config: { type: Object, required: true },
   preview: { type: Boolean, default: false },
+  // 預覽等 JEV 回應時：圖表區變淡、標 aria-busy、「✕」停用
+  busy: { type: Boolean, default: false },
 })
+const emit = defineEmits(['remove'])
 
 // ponytail: 跟 motion.css 的 --tc-dur-1 同值，改一邊要一起改
 const EXIT_MS = 120
@@ -109,36 +112,45 @@ async function saveLayout() {
 <template>
   <v-alert v-if="loadError || error" type="error" class="mb-4">{{ loadError || error }}</v-alert>
   <v-alert v-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
-  <GridLayout
-    v-if="!loadError"
-    v-model:layout="layout"
-    :class="{ 'is-settled': settled }"
-    :col-num="12"
-    :row-height="80"
-    :is-draggable="!preview"
-    :is-resizable="!preview"
-    @layout-ready="onLayoutReady"
-  >
-    <GridItem
-      v-for="(item, index) in layout"
-      :key="item.i"
-      :i="item.i"
-      :x="item.x"
-      :y="item.y"
-      :w="item.w"
-      :h="item.h"
-      drag-allow-from=".card-drag"
-      @moved="saveLayout"
-      @resized="saveLayout"
+  <!-- spec 3.3：已存的儀表板顯示這份設定是依據哪些需求做的 -->
+  <div v-if="!preview && config.intents?.length" class="text-caption text-medium-emphasis mb-2">
+    依據：{{ config.intents.join(' → ') }}
+  </div>
+  <div class="tc-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
+    <GridLayout
+      v-if="!loadError"
+      v-model:layout="layout"
+      :class="{ 'is-settled': settled }"
+      :col-num="12"
+      :row-height="80"
+      :is-draggable="!preview"
+      :is-resizable="!preview"
+      @layout-ready="onLayoutReady"
     >
-      <!-- spec 10.4：動的是 GridItem 裡面的卡片；GridItem 自己的 transform 是格子位置 -->
-      <ChartCard
-        :spec="specById[item.i]"
-        :data="dataById[item.i]"
-        :highlight="highlightById[item.i]"
-        :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
-        :style="entering.has(item.i) ? { '--tc-i': index } : undefined"
-      />
-    </GridItem>
-  </GridLayout>
+      <GridItem
+        v-for="(item, index) in layout"
+        :key="item.i"
+        :i="item.i"
+        :x="item.x"
+        :y="item.y"
+        :w="item.w"
+        :h="item.h"
+        drag-allow-from=".card-drag"
+        @moved="saveLayout"
+        @resized="saveLayout"
+      >
+        <!-- spec 10.4：動的是 GridItem 裡面的卡片；GridItem 自己的 transform 是格子位置 -->
+        <ChartCard
+          :spec="specById[item.i]"
+          :data="dataById[item.i]"
+          :highlight="highlightById[item.i]"
+          :removable="preview"
+          :remove-disabled="busy"
+          :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
+          :style="entering.has(item.i) ? { '--tc-i': index } : undefined"
+          @remove="emit('remove', item.i)"
+        />
+      </GridItem>
+    </GridLayout>
+  </div>
 </template>

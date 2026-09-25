@@ -100,4 +100,28 @@ describe('ChartCard', () => {
     const withoutHighlight = mountCard({ spec, data: null, highlight: null })
     expect(withoutHighlight.find('.v-chip').exists()).toBe(false)
   })
+
+  it('✕: shown on removable chart cards only (not on the table, not when not removable), named 移除這張圖, emits remove', async () => {
+    const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
+    const card = mountCard({ spec, data: null, highlight: null, removable: true })
+    await card.get('button[aria-label="移除這張圖"]').trigger('click')
+    expect(card.emitted('remove')).toHaveLength(1)
+
+    expect(mountCard({ spec, data: null, highlight: null }).find('button[aria-label="移除這張圖"]').exists()).toBe(false)
+    const tableCard = mountCard({ spec: { ...spec, type: 'table' }, data: null, highlight: null, removable: true })
+    expect(tableCard.find('button[aria-label="移除這張圖"]').exists()).toBe(false)
+  })
+
+  it('✕ is disabled while the preview waits for JEV', () => {
+    const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
+    const card = mountCard({ spec, data: null, highlight: null, removable: true, removeDisabled: true })
+    expect(card.get('button[aria-label="移除這張圖"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('shows 符合需求 when options.focus is true, and not otherwise', () => {
+    const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
+    expect(mountCard({ spec: { ...spec, options: { focus: true } }, data: null, highlight: null }).text()).toContain('符合需求')
+    expect(mountCard({ spec, data: null, highlight: null }).text()).not.toContain('符合需求')
+    expect(mountCard({ spec: { ...spec, options: {} }, data: null, highlight: null }).text()).not.toContain('符合需求')
+  })
 })

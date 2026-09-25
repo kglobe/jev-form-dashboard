@@ -21,7 +21,8 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled'],
+    emits: ['remove'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
 }))
@@ -407,5 +408,41 @@ describe('DashboardView', () => {
     vi.advanceTimersByTime(120)
     await flushPromises()
     expect(api.previewData).toHaveBeenCalledTimes(1)
+  })
+
+  it('preview: cards get ✕ (disabled while busy), the grid area says aria-busy, and a card’s remove is passed up with its chartId', async () => {
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: makeConfig(), preview: true, busy: true })
+    await flushPromises()
+
+    const cards = wrapper.findAllComponents({ name: 'ChartCard' })
+    expect(cards.map((c) => [c.props('removable'), c.props('removeDisabled')])).toEqual([[true, true], [true, true]])
+    expect(wrapper.get('.tc-grid').attributes('aria-busy')).toBe('true')
+    expect(wrapper.get('.tc-grid').classes()).toContain('is-busy')
+
+    await wrapper.setProps({ busy: false })
+    expect(wrapper.get('.tc-grid').attributes('aria-busy')).toBeUndefined()
+    expect(cards[0].props('removeDisabled')).toBe(false)
+
+    cards[0].vm.$emit('remove')
+    expect(wrapper.emitted('remove')).toEqual([['c1']])
+  })
+
+  it('saved dashboards: no ✕, and the intents show as 依據 joined by →; previews and dashboards without intents show no 依據', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    const saved = mountView({ config: { ...makeConfig(), intents: ['各區每月營收', '不要圓餅圖'] }, preview: false })
+    await flushPromises()
+    expect(saved.text()).toContain('依據：各區每月營收 → 不要圓餅圖')
+    expect(saved.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([false, false])
+
+    const plain = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+    expect(plain.text()).not.toContain('依據')
+
+    api.previewData.mockResolvedValue([])
+    const inPreview = mountView({ config: { ...makeConfig(), intents: ['各區每月營收'] }, preview: true })
+    await flushPromises()
+    expect(inPreview.text()).not.toContain('依據')
   })
 })
