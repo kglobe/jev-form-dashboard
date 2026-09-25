@@ -144,6 +144,10 @@ class AnalyzeServiceTest {
                 .doesNotContain("機密備註");
             assertThat(server.bodies.get(1)).contains("\"combo_5\"").doesNotContain("\"combo_6\"")
                 .contains("選 none。使用者想看：「不要圓餅圖，加各產品的數量」。");
+            // 調整模式一樣不送敏感欄位的樣本
+            assertThat(server.bodies).hasSize(2).allSatisfy(body -> assertThat(body).doesNotContain("機密備註"));
+            assertThat(memoField(round1)).isEqualTo(Map.of("name", "memo", "type", "string"));
+            assertThat(memoField(server.bodies.get(1))).isEqualTo(Map.of("name", "memo", "type", "string"));
         }
     }
 }

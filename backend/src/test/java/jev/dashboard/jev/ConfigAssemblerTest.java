@@ -379,6 +379,25 @@ class ConfigAssemblerTest {
     }
 
     @Test
+    void adjustMarksKeptChartsThatUseAFocusFieldAndLeavesTheOthersAsTheyWere() {
+        ChartSpec usesFocus = new ChartSpec("c1", "pie", "amount 依 product", new GridPos(0, 0, 6, 4),
+            xy("product", "amount"), Map.of("color", "red"));
+        ChartSpec noOptions = new ChartSpec("c2", "bar", "qty 依 product", new GridPos(6, 0, 6, 4),
+            xy("product", "qty"), null);
+        ChartSpec other = new ChartSpec("c3", "line", "amount 依 order_date", new GridPos(0, 4, 6, 4),
+            xy("order_date", "amount"), Map.of("color", "blue"));
+        ChartSpec keptTable = table("c4", List.of("product"));
+        List<ChartSpec> kept = List.of(usesFocus, noOptions, other, keptTable);
+
+        assertThat(ConfigAssembler.adjust(kept, kept, List.of(), Map.of(), Set.of("product")))
+            .extracting(ChartSpec::chartId, ChartSpec::options).containsExactly(
+                tuple("c1", Map.of("color", "red", "focus", true)), // 其他設定不動，只加 focus
+                tuple("c2", Map.of("focus", true)),
+                tuple("c3", Map.of("color", "blue")),              // 沒用到焦點欄位：原封不動
+                tuple("c4", Map.of()));                            // 明細表不是圖，不標
+    }
+
+    @Test
     void adjustAddsTheTopFocusComboWhenNothingShowsTheFocus() {
         List<ChartSpec> kept = List.of(card("c1", "line", xy("order_date", "amount")), table("c2", List.of("order_date")));
         List<Combo> combos = List.of(

@@ -229,16 +229,22 @@ public final class ConfigAssembler {
     }
 
     /**
-     * 調整模式的組裝（spec 6.5–6.7）：保留的圖原封不動排前面，第二輪接受的焦點組合依序加在後面，總數最多 6 張；
+     * 調整模式的組裝（spec 6.5–6.7）：保留的圖排前面，用到焦點欄位的加上 options.focus，其他設定不動；
+     * 第二輪接受的焦點組合依序加在後面，總數最多 6 張；
      * 一張都沒加、保留的圖也沒用到焦點欄位、還有空位時，補上排最前面的焦點組合。
      * 新圖的 chartId 接在 current 所有 chartId 最大的數字後面；明細表沿用 current 的，放最後。不補一般性的圖。
      */
     public static List<ChartSpec> adjust(List<ChartSpec> current, List<ChartSpec> kept, List<Combo> combos,
                                          Map<String, Answer> round2, Set<String> focusFields) {
-        List<ChartSpec> charts = new ArrayList<>(withoutTables(kept));
+        List<ChartSpec> charts = new ArrayList<>();
+        boolean keptUsesFocus = false;
+        for (ChartSpec s : withoutTables(kept)) {
+            boolean usesFocus = fieldSet(s).stream().anyMatch(focusFields::contains);
+            keptUsesFocus |= usesFocus;
+            charts.add(usesFocus ? withFocus(s) : s);
+        }
         int room = Math.max(0, MAX_CHARTS - charts.size());
         List<Pick> picks = picks(combos, round2, room);
-        boolean keptUsesFocus = charts.stream().anyMatch(s -> fieldSet(s).stream().anyMatch(focusFields::contains));
         if (picks.isEmpty() && !combos.isEmpty() && !keptUsesFocus && room > 0) {
             picks.add(new Pick(combos.get(0), combos.get(0).chartTypes().get(0)));
         }
@@ -246,6 +252,12 @@ public final class ConfigAssembler {
         for (Pick p : picks) charts.add(chart("c" + (++n), p));
         kept.stream().filter(s -> s.type().equals("table")).forEach(charts::add);
         return layOut(charts);
+    }
+
+    private static ChartSpec withFocus(ChartSpec s) {
+        Map<String, Object> options = s.options() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(s.options());
+        options.put("focus", true);
+        return new ChartSpec(s.chartId(), s.type(), s.title(), s.gridPos(), s.mapping(), options);
     }
 
     private static List<ChartSpec> withoutTables(List<ChartSpec> specs) {
