@@ -217,11 +217,11 @@ async function save() {
       </v-card-text>
       <!-- 放在 v-card 底下、v-card-text 後面：內容捲動時提示還在預覽下方中央，也還在對話框的焦點範圍裡。
            role="status" 放在一直存在的外框上，提示出現時螢幕報讀器才念得到 -->
-      <div class="tc-toast-region" role="status">
-        <Transition name="tc-toast">
+      <div class="undo-toast-region" role="status">
+        <Transition name="undo-toast">
           <div
             v-if="toast"
-            class="tc-toast"
+            class="undo-toast"
             @mouseenter="holdToast('hover', true)"
             @mouseleave="holdToast('hover', false)"
             @focusin="holdToast('focus', true)"
@@ -237,9 +237,10 @@ async function save() {
 </template>
 
 <style scoped>
+/* 不叫 tc‑toast：tactile-clean.css 有同名的 class（fixed 定位、translateX(-50%)），會把這個提示拉歪 */
 /* spec 3.2：預覽畫面下方中央，內容捲動時也不動；外框不擋點擊，只有提示本身可以按。
    .v-card 是 position: relative；不用 position: fixed，因為全螢幕對話框的 .v-overlay__content 有 contain: layout */
-.tc-toast-region {
+.undo-toast-region {
   position: absolute;
   left: 0;
   right: 0;
@@ -250,7 +251,7 @@ async function save() {
   pointer-events: none;
 }
 
-.tc-toast {
+.undo-toast {
   display: flex;
   align-items: center;
   gap: 8px;

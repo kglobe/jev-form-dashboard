@@ -32,6 +32,14 @@ describe('App', () => {
     document.body.innerHTML = ''
   })
 
+  it('side drawer shares the canvas colour, and the delete button is size small so it is big enough to hit', async () => {
+    const wrapper = mount(App, { global: { plugins: [vuetify] } })
+    await flushPromises()
+
+    expect(wrapper.get('.v-navigation-drawer').classes()).toContain('bg-background')
+    expect(findDashboardItem(wrapper).get('button[aria-label="刪除儀表板"]').classes()).toContain('v-btn--size-small')
+  })
+
   it('shows the error message when opening a dashboard fails', async () => {
     api.getDashboard.mockRejectedValue(new Error('找不到儀表板'))
 

@@ -43,8 +43,8 @@ const field = (wrapper, label) => wrapper.findAllComponents({ name: 'VTextField'
 const button = (text) => byText(document.body, 'button', text)
 const historyItems = () => [...document.body.querySelectorAll('.tc-intents li')].map((li) => li.textContent.trim())
 const layout4 = () => [bar('c1', 'A', 0), bar('c2', 'B', 1), bar('c3', 'C', 2), table('c4', 8)]
-const region = () => document.body.querySelector('.tc-toast-region')
-const toastEl = () => document.body.querySelector('.tc-toast')
+const region = () => document.body.querySelector('.undo-toast-region')
+const toastEl = () => document.body.querySelector('.undo-toast')
 
 async function openPreview() {
   const wrapper = mountButton('ds1')

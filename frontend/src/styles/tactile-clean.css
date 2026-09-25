@@ -1,0 +1,1837 @@
+/* 來源：.claude/skills/modern-erp-ui/assets/tactile-clean.css，2026-09-25 原樣複製。skill 更新時整檔替換，不要在這裡改。 */
+/* ===========================================================
+   Tactile Clean — 微觸感極簡 ERP 設計系統
+   =========================================================== */
+
+/* ---------- 1. Design Tokens ---------- */
+:root {
+  color-scheme: light;
+
+  --tc-canvas:        #f1f5f9;
+  --tc-panel:         #ffffff;
+  --tc-subtle:        #f8fafc;
+  --tc-hover:         #f1f5f9;
+  --tc-active:        #e2e8f0;
+
+  /* border 是控制項邊界（輸入框、勾選框、次要按鈕、表頭底線），WCAG 2.2 SC 1.4.11
+     要求對 panel 與 subtle 兩種底都 ≥3:1。border-subtle 是裝飾性分隔線，不適用。 */
+  --tc-border:        #8b919a;
+  --tc-border-subtle: #e2e8f0;
+  --tc-border-strong: #737980;
+
+  /* placeholder 是文字，WCAG 1.4.3 沒有豁免它，對 panel 與 subtle 兩種底都要 ≥4.5:1。
+     六套色盤的值都是「推到剛好過 4.5 就停」，不要再往淡的方向調回去 ——
+     瀏覽器預設的淺灰 placeholder 大約只有 2.5:1，axe / Lighthouse 一掃就中。
+     推到 4.5 之後跟真正輸入的值仍有 2.6–3.8:1 的差距，分得出哪個是提示。 */
+
+  --tc-text:          #0f172a;
+  --tc-text-2:        #334155;
+  --tc-muted:         #5c6a7f;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #657489;
+
+  --tc-primary:       #005caf;
+  --tc-primary-hi:    #1280e2;
+  --tc-primary-lo:    #004888;
+  --tc-primary-edge:  #092034;
+  --tc-primary-fill-hi: #005caf;
+  --tc-primary-fill:    #004888;
+
+  --tc-danger:        #cb1b45;
+  --tc-danger-lo:     #9e1536;
+  --tc-danger-edge:   #72182e;
+
+  --tc-ok:            #166534;
+  --tc-warn:          #92400e;
+  --tc-err:           #9e1536;
+  --tc-info:          #004888;
+
+  /* 分類色：甘特圖、avatar 等需要區分類別的填色。白字要過 AA。
+     值與 ECharts 主題系列色同源（primary 色相旋轉 60° 間隔）。 */
+  --tc-cat-1: #005caf;
+  --tc-cat-2: #5300af;
+  --tc-cat-3: #af005c;
+  --tc-cat-4: #af5300;
+  --tc-cat-5: #57a500;
+  --tc-cat-6: #00aa51;
+
+  /* 觸感基元：所有立體感都由這幾條組成，不另外發明陰影 */
+  --tc-bevel:  inset 0 1px 0 rgba(255,255,255,.30);   /* 頂部倒角高光 */
+  --tc-carve:  inset 0 1px 2px rgba(0,0,0,.05);       /* 內雕刻凹槽 */
+  --tc-lift:   0 1px 2px rgba(0,0,0,.06);             /* 微浮起 */
+  --tc-drop:   0 3px 4px -2px rgba(15,23,42,.20);     /* 鍵帽厚度下的落影 */
+  --tc-press:  inset 0 1px 2px rgba(0,0,0,.28);       /* 按壓內凹 */
+  --tc-ring-color: #005caf;                           /* 焦點環（走 outline，不佔陰影層） */
+  --tc-panel-shadow: 0 1px 3px rgba(0,0,0,.06);
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(15,23,42,.24), 0 4px 8px -2px rgba(15,23,42,.12);
+  --tc-scrim: rgba(15,23,42,.45);
+
+  --tc-radius:    6px;
+  --tc-radius-lg: 8px;
+  --tc-h:         32px;   /* 密集檔：工具列、篩選列 */
+  --tc-h-md:      36px;   /* 標準檔：主表單 */
+  --tc-fs:        13.5px;
+  --tc-fs-sm:     12.5px;
+  --tc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+             "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --tc-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+}
+
+/* 深色：倒角高光減弱，凹槽改用「上方硬暗線 + 下方極淡亮線」重建光邏輯。
+   同時吃 .dark，好讓 Tailwind 的 class 策略與 Element Plus 的 html.dark 直接生效。 */
+[data-theme="dark"], .dark {
+  color-scheme: dark;
+
+  --tc-canvas:        #0b1220;
+  --tc-panel:         #1e293b;
+  --tc-subtle:        #172033;
+  --tc-hover:         #243247;
+  --tc-active:        #2c3b52;
+
+  --tc-border:        #677383;
+  --tc-border-subtle: #334155;
+  --tc-border-strong: #818a98;
+
+  --tc-text:          #e2e8f0;
+  --tc-text-2:        #cbd5e1;
+  --tc-muted:         #94a3b8;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2394a3b8' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #8090a7;
+
+  --tc-primary:       #3f93e0;
+  --tc-primary-hi:    #71ace1;
+  --tc-primary-lo:    #005caf;
+  --tc-primary-edge:  #092034;
+  --tc-primary-fill-hi: #005caf;
+  --tc-primary-fill:    #004888;
+
+  /* danger 是按鈕填色不是文字，深色模式要壓暗而非提亮，白字才讀得到（AA 4.5:1） */
+  --tc-danger:        #cb1b45;
+  --tc-danger-lo:     #9e1536;
+  --tc-danger-edge:   #72182e;
+
+  --tc-ok:            #22c55e;
+  --tc-warn:          #f59e0b;
+  --tc-err:           #ee7c97;
+  --tc-info:          #71ace1;
+
+  --tc-cat-1: #005caf;
+  --tc-cat-2: #5300af;
+  --tc-cat-3: #af005c;
+  --tc-cat-4: #af5300;
+  --tc-cat-5: #57a500;
+  --tc-cat-6: #00aa51;
+
+  --tc-bevel:  inset 0 1px 0 rgba(255,255,255,.10);
+  --tc-carve:  inset 0 1px 0 rgba(0,0,0,.50), inset 0 -1px 0 rgba(255,255,255,.04);
+  --tc-lift:   0 1px 2px rgba(0,0,0,.40);
+  --tc-drop:   0 3px 4px -2px rgba(0,0,0,.55);
+  --tc-press:  inset 0 1px 2px rgba(0,0,0,.45);
+  --tc-ring-color: #71ace1;
+  --tc-panel-shadow: 0 1px 3px rgba(0,0,0,.45);
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(0,0,0,.60), 0 4px 8px -2px rgba(0,0,0,.40);
+  --tc-scrim: rgba(2,6,23,.65);
+}
+
+/* ---------- Warm Stone (light) ----------
+   data-theme="warm"：暖石調淺色。靈感來自 Bone/Sand Dune/Slate/Rust/Fern/Honey。
+   主色從純藍轉為暖石板藍，語意色走鏽紅/苔蘚/琥珀方向。 */
+[data-theme="warm"] {
+  color-scheme: light;
+
+  --tc-canvas:        #f2f0eb;
+  --tc-panel:         #ffffff;
+  --tc-subtle:        #f8f7f4;
+  --tc-hover:         #efede7;
+  --tc-active:        #e4e1da;
+
+  --tc-border:        #938e86;
+  --tc-border-subtle: #dedad1;
+  --tc-border-strong: #7a7670;
+
+  --tc-text:          #1c1a16;
+  --tc-text-2:        #49453e;
+  --tc-muted:         #6e6961;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2378736a' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #767167;
+
+  --tc-primary:       #3b6b8a;
+  --tc-primary-hi:    #5089ab;
+  --tc-primary-lo:    #2d5570;
+  --tc-primary-edge:  #152a3c;
+  --tc-primary-fill-hi: #3b6b8a;
+  --tc-primary-fill:    #2d5570;
+
+  --tc-danger:        #c4432a;
+  --tc-danger-lo:     #a33822;
+  --tc-danger-edge:   #882e1b;
+
+  --tc-ok:            #1a6b3e;
+  --tc-warn:          #8a5c0d;
+  --tc-err:           #a33822;
+  --tc-info:          #2d5570;
+
+  --tc-cat-1: #3b6b8a;
+  --tc-cat-2: #5a3b8a;
+  --tc-cat-3: #8a3b6b;
+  --tc-cat-4: #8a5a3b;
+  --tc-cat-5: #6b8a3b;
+  --tc-cat-6: #3b8a5a;
+
+  --tc-drop:   0 3px 4px -2px rgba(20,18,14,.20);
+  --tc-ring-color: #3b6b8a;
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(20,18,14,.24), 0 4px 8px -2px rgba(20,18,14,.12);
+  --tc-scrim: rgba(20,18,14,.45);
+}
+
+/* ---------- Warm Night (dark) ----------
+   暖夜深色。文字偏暖黃灰（Fan et al. 眼動研究建議方向）。 */
+[data-theme="warm-dark"],
+[data-theme="warm"].dark {
+  color-scheme: dark;
+
+  --tc-canvas:        #12110f;
+  --tc-panel:         #1f1d19;
+  --tc-subtle:        #1a1816;
+  --tc-hover:         #2a2722;
+  --tc-active:        #34312b;
+
+  --tc-border:        #6c6861;
+  --tc-border-subtle: #383430;
+  --tc-border-strong: #827f79;
+
+  --tc-text:          #dddad2;
+  --tc-text-2:        #c4c0b6;
+  --tc-muted:         #9b978c;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%239b978c' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #89847a;
+
+  --tc-primary:       #6ba3c4;
+  --tc-primary-hi:    #88bcd8;
+  --tc-primary-lo:    #3b6b8a;
+  --tc-primary-edge:  #152a3c;
+  --tc-primary-fill-hi: #3b6b8a;
+  --tc-primary-fill:    #2d5570;
+
+  /* 同冷夜：按鈕填色壓暗，讓白字過 AA */
+  --tc-danger:        #c4432a;
+  --tc-danger-lo:     #a33822;
+  --tc-danger-edge:   #882e1b;
+
+  --tc-ok:            #5dba82;
+  --tc-warn:          #d9a441;
+  --tc-err:           #e87461;
+  --tc-info:          #6ba3c4;
+
+  --tc-cat-1: #3b6b8a;
+  --tc-cat-2: #5a3b8a;
+  --tc-cat-3: #8a3b6b;
+  --tc-cat-4: #8a5a3b;
+  --tc-cat-5: #6b8a3b;
+  --tc-cat-6: #3b8a5a;
+
+  --tc-bevel:  inset 0 1px 0 rgba(255,255,255,.10);
+  --tc-carve:  inset 0 1px 0 rgba(0,0,0,.50), inset 0 -1px 0 rgba(255,255,255,.04);
+  --tc-lift:   0 1px 2px rgba(0,0,0,.40);
+  --tc-drop:   0 3px 4px -2px rgba(0,0,0,.55);
+  --tc-press:  inset 0 1px 2px rgba(0,0,0,.45);
+  --tc-ring-color: #6ba3c4;
+  --tc-panel-shadow: 0 1px 3px rgba(0,0,0,.45);
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(0,0,0,.60), 0 4px 8px -2px rgba(0,0,0,.40);
+  --tc-scrim: rgba(10,9,7,.65);
+}
+
+/* ---------- Moss Tundra (light) ----------
+   data-theme="moss"：苔原淺色。鼠尾草綠灰調，主色深鳶尾綠。 */
+[data-theme="moss"] {
+  color-scheme: light;
+
+  --tc-canvas:        #eff2f0;
+  --tc-panel:         #ffffff;
+  --tc-subtle:        #f6f8f7;
+  --tc-hover:         #eaedeb;
+  --tc-active:        #dde1df;
+
+  --tc-border:        #8b918d;
+  --tc-border-subtle: #d6dbd8;
+  --tc-border-strong: #737875;
+
+  --tc-text:          #161a18;
+  --tc-text-2:        #3d4742;
+  --tc-muted:         #5e6c68;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23667570' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #69756f;
+
+  --tc-primary:       #2a7068;
+  --tc-primary-hi:    #3d9088;
+  --tc-primary-lo:    #1f5a54;
+  --tc-primary-edge:  #0e2d2a;
+  --tc-primary-fill-hi: #2a7068;
+  --tc-primary-fill:    #1f5a54;
+
+  --tc-danger:        #c93c3c;
+  --tc-danger-lo:     #a83232;
+  --tc-danger-edge:   #8c2828;
+
+  --tc-ok:            #1a6b3e;
+  --tc-warn:          #7d5b0e;   /* 原 #8a6510，badge 底色算出來只有 4.47:1，差一點 */
+  --tc-err:           #a83232;
+  --tc-info:          #1f5a54;
+
+  --tc-cat-1: #2a7068;
+  --tc-cat-2: #2a3270;
+  --tc-cat-3: #682a70;
+  --tc-cat-4: #702a32;
+  --tc-cat-5: #70682a;
+  --tc-cat-6: #32702a;
+
+  --tc-drop:   0 3px 4px -2px rgba(14,20,18,.20);
+  --tc-ring-color: #2a7068;
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(14,20,18,.24), 0 4px 8px -2px rgba(14,20,18,.12);
+  --tc-scrim: rgba(14,20,18,.45);
+}
+
+/* ---------- Deep Forest (dark) ----------
+   data-theme="forest-dark"：深林深色。針葉林夜色，主色亮鳶尾綠。 */
+[data-theme="forest-dark"],
+[data-theme="moss"].dark {
+  color-scheme: dark;
+
+  --tc-canvas:        #0c1210;
+  --tc-panel:         #151e1b;
+  --tc-subtle:        #111a17;
+  --tc-hover:         #1f2d28;
+  --tc-active:        #283833;
+
+  --tc-border:        #5b6b64;
+  --tc-border-subtle: #2d3f39;
+  --tc-border-strong: #74817c;
+
+  --tc-text:          #d8deda;
+  --tc-text-2:        #bac4be;
+  --tc-muted:         #8a9a92;
+  --tc-select-arrow:  url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a9a92' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M4 6.5 8 10.5 12 6.5'/%3E%3C/svg%3E");
+  --tc-placeholder:   #768880;
+
+  --tc-primary:       #5bc4b8;
+  --tc-primary-hi:    #7dd8ce;
+  --tc-primary-lo:    #2a7068;
+  --tc-primary-edge:  #0e2d2a;
+  --tc-primary-fill-hi: #2a7068;
+  --tc-primary-fill:    #1f5a54;
+
+  /* 同冷夜：按鈕填色壓暗，讓白字過 AA */
+  --tc-danger:        #c93c3c;
+  --tc-danger-lo:     #a83232;
+  --tc-danger-edge:   #8c2828;
+
+  --tc-ok:            #5dba82;
+  --tc-warn:          #d9a441;
+  --tc-err:           #ef7070;
+  --tc-info:          #5bc4b8;
+
+  --tc-cat-1: #2a7068;
+  --tc-cat-2: #2a3270;
+  --tc-cat-3: #682a70;
+  --tc-cat-4: #702a32;
+  --tc-cat-5: #70682a;
+  --tc-cat-6: #32702a;
+
+  --tc-bevel:  inset 0 1px 0 rgba(255,255,255,.10);
+  --tc-carve:  inset 0 1px 0 rgba(0,0,0,.50), inset 0 -1px 0 rgba(255,255,255,.04);
+  --tc-lift:   0 1px 2px rgba(0,0,0,.40);
+  --tc-drop:   0 3px 4px -2px rgba(0,0,0,.55);
+  --tc-press:  inset 0 1px 2px rgba(0,0,0,.45);
+  --tc-ring-color: #5bc4b8;
+  --tc-panel-shadow: 0 1px 3px rgba(0,0,0,.45);
+  --tc-overlay-shadow: 0 16px 32px -8px rgba(0,0,0,.60), 0 4px 8px -2px rgba(0,0,0,.40);
+  --tc-scrim: rgba(8,12,10,.65);
+}
+
+/* ---------- 2. Base ---------- */
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--tc-font);
+  font-size: var(--tc-fs);
+  line-height: 1.6;   /* 研究要求 ≥1.6，見 references/color-cognition.md 第五節 */
+  color: var(--tc-text);
+  background: var(--tc-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 去掉行動裝置點兩下縮放造成的 300ms 延遲。ERP 的按鈕是拿來連續點的，延遲很有感 */
+.tc-btn, .tc-tab, .tc-check, .tc-check-label, .tc-segmented button, .tc-switch, .tc-collapse > summary { touch-action: manipulation; }
+
+/* 螢幕閱讀器專用內容：圖表的等價數值表格用得到。
+   包 <table> 時要套在外層 <div> 上，不要直接套在 <table>：width:1px 對 display:table
+   不成立（表格會撐到內容寬），那個看不見卻有實體的方塊會蓋住底下元素攔截點擊。
+   也不要改用 display:block 硬壓，Chrome 會因此拔掉表格語意，等於白做。 */
+.tc-sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+  pointer-events: none;
+}
+/* 跳至主內容：永遠 position: fixed（本來就不在流內），靠 transform 進出畫面。
+   不要改成「平常 display:none、focus 才顯示」—— 那會在 :focus 動到版面屬性，
+   被 check_tactile_css.py 擋下，理由跟按鈕按壓那條一樣。 */
+.tc-skip {
+  position: fixed; top: 8px; left: 8px; z-index: 100;
+  padding: 8px 14px;
+  font-size: var(--tc-fs);
+  color: var(--tc-text); background: var(--tc-panel);
+  border: 1px solid var(--tc-border); border-radius: var(--tc-radius);
+  box-shadow: var(--tc-overlay-shadow);
+  transform: translateY(-300%);
+  transition: transform .1s ease;
+}
+.tc-skip:focus { transform: translateY(0); }
+
+/* ---------- 3. 版面容器 ---------- */
+/* App shell 與側邊主導覽。SKILL.md 的圖示尺寸表一直列著「側邊導覽 18px」，
+   但這裡本來沒有對應的元件，規格自己對不起來。
+   側欄底色跟 canvas 同色，不另外給一種底 —— 不同底色會把畫面切成「側欄世界」
+   與「內容世界」兩塊，一條邊框就夠了。
+   導覽項目一律用 <a>，不要用 <button>：使用者要能 Ctrl+click 開新分頁。 */
+.tc-shell { display: flex; align-items: flex-start; min-height: 100vh; }
+.tc-shell > .tc-page { flex: 1; min-width: 0; }
+
+.tc-nav {
+  width: 216px; flex: none;
+  align-self: stretch;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 12px 10px;
+  border-right: 1px solid var(--tc-border-subtle);
+}
+.tc-nav__brand {
+  padding: 4px 10px 12px;
+  font-size: 14px; font-weight: 700; color: var(--tc-text);
+}
+.tc-nav__group {
+  padding: 12px 10px 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  color: var(--tc-muted); text-transform: uppercase;
+}
+.tc-nav__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  font: inherit; font-size: var(--tc-fs-sm); font-weight: 500;
+  color: var(--tc-text-2); text-decoration: none;
+  border-radius: var(--tc-radius);
+}
+.tc-nav__item:hover { background: var(--tc-hover); color: var(--tc-text); }
+/* 選中態的文字走 --tc-text 不走 --tc-primary：主色疊在 12% 主色的底上，
+   三套淺色都掉到 4.5:1 以下。 */
+.tc-nav__item[aria-current] {
+  background: color-mix(in srgb, var(--tc-primary) 12%, transparent);
+  color: var(--tc-text); font-weight: 600;
+}
+.tc-nav__item:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: -2px; }
+
+/* 頁面外框與頁首列。原本五份 demo 各自手刻一份，連 @media 都各刻一次；
+   統計卡在 dashboard 與 list 重複，而且已經漂移（一邊有等寬字一邊沒有）。
+   統一收進這裡，數字一律走 --tc-mono，跟表格的 .num 同一條規則。
+   頁寬各頁不同，用 --tc-page-w 覆寫，不要另外開 class。 */
+.tc-page {
+  max-width: var(--tc-page-w, 1180px);
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+}
+.tc-page-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+}
+.tc-page-bar__title { margin: 0; font-size: 17px; font-weight: 600; }
+.tc-page-bar__spacer { flex: 1; }
+
+/* 卡片寬度由內容決定，不由斷點決定。180px 是這套系統保證能完整顯示的最寬 KPI：
+   21px 等寬字下「12,480,300」佔 123px、單位 25px，加上卡片的 padding 與 border 共
+   30px，一張卡要 178px 才裝得下，取整到 180。auto-fit 會自己算一列排幾張、什麼時候
+   換行，換成 @media 斷點等於把某一頁的字串寬度寫死成常數，別人的數字一長就再壞一次。
+   min-width: 0 留著：grid item 預設 min-width: auto，數字比軌道寬時會頂出軌道把整排
+   卡片撐歪，寧可讓它切掉也不要整排錯位。 */
+.tc-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.tc-stat {
+  min-width: 0;
+  padding: 11px 14px;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-panel-shadow);
+}
+.tc-stat__k { font-size: var(--tc-fs-sm); color: var(--tc-muted); }
+.tc-stat__v {
+  font-size: 21px; font-weight: 600; margin-top: 3px;
+  font-family: var(--tc-mono); font-variant-numeric: tabular-nums;
+}
+.tc-stat__v small { font-size: 12px; font-weight: 500; color: var(--tc-muted); margin-left: 4px; }
+/* 好壞不能只靠顏色（SC 1.4.1）。好消息走中性色不點燈，要注意的才亮 --tc-err，
+   而且呼叫端要另外給一個符號或「需注意」這種文字，不能只換色。 */
+.tc-stat__trend { font-size: 12px; margin-top: 2px; color: var(--tc-muted); }
+.tc-stat__trend.is-bad { color: var(--tc-err); }
+.tc-stat__trend__flag { font-weight: 700; margin-right: 3px; }
+
+.tc-card {
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-panel-shadow);
+}
+.tc-card__header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-card__title  { margin: 0; font-size: 15px; font-weight: 600; }
+.tc-card__desc   { margin: 3px 0 0; font-size: var(--tc-fs-sm); color: var(--tc-muted); }
+.tc-card__body   { padding: 16px; }
+.tc-card__footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--tc-border-subtle);
+  background: var(--tc-subtle);
+  border-radius: 0 0 var(--tc-radius-lg) var(--tc-radius-lg);
+}
+
+.tc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 16px; }
+.tc-grid--3 { grid-template-columns: repeat(3, 1fr); }
+.tc-span-2 { grid-column: span 2; }
+.tc-span-3 { grid-column: span 3; }
+
+.tc-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tc-label {
+  font-size: var(--tc-fs-sm); font-weight: 600; color: var(--tc-text-2);
+  display: flex; align-items: center; gap: 4px;
+}
+/* data-required 只畫視覺上的星號。星號是 CSS 生成內容，語意上什麼都沒有，
+   控制項本身一定要另外帶 required（或 aria-required="true"），否則螢幕閱讀器
+   讀不到這欄是必填的，而且「必填」就變成只靠一個視覺符號在傳達。 */
+.tc-label[data-required]::after { content: "*"; color: var(--tc-err); font-weight: 700; }
+.tc-hint  { font-size: 12px; color: var(--tc-muted); }
+.tc-error { font-size: 12px; color: var(--tc-err); }
+
+/* ---------- 4. 按鈕 ----------
+   鍵帽厚度一律用 box-shadow 的實色偏移（0 2px 0 邊緣色）做，不用 border-bottom。
+   box-shadow 與 transform 都不參與版面計算，按壓時周圍元素保證零位移。
+   絕對不要改回 border-width + margin 補償：那招在 align-items:flex-end 之類的
+   容器裡會把兄弟元素往上頂。 */
+.tc-btn {
+  --tc-btn-edge: transparent;
+  --tc-btn-press: var(--tc-press);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: var(--tc-h-md);
+  padding: 0 14px;
+  font: inherit; font-size: var(--tc-fs); font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: var(--tc-radius);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  box-shadow: var(--tc-bevel), 0 2px 0 var(--tc-btn-edge), var(--tc-drop);
+  transition: background-color .08s ease, border-color .08s ease, box-shadow .06s ease;
+}
+.tc-btn--sm { height: var(--tc-h); padding: 0 10px; font-size: var(--tc-fs-sm); }
+.tc-btn:disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+.tc-btn:focus-visible {
+  outline: 3px solid var(--tc-ring-color);
+  outline-offset: 1px;
+}
+/* 按壓：整顆下沉 2px，厚度歸零，外影翻成內凹 */
+.tc-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 var(--tc-btn-edge), var(--tc-btn-press);
+}
+
+.tc-btn--primary {
+  --tc-btn-edge: var(--tc-primary-edge);
+  color: #fff;
+  background: linear-gradient(180deg, var(--tc-primary-fill-hi) 0%, var(--tc-primary-fill) 100%);
+  border-color: var(--tc-primary-lo);
+}
+.tc-btn--primary:hover {
+  background: linear-gradient(180deg, var(--tc-primary-fill) 0%, var(--tc-primary-lo) 100%);
+}
+
+.tc-btn--secondary {
+  --tc-btn-edge: var(--tc-border-strong);
+  --tc-btn-press: inset 0 1px 2px rgba(0,0,0,.12);   /* 白底吃不住深內凹，會顯髒 */
+  color: var(--tc-text-2);
+  background: var(--tc-panel);
+  border-color: var(--tc-border);
+}
+.tc-btn--secondary:hover { background: var(--tc-subtle); color: var(--tc-text); }
+.tc-btn--secondary:active { background: var(--tc-active); }
+
+.tc-btn--danger {
+  --tc-btn-edge: var(--tc-danger-edge);
+  color: #fff;
+  background: var(--tc-danger);
+  border-color: var(--tc-danger-lo);
+}
+.tc-btn--danger:hover { background: var(--tc-danger-lo); }
+
+/* Ghost：表格行內操作，平常無框無影，hover 才顯背景 */
+.tc-btn--ghost {
+  color: var(--tc-muted);
+  background: transparent;
+  border-color: transparent;
+  padding: 0 8px;
+  box-shadow: none;
+}
+.tc-btn--ghost:hover { background: var(--tc-hover); color: var(--tc-text); }
+/* color 要跟 :hover 一起設：鍵盤用空白鍵按下去時只有 :active 不會有 :hover，
+   靜止的 --tc-muted 疊在 --tc-active 底上六套色盤都掉到 4.2 上下。 */
+.tc-btn--ghost:active {
+  background: var(--tc-active);
+  color: var(--tc-text);
+  transform: translateY(1px);
+  box-shadow: none;
+}
+.tc-btn--ghost.is-danger:hover {
+  color: var(--tc-err);
+  background: color-mix(in srgb, var(--tc-err) 12%, transparent);
+}
+
+/* 按鈕群組：相鄰邊界併攏 */
+.tc-btn-group { display: inline-flex; }
+.tc-btn-group .tc-btn { border-radius: 0; margin-left: -1px; }
+.tc-btn-group .tc-btn:first-child { border-radius: var(--tc-radius) 0 0 var(--tc-radius); margin-left: 0; }
+.tc-btn-group .tc-btn:last-child  { border-radius: 0 var(--tc-radius) var(--tc-radius) 0; }
+
+/* ---------- 5. 輸入框 / 選擇器 ---------- */
+.tc-input, .tc-select, .tc-textarea {
+  width: 100%;
+  height: var(--tc-h-md);
+  padding: 6px 10px;
+  font: inherit; font-size: var(--tc-fs);
+  color: var(--tc-text);
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border);
+  border-radius: var(--tc-radius);
+  outline: none;
+  box-shadow: var(--tc-carve);
+  transition: border-color .1s ease, box-shadow .1s ease;
+}
+.tc-textarea { height: auto; min-height: 72px; padding: 8px 10px; resize: vertical; }
+.tc-input--sm, .tc-select--sm { height: var(--tc-h); font-size: var(--tc-fs-sm); }
+
+.tc-input::placeholder, .tc-textarea::placeholder { color: var(--tc-placeholder); }
+.tc-input:hover, .tc-select:hover, .tc-textarea:hover { border-color: var(--tc-border-strong); }
+
+.tc-input:focus, .tc-select:focus, .tc-textarea:focus {
+  border-color: var(--tc-primary);
+  outline: 3px solid var(--tc-ring-color);
+  outline-offset: 0;
+}
+.tc-input:read-only, .tc-input:disabled, .tc-select:disabled, .tc-textarea:disabled {
+  background: var(--tc-subtle); color: var(--tc-muted); box-shadow: none;
+}
+.tc-input.is-invalid, .tc-select.is-invalid { border-color: var(--tc-err); }
+.tc-input.is-invalid:focus, .tc-select.is-invalid:focus {
+  border-color: var(--tc-err);
+  outline-color: color-mix(in srgb, var(--tc-err) 45%, transparent);
+}
+
+/* select 箭頭用 background-image，免掉額外 DOM */
+.tc-select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: var(--tc-select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px;
+}
+
+/* 前綴圖示 / 後綴單位 */
+.tc-input-wrap { position: relative; display: flex; align-items: center; }
+.tc-input-wrap .tc-input { padding-left: 30px; }
+.tc-input-wrap__icon {
+  position: absolute; left: 9px; display: flex;
+  color: var(--tc-placeholder); pointer-events: none;
+}
+.tc-affix-group { display: flex; }
+.tc-affix-group .tc-input { border-radius: var(--tc-radius) 0 0 var(--tc-radius); }
+.tc-affix {
+  display: flex; align-items: center; padding: 0 9px;
+  height: var(--tc-h-md);
+  font-size: var(--tc-fs-sm); color: var(--tc-muted);
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border);
+  border-left: 0;
+  border-radius: 0 var(--tc-radius) var(--tc-radius) 0;
+}
+
+/* checkbox / radio：同樣有刻槽感 */
+.tc-check {
+  appearance: none;
+  position: relative;
+  width: 15px; height: 15px; margin: 0; flex: none;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border);
+  border-radius: 3px;
+  box-shadow: var(--tc-carve);
+  cursor: pointer;
+  display: inline-grid; place-content: center;
+}
+/* 視覺維持 15px（ERP 密度要的），命中區用透明 ::before 撐到 24×24，
+   滿足 WCAG 2.2 SC 2.5.8。用絕對定位的偽元素而非加大 padding，版面零影響。
+   被 .tc-check-label 包住時整塊 label 本來就可點，這條是為表格裡單獨出現的勾選框而設。 */
+.tc-check::before {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 24px; height: 24px;
+  transform: translate(-50%, -50%);
+}
+.tc-check[type="radio"] { border-radius: 50%; }
+.tc-check:checked {
+  background: var(--tc-primary-fill);
+  border-color: var(--tc-primary-lo);
+  box-shadow: var(--tc-bevel);
+}
+.tc-check:checked::after {
+  content: ""; width: 9px; height: 9px; background: #fff;
+  clip-path: polygon(14% 48%, 0 62%, 38% 100%, 100% 22%, 86% 8%, 36% 70%);
+}
+.tc-check[type="radio"]:checked::after {
+  clip-path: none; border-radius: 50%; width: 5px; height: 5px;
+}
+.tc-check:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: 1px; }
+.tc-check-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; font-size: var(--tc-fs);
+}
+
+/* ---------- 6. 資料表格 ---------- */
+.tc-table-wrap {
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-panel-shadow);
+  overflow: auto;
+  overscroll-behavior: contain;
+  /* sticky 表頭會蓋住 Tab 進來的那一列，違反 WCAG 2.2 SC 2.4.11。
+     留出表頭高度（8px×2 padding + 12.5px×1.6 行高 + 1px 底線）讓捲動停在焦點看得見的位置。 */
+  scroll-padding-top: 37px;
+}
+.tc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--tc-fs-sm);
+}
+.tc-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 8px 12px;
+  text-align: left; font-weight: 600; white-space: nowrap;
+  color: var(--tc-text-2);
+  background: var(--tc-subtle);
+  border-bottom: 1px solid var(--tc-border);
+  box-shadow: var(--tc-bevel);
+}
+/* 密度切換。緊湊是預設，標準把資料列放鬆一階。只動 tbody 的垂直 padding，
+   表頭維持 8px —— 表頭一動 scroll-padding-top 就得跟著改（SC 2.4.11），
+   密度切換不該把那條規則一起拖下水。
+   用法：<table class="tc-table" data-density="standard">。 */
+.tc-table { --tc-td-pad-y: 7px; }
+.tc-table[data-density="standard"] { --tc-td-pad-y: 11px; }
+
+/* 可排序表頭。寫法：<th aria-sort="none|ascending|descending"><button>欄名</button></th>
+   按鈕放在 th 裡面，不要給 th 加 tabindex —— 按 Enter 排序是按鈕的行為，不是表頭的。
+   aria-sort="none" 一定要寫出來，它就是「這一欄可以排序」的 signifier；
+   沒有 aria-sort 的欄位不會長箭頭，也不會有 hover 回饋。
+   靜止的箭頭用 --tc-border（≥3:1），排序中的用 --tc-text，兩者差距夠大。
+
+   實際的排序邏輯要送回後端接 ORDER BY。清單有分頁，前端只排得到當前這一頁，
+   使用者卻會以為排的是全部——那不是功能不完整，是給錯答案。見 SKILL.md。 */
+.tc-table th[aria-sort] { padding: 0; }
+.tc-table th[aria-sort] > button {
+  display: flex; align-items: center; gap: 5px;
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit; font-weight: 600; color: inherit; text-align: inherit;
+  background: none; border: 0; cursor: pointer;
+}
+.tc-table th.num[aria-sort] > button { justify-content: flex-end; }
+.tc-table th[aria-sort] > button:hover { color: var(--tc-text); background: var(--tc-hover); }
+.tc-table th[aria-sort] > button:focus-visible {
+  outline: 3px solid var(--tc-ring-color);
+  outline-offset: -3px;
+}
+.tc-table th[aria-sort] > button::after { content: ""; flex: none; border: 3.5px solid transparent; }
+/* 未排序畫成上下各一個三角（可以往兩邊排），排序中才是單一方向的實心三角。
+   不要讓未排序跟遞減長成同一個形狀只差深淺 —— 那會逼使用者每看一次重新判斷一次。
+   高度 7px vs 3.5px 的差別不影響版面：按鈕高度由 20px 的行高決定，箭頭撐不到。 */
+.tc-table th[aria-sort="none"] > button::after {
+  border-top-color: var(--tc-border);
+  border-bottom-color: var(--tc-border);
+}
+.tc-table th[aria-sort="ascending"]  > button::after { border-bottom-color: var(--tc-text); border-top: 0; }
+.tc-table th[aria-sort="descending"] > button::after { border-top-color: var(--tc-text); border-bottom: 0; }
+
+.tc-table tbody td {
+  padding: var(--tc-td-pad-y) 12px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+  white-space: nowrap;
+}
+.tc-table tbody tr:last-child td { border-bottom: 0; }
+.tc-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--tc-subtle) 60%, transparent); }
+.tc-table tbody tr:hover { background: var(--tc-hover); }
+.tc-table tbody tr.is-selected { background: color-mix(in srgb, var(--tc-primary) 12%, transparent); }
+.tc-table .num  { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--tc-mono); }
+.tc-table .code { font-family: var(--tc-mono); color: var(--tc-text-2); }
+.tc-table .actions { text-align: right; }
+/* 行內操作常駐但低調，hover 該列才全亮。
+   完全隱藏（opacity:0）會讓使用者不知道按鈕存在，違反 signifier 原則。
+   低調也不能用 opacity 做：--tc-muted 打七折以下，六套色盤全部掉到 2:1 上下，
+   離 AA 的 4.5:1 很遠，等於換個方式把按鈕藏起來。改用色階——靜止 --tc-muted
+   （實色 4.7:1 以上），hover/聚焦升到 --tc-text。 */
+.tc-table .actions .tc-btn--ghost { color: var(--tc-muted); transition: color .1s ease; }
+.tc-table tbody tr:hover .actions .tc-btn--ghost,
+.tc-table .actions .tc-btn--ghost:focus-visible { color: var(--tc-text); }
+
+.tc-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-bottom: 0;
+  border-radius: var(--tc-radius-lg) var(--tc-radius-lg) 0 0;
+}
+.tc-toolbar + .tc-table-wrap { border-radius: 0 0 var(--tc-radius-lg) var(--tc-radius-lg); }
+.tc-toolbar__spacer { flex: 1; }
+
+.tc-pagination {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 12px;
+  font-size: var(--tc-fs-sm); color: var(--tc-muted);
+  border-top: 1px solid var(--tc-border-subtle);
+}
+
+/* 篩選條件標籤。進階條件設定後在工具列下方以標籤列出當前生效的條件，
+   讓操作員清楚知道資料被哪些維度過濾，可單獨關閉或清除。 */
+.tc-filter-chips {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 0 10px;
+  font-size: var(--tc-fs-sm);
+}
+.tc-filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: 12px;
+  color: var(--tc-text-2);
+}
+.tc-filter-chip__label { font-weight: 500; color: var(--tc-text); }
+.tc-filter-chip__close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; padding: 0;
+  font-size: 11px; line-height: 1;
+  color: var(--tc-muted); background: none; border: 0;
+  border-radius: 50%; cursor: pointer;
+}
+.tc-filter-chip__close:hover { color: var(--tc-text); background: var(--tc-hover); }
+.tc-filter-chip__close:focus-visible { outline: 2px solid var(--tc-ring-color); }
+
+
+/* ---------- 7. Badge ---------- */
+.tc-badge {
+  --c: var(--tc-muted);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px;
+  font-size: 12px; font-weight: 600; line-height: 18px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 13%, var(--tc-panel));
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tc-badge::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--c); flex: none;
+}
+.tc-badge--ok   { --c: var(--tc-ok); }
+.tc-badge--warn { --c: var(--tc-warn); }
+.tc-badge--err  { --c: var(--tc-err); }
+.tc-badge--info { --c: var(--tc-info); }
+
+/* ---------- 8. Tabs / 分段控制 ---------- */
+.tc-tabs {
+  display: flex; gap: 2px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-tab {
+  flex: none;
+  padding: 8px 14px;
+  font: inherit; font-size: var(--tc-fs); font-weight: 500;
+  color: var(--tc-muted);
+  background: transparent; border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer; white-space: nowrap;
+}
+.tc-tab:hover { color: var(--tc-text); background: var(--tc-hover); }
+/* 選中態的文字不走 --tc-primary：疊在 panel 上冷夜只有 3.98:1。跟 .tc-nav__item 同一條規則，
+   文字走 --tc-text，主色退到底下那條 2px 邊線 —— 非文字元素，門檻只有 3:1。 */
+.tc-tab[aria-selected="true"] { color: var(--tc-text); border-bottom-color: var(--tc-primary); }
+.tc-tab:focus-visible {
+  outline: 3px solid var(--tc-ring-color);
+  outline-offset: -2px;
+  border-radius: var(--tc-radius) var(--tc-radius) 0 0;
+}
+
+/* 凹槽裡浮起一顆鍵 */
+.tc-segmented {
+  display: inline-flex; gap: 2px; padding: 2px;
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  box-shadow: var(--tc-carve);
+}
+.tc-segmented button {
+  padding: 4px 12px;
+  font: inherit; font-size: var(--tc-fs-sm); font-weight: 500;
+  color: var(--tc-muted);
+  background: transparent; border: 1px solid transparent;
+  border-radius: 4px; cursor: pointer;
+}
+.tc-segmented button[aria-pressed="true"] {
+  color: var(--tc-text);
+  background: var(--tc-panel);
+  border-color: var(--tc-border-subtle);
+  box-shadow: var(--tc-bevel), var(--tc-lift);
+}
+.tc-segmented button:focus-visible {
+  outline: 3px solid var(--tc-ring-color);
+  outline-offset: 1px;
+}
+
+/* ---------- 9. Modal（原生 dialog，白拿 Esc / 焦點鎖 / backdrop） ---------- */
+.tc-dialog {
+  width: min(560px, calc(100vw - 32px));
+  padding: 0;
+  color: var(--tc-text);
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius-lg);
+  box-shadow: var(--tc-overlay-shadow);
+}
+.tc-dialog::backdrop { background: var(--tc-scrim); }
+.tc-dialog__header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-dialog__title { margin: 0; font-size: 15px; font-weight: 600; }
+/* overscroll-behavior: contain —— body 捲到底時不要把背後的頁面一起帶著捲 */
+.tc-dialog__body  { padding: 16px; font-size: var(--tc-fs); overscroll-behavior: contain; }
+.tc-dialog__footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px;
+  background: var(--tc-subtle);
+  border-top: 1px solid var(--tc-border-subtle);
+  border-radius: 0 0 var(--tc-radius-lg) var(--tc-radius-lg);
+}
+
+/* ---------- 9.1 抽屜（側滑面板，對照檢視與次級明細） ----------
+   原生 <dialog class="tc-drawer"> 或容器。以 showModal() 開啟時白拿 Esc 關閉與焦點鎖。
+   靠右側滑出，保留左側資料表格供操作員雙眼對照，避免居中彈窗遮蔽脈絡。 */
+.tc-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; left: auto;
+  width: min(var(--tc-drawer-w, 480px), 100vw);
+  height: 100vh; max-height: 100dvh;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  color: var(--tc-text);
+  background: var(--tc-panel);
+  border: 0;
+  border-left: 1px solid var(--tc-border-subtle);
+  box-shadow: var(--tc-overlay-shadow);
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+.tc-drawer::backdrop { background: var(--tc-scrim); }
+.tc-drawer--lg { --tc-drawer-w: 640px; }
+.tc-drawer--sm { --tc-drawer-w: 360px; }
+.tc-drawer__header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+  flex: none;
+}
+.tc-drawer__title { margin: 0; font-size: 15px; font-weight: 600; }
+.tc-drawer__body {
+  padding: 16px; font-size: var(--tc-fs);
+  flex: 1; overflow-y: auto; overscroll-behavior: contain;
+}
+.tc-drawer__footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px;
+  background: var(--tc-subtle);
+  border-top: 1px solid var(--tc-border-subtle);
+  flex: none;
+}
+
+/* ---------- 10. Toast ---------- */
+.tc-toast-host {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.tc-toast {
+  --c: var(--tc-info);
+  display: flex; align-items: flex-start; gap: 9px;
+  min-width: 288px; max-width: 568px;
+  padding: 14px 24px;
+  background: color-mix(in srgb, var(--c) 8%, var(--tc-panel));
+  border: 2px solid var(--c);
+  border-radius: var(--tc-radius);
+  box-shadow: var(--tc-overlay-shadow);
+  animation: tc-toast-in .16s ease-out;
+}
+.tc-toast--ok   { --c: var(--tc-ok); }
+.tc-toast--warn { --c: var(--tc-warn); }
+.tc-toast--err  { --c: var(--tc-err); }
+.tc-toast__title { font-weight: 600; }
+.tc-toast__desc  { color: var(--tc-muted); font-size: var(--tc-fs-sm); margin-top: 2px; }
+@keyframes tc-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+
+/* ---------- 10.1 批次操作浮動列（高頻表格多選操作） ----------
+   當表格勾選數量 > 0 時顯示。固定於底部中間，不隨頁面捲動消失，
+   避免操作員捲到底部後找不到核准/刪除按鈕。 */
+.tc-batch-bar {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border);
+  border-radius: 9999px;
+  box-shadow: var(--tc-overlay-shadow);
+  font-size: var(--tc-fs-sm);
+  animation: tc-toast-in .16s ease-out;
+}
+.tc-batch-bar__count {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-weight: 500; color: var(--tc-text);
+  padding-right: 8px;
+  border-right: 1px solid var(--tc-border-subtle);
+}
+.tc-batch-bar__actions {
+  display: inline-flex; align-items: center; gap: 8px;
+}
+
+/* ---------- 11. 載入狀態與頁面級提示 ----------
+   ERP 天天在做的兩個動作是「按查詢等資料」跟「按送出等結果」，這兩段時間畫面上
+   必須有東西。原本這裡只有 .tc-empty，等於只做了空狀態，載入與錯誤都缺。 */
+
+/* 骨架：載入中的佔位。放進去的容器要一起設 aria-busy="true"，
+   資料回來之後再拿掉，螢幕閱讀器才知道現在不是「這格是空的」。
+   高度預設 12px，要更高就在呼叫端給 height。 */
+.tc-skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg,
+    var(--tc-hover) 25%, var(--tc-active) 37%, var(--tc-hover) 63%);
+  background-size: 400% 100%;
+  animation: tc-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes tc-shimmer { from { background-position: 100% 50%; } to { background-position: 0 50%; } }
+
+/* 按鈕載入中：文字轉透明但位子留著，按鈕寬度不變，旁邊的兄弟元素零位移 ——
+   跟按壓那條是同一個理由。轉圈的顏色各變體自己給，因為 currentColor 這時候是透明的。
+   markup 要一起設 aria-busy="true" 與 aria-disabled="true"，
+   並且在 JS 擋掉重複送出，pointer-events 只擋得住滑鼠。 */
+.tc-btn { --tc-btn-spinner: var(--tc-text-2); }
+.tc-btn--primary, .tc-btn--danger { --tc-btn-spinner: #fff; }
+.tc-btn.is-loading {
+  position: relative;
+  color: transparent;
+  pointer-events: none;
+}
+.tc-btn.is-loading::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 2px solid color-mix(in srgb, var(--tc-btn-spinner) 30%, transparent);
+  border-top-color: var(--tc-btn-spinner);
+  border-radius: 50%;
+  animation: tc-spin .6s linear infinite;
+}
+@keyframes tc-spin { to { transform: rotate(360deg); } }
+
+/* 頁面級提示：跟 toast 的差別是它不會自己消失。
+   「本期已關帳」「這張單唯讀」這種要一直掛在畫面上的訊息用這個，不要用 toast。
+   一定要有文字說明性質，不能只靠左邊那條色帶（SC 1.4.1）。
+   動態插入的錯誤提示記得加 role="alert"。 */
+.tc-alert {
+  --c: var(--tc-info);
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 9px 12px;
+  font-size: var(--tc-fs);
+  background: color-mix(in srgb, var(--c) 8%, var(--tc-panel));
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  border-left: 3px solid var(--c);
+  border-radius: var(--tc-radius);
+}
+.tc-alert--ok   { --c: var(--tc-ok); }
+.tc-alert--warn { --c: var(--tc-warn); }
+.tc-alert--err  { --c: var(--tc-err); }
+.tc-alert__title { font-weight: 600; }
+.tc-alert__desc  { color: var(--tc-text-2); font-size: var(--tc-fs-sm); margin-top: 2px; }
+
+/* ---------- 12. 雜項 ---------- */
+.tc-divider { height: 1px; background: var(--tc-border-subtle); border: 0; margin: 14px 0; }
+.tc-kbd {
+  font-family: var(--tc-mono); font-size: 11px;
+  padding: 1px 5px;
+  color: var(--tc-muted);
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.tc-empty { padding: 40px 16px; text-align: center; color: var(--tc-muted); }
+
+/* ---------- 13. Dashboard ----------
+   儀表板專用元件。RWD 規則另外掛在檔尾既有的斷點區，不寫在這裡。 */
+
+/* 線性進度條。呼叫端一定要給 role="progressbar" 與 aria-valuenow/min/max ——
+   這條 div 本身沒有任何語意，讀屏讀不到「72%」。
+   填色對軌道要 ≥3:1（SC 1.4.11），六套色盤最緊的是冷夜的 3.08，
+   tests/test_assets.py 的 ProgressTrackTest 守著。 */
+.tc-progress {
+  height: 6px;
+  background: var(--tc-active);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: var(--tc-carve);
+}
+.tc-progress__fill {
+  height: 100%;
+  background: var(--tc-primary);
+  border-radius: 3px;
+  transition: width .3s ease;
+}
+.tc-progress--ok   .tc-progress__fill { background: var(--tc-ok); }
+.tc-progress--warn .tc-progress__fill { background: var(--tc-warn); }
+.tc-progress--err  .tc-progress__fill { background: var(--tc-err); }
+
+/* 環形進度。用 SVG 的 stroke-dasharray 不用 conic-gradient：SVG 吃得到
+   role / aria-valuenow，conic-gradient 只是一張背景圖，無障礙上什麼都不是。
+   <circle> 要寫 pathLength="100"，dasharray 才能直接用百分比，不必算 2πr。 */
+.tc-progress-ring { width: 48px; height: 48px; flex: none; }
+.tc-progress-ring--lg { width: 80px; height: 80px; }
+.tc-progress-ring__track { fill: none; stroke: var(--tc-active); stroke-width: 4; }
+.tc-progress-ring__fill {
+  fill: none;
+  stroke: var(--tc-primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: calc(100 - var(--tc-ring-pct));
+  /* 起點轉到 12 點鐘方向。fill-box 讓它繞圖形中心轉，不是繞 viewport 原點 */
+  transform: rotate(-90deg);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: stroke-dashoffset .3s ease;
+}
+/* 字級寫在 viewBox 座標裡，--lg 放大時會跟著等比長大，不用另外覆寫 */
+.tc-progress-ring__label {
+  fill: var(--tc-text);
+  font-family: var(--tc-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+.tc-progress-ring--ok   .tc-progress-ring__fill { stroke: var(--tc-ok); }
+.tc-progress-ring--warn .tc-progress-ring__fill { stroke: var(--tc-warn); }
+.tc-progress-ring--err  .tc-progress-ring__fill { stroke: var(--tc-err); }
+
+/* 佈局網格。欄數走 data-cols，跟 .tc-table 的 data-density 同一個慣例。
+   預設 2 欄（主管：少量大圖），data-cols="3" 是操作員的密集檔。
+   橫跨用既有的 .tc-span-2 / .tc-span-3，不要另外發明。
+   首屏可見的卡片群組控制在 4–5 個（Cowan 2001，工作記憶 4±1 chunks）。 */
+.tc-dashboard-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.tc-dashboard-grid[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* 統計卡變體。.tc-stat 的結構完全不動，只掛 modifier。 */
+
+/* 迷你圖：讓人一眼看到趨勢的「形狀」。精確數值去圖表看，所以不做 hover tooltip，
+   而且整個 svg aria-hidden —— 形狀是裝飾性補充，趨勢數字才是資訊本體（SC 1.1.1）。
+   <svg> 要寫 preserveAspectRatio="none"，80×24 的 viewBox 才會被拉滿整個寬度；
+   不寫的話等比縮放成中間一小段短線，趨勢的形狀就看不出來了。 */
+.tc-stat--sparkline .tc-stat__spark {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin-top: 6px;
+  fill: none;
+  stroke: var(--tc-primary);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tc-stat--progress .tc-progress { margin-top: 8px; }
+
+/* 圖示變體：左圖右字。底圈不給語意色 —— 預設狀態是安靜的
+   （references/color-cognition.md 第四節），紅綠要留給真的出事的時候。
+   圈裡放 18px 的 <svg>，stroke="currentColor" 才接得住這裡的 color；
+   emoji 是全彩字形不吃 currentColor，別拿來當圖示。 */
+.tc-stat--icon { display: flex; align-items: center; gap: 12px; }
+.tc-stat__icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  color: var(--tc-text-2);
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: 50%;
+}
+
+/* 圖表容器。.tc-card 的語意擴充 —— .tc-chart 自己沒有任何樣式，它是給
+   querySelectorAll('.tc-chart') 撈的標記。圖表內部的顏色全部交給
+   assets/echarts-theme-*.json，CSS 不碰。
+
+   padding 用 8px 8px 0 不用 .tc-card__body 的 16px：圖表庫自己會留座標軸邊距，
+   外面再包 16px 等於白白吃掉兩行資料的高度。 */
+.tc-chart__body { padding: 8px 8px 0; }
+/* 高度由呼叫端 style="height:Npx" 決定，CSS 不搶這個決定權 ——
+   min-height 只是保底，防止容器塌成 0 讓圖表整張畫不出來（而且不會報錯）。 */
+.tc-chart__canvas { width: 100%; min-height: 200px; }
+.tc-chart__skeleton { height: 200px; border-radius: var(--tc-radius); }
+
+/* 快捷操作。一律用 <a> 不用 <button>：導覽入口是「去別的地方」不是「觸發動作」，
+   用 button 會讓中鍵開新分頁、Ctrl+點擊、複製連結網址全部失效。
+   數量上限走 Hick-Hyman：格狀 8 個、橫列 5 個，超過用漸進揭露展開。 */
+.tc-shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+.tc-shortcut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 8px;
+  font-size: var(--tc-fs-sm);
+  color: var(--tc-text-2);
+  text-decoration: none;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  box-shadow: var(--tc-lift);
+}
+.tc-shortcut:hover {
+  background: var(--tc-hover);
+  color: var(--tc-text);
+  border-color: var(--tc-border);
+}
+.tc-shortcut:active { transform: translateY(1px); box-shadow: none; }
+.tc-shortcut:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: 2px; }
+/* 圖示底不給彩色：預設狀態是安靜的（references/color-cognition.md 第四節）。
+   這個 class 掛在 <svg> 上，靠 width/height 撐尺寸不是 font-size —— 圖示是
+   stroke="currentColor" 的線稿，色跟著 color 走；emoji 是全彩字形，吃不到
+   currentColor，六套色盤一定有一套會壞掉。 */
+.tc-shortcut__icon { flex: none; width: 20px; height: 20px; color: var(--tc-muted); }
+.tc-shortcut:hover .tc-shortcut__icon { color: var(--tc-text); }
+.tc-shortcut__label { text-align: center; }
+
+/* 橫列捷徑。不帶鍵帽觸感 —— 它的視覺層級要低於 Primary / Secondary，
+   厚度給了就會跟真正的主要操作搶視線。
+   min-height 走 32px 密集檔，同時滿足 SC 2.5.8 的 24×24。
+   color 一定要是 --tc-text-2：:active 把底換成 --tc-active，--tc-muted 在那個底上
+   六套色盤全部落在 4.2 上下，過不了 4.5:1（tests 的 PressedStateTest 會擋）。 */
+.tc-shortcut-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+.tc-shortcut-bar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tc-h);
+  padding: 0 10px;
+  font-size: var(--tc-fs-sm);
+  color: var(--tc-text-2);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+}
+.tc-shortcut-bar__item:hover {
+  background: var(--tc-hover);
+  color: var(--tc-text);
+  border-color: var(--tc-border);
+}
+.tc-shortcut-bar__item:active { background: var(--tc-active); }
+.tc-shortcut-bar__item:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: 2px; }
+
+/* 活動時間軸。用 <ol>：事件有時間順序，這件事要寫在標記裡而不是只有視覺上。
+   連接線走 --tc-border-subtle —— 它是結構暗示不是控制項邊界，安靜就好，
+   拉到 3:1 只會讓整條軸搶走事件文字的視線。 */
+.tc-timeline { list-style: none; margin: 0; padding: 0 0 0 20px; position: relative; }
+.tc-timeline::before {
+  content: "";
+  position: absolute;
+  left: 5px; top: 6px; bottom: 6px;
+  width: 1px;
+  background: var(--tc-border-subtle);
+}
+.tc-timeline__item { position: relative; padding-bottom: 14px; }
+.tc-timeline__item:last-child { padding-bottom: 0; }
+.tc-timeline__dot {
+  position: absolute;
+  left: -20px; top: 4px;
+  width: 11px; height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--tc-border);
+  background: var(--tc-panel);
+}
+/* 當前節點填實心主色。--err 只負責把 dot 染紅，性質一定要另外寫在文字裡（SC 1.4.1）。 */
+.tc-timeline__item--active  .tc-timeline__dot { border-color: var(--tc-primary); background: var(--tc-primary); }
+.tc-timeline__item--err     .tc-timeline__dot { border-color: var(--tc-err); background: var(--tc-err); }
+.tc-timeline__item--pending .tc-timeline__dot { border-style: dashed; }
+/* .tc-timeline__content 沒有規則是刻意的 —— 它只是把三行文字包起來的容器，
+   預設的 block 行為就夠了，不要為了「看起來完整」補一條空樣式。 */
+.tc-timeline__time  { font-size: 12px; color: var(--tc-muted); font-family: var(--tc-mono); font-variant-numeric: tabular-nums; }
+.tc-timeline__title { font-size: var(--tc-fs); color: var(--tc-text); margin-top: 1px; }
+.tc-timeline__desc  { font-size: var(--tc-fs-sm); color: var(--tc-text-2); margin-top: 1px; }
+
+/* 排行列表。用 <ol>：名次有序。序號不染金銀銅 —— 這是營運數字不是遊戲排行榜。 */
+.tc-rank { list-style: none; margin: 0; padding: 0; }
+.tc-rank__item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 80px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-rank__item:last-child { border-bottom: 0; }
+.tc-rank__pos {
+  font-family: var(--tc-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--tc-fs-sm);
+  color: var(--tc-muted);
+  text-align: right;
+}
+.tc-rank__name {
+  font-size: var(--tc-fs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 迷你橫條用 ::after 畫，不需要額外 DOM。軌道跟 .tc-progress 同一個 token，
+   填色對它的 3:1 由 ProgressTrackTest 一起守。 */
+.tc-rank__bar {
+  position: relative;
+  height: 6px;
+  background: var(--tc-active);
+  border-radius: 3px;
+}
+.tc-rank__bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--tc-rank-pct) * 1%);
+  background: var(--tc-primary);
+  border-radius: 3px;
+}
+.tc-rank__val {
+  font-family: var(--tc-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--tc-fs-sm);
+  text-align: right;
+}
+
+/* ── 頭像 ── */
+.tc-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tc-panel);
+  background: var(--tc-muted);
+  border: 2px solid var(--tc-panel);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.tc-avatar--sm { width: 24px; height: 24px; font-size: 11px; }
+.tc-avatar--lg { width: 40px; height: 40px; font-size: 15px; }
+.tc-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tc-avatar-stack {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+.tc-avatar-stack .tc-avatar + .tc-avatar { margin-right: -8px; }
+.tc-avatar-stack .tc-avatar--sm + .tc-avatar--sm { margin-right: -6px; }
+
+/* ── 使用者清單（活動 feed、遲到、簽到等） ── */
+.tc-user-list { list-style: none; margin: 0; padding: 0; }
+.tc-user-list__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-user-list__item:last-child { border-bottom: 0; }
+.tc-user-list__body { flex: 1; min-width: 0; }
+.tc-user-list__name {
+  font-size: var(--tc-fs-sm);
+  font-weight: 600;
+  color: var(--tc-text);
+}
+.tc-user-list__sub {
+  font-size: 12px;
+  color: var(--tc-muted);
+}
+.tc-user-list__meta {
+  flex: none;
+  text-align: right;
+  font-size: var(--tc-fs-sm);
+}
+.tc-user-list__tag {
+  font-size: 11px;
+  font-weight: 600;
+}
+.tc-user-list__tag.is-late  { color: var(--tc-danger); }
+.tc-user-list__tag.is-ok    { color: var(--tc-success, #16a34a); }
+
+/* ── 多段進度條（漏斗、管線階段分佈） ── */
+.tc-multi-progress {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--tc-active);
+}
+.tc-multi-progress__seg {
+  height: 100%;
+  min-width: 2px;
+}
+
+/* ── 待簽核清單 ── */
+.tc-approval-list { list-style: none; margin: 0; padding: 0; }
+.tc-approval-list__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--tc-border-subtle);
+}
+.tc-approval-list__item:last-child { border-bottom: 0; }
+.tc-approval-list__body { flex: 1; min-width: 0; }
+.tc-approval-list__name {
+  font-size: var(--tc-fs-sm);
+  font-weight: 600;
+  color: var(--tc-text);
+}
+.tc-approval-list__detail {
+  font-size: 12px;
+  color: var(--tc-muted);
+  margin-top: 2px;
+}
+.tc-approval-list__actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  align-self: center;
+}
+
+/* ── 行程卡片（面試、會議、排程） ── */
+.tc-event {
+  padding: 10px 12px;
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  background: var(--tc-subtle);
+  margin-bottom: 8px;
+}
+.tc-event--danger {
+  border-color: color-mix(in srgb, var(--tc-err) 40%, var(--tc-border));
+  background: color-mix(in srgb, var(--tc-err) 3%, var(--tc-subtle));
+}
+.tc-event:last-child { margin-bottom: 0; }
+.tc-event__title {
+  font-size: var(--tc-fs-sm);
+  font-weight: 600;
+  color: var(--tc-text);
+}
+.tc-event__time {
+  font-size: 12px;
+  color: var(--tc-muted);
+  margin-top: 2px;
+}
+.tc-event__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ── 麵包屑 ──
+   用 <nav aria-label="breadcrumb"><ol class="tc-breadcrumb">...</ol></nav>。
+   ERP 頁面深度 3-4 層是常態。分隔符用 ::before 畫，不用額外 DOM。 */
+.tc-breadcrumb {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  list-style: none; margin: 0; padding: 0;
+  font-size: var(--tc-fs-sm);
+}
+.tc-breadcrumb__item { display: inline-flex; align-items: center; gap: 2px; }
+.tc-breadcrumb__item + .tc-breadcrumb__item::before {
+  content: "/"; color: var(--tc-border); margin: 0 4px;
+}
+.tc-breadcrumb a {
+  color: var(--tc-muted); text-decoration: none;
+  padding: 2px 4px; border-radius: 3px;
+}
+.tc-breadcrumb a:hover { color: var(--tc-text); background: var(--tc-hover); }
+.tc-breadcrumb a:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: 0; }
+.tc-breadcrumb__item[aria-current] { color: var(--tc-text); font-weight: 600; }
+
+/* ── 步驟指示器 ──
+   用 <ol class="tc-steps">。每個 <li class="tc-step"> 裡放 .tc-step__dot + .tc-step__label，
+   非末項再加一條 .tc-step__line 當連接線。 */
+.tc-steps { display: flex; align-items: center; list-style: none; margin: 0; padding: 0; }
+.tc-step { display: flex; align-items: center; gap: 8px; font-size: var(--tc-fs-sm); color: var(--tc-muted); white-space: nowrap; }
+.tc-step__dot {
+  flex: none; width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  border-radius: 50%;
+  border: 2px solid var(--tc-border);
+  background: var(--tc-panel);
+}
+.tc-step__line { width: 40px; height: 2px; background: var(--tc-border-subtle); flex: none; margin: 0 4px; }
+.tc-step--done .tc-step__dot { border-color: var(--tc-primary); background: var(--tc-primary); color: #fff; }
+.tc-step--done .tc-step__line { background: var(--tc-primary); }
+.tc-step--active .tc-step__dot { border-color: var(--tc-primary); color: var(--tc-primary); }
+.tc-step--active { color: var(--tc-text); }
+.tc-step--err .tc-step__dot { border-color: var(--tc-err); color: var(--tc-err); }
+
+/* ── 標籤 / 標記 ──
+   跟 badge 不同：badge 是狀態指示，tag 是可移除的分類標記，常搭多選篩選。
+   移除按鈕用 <button class="tc-tag__remove"> 不用 <span>，鍵盤才操作得到。 */
+.tc-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; height: 22px;
+  font-size: 12px; font-weight: 500; line-height: 1;
+  color: var(--tc-text-2);
+  background: var(--tc-subtle);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.tc-tag__remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; padding: 0;
+  font: inherit; font-size: 11px; line-height: 1;
+  color: var(--tc-muted); background: none; border: 0;
+  border-radius: 50%; cursor: pointer;
+}
+.tc-tag__remove:hover { background: var(--tc-active); color: var(--tc-text); }
+.tc-tag__remove:focus-visible { outline: 2px solid var(--tc-ring-color); }
+.tc-tag--primary { color: var(--tc-primary); background: color-mix(in srgb, var(--tc-primary) 10%, var(--tc-panel)); border-color: color-mix(in srgb, var(--tc-primary) 25%, transparent); }
+.tc-tag--ok  { color: var(--tc-ok);  background: color-mix(in srgb, var(--tc-ok)  10%, var(--tc-panel)); border-color: color-mix(in srgb, var(--tc-ok)  25%, transparent); }
+.tc-tag--warn { color: var(--tc-warn); background: color-mix(in srgb, var(--tc-warn) 10%, var(--tc-panel)); border-color: color-mix(in srgb, var(--tc-warn) 25%, transparent); }
+.tc-tag--err { color: var(--tc-err); background: color-mix(in srgb, var(--tc-err) 10%, var(--tc-panel)); border-color: color-mix(in srgb, var(--tc-err) 25%, transparent); }
+
+/* ── 描述清單（唯讀 key-value）──
+   表單頁用 .tc-grid + .tc-field，唯讀明細頁用 .tc-dl。
+   兩欄 grid，dt 固定 140px 走 muted，dd 承載資料。 */
+.tc-dl {
+  display: grid; grid-template-columns: 140px 1fr; gap: 1px 16px;
+  font-size: var(--tc-fs); margin: 0;
+}
+.tc-dl dt { font-size: var(--tc-fs-sm); font-weight: 600; color: var(--tc-muted); padding: 6px 0; }
+.tc-dl dd { margin: 0; padding: 6px 0; color: var(--tc-text); border-bottom: 1px solid var(--tc-border-subtle); }
+.tc-dl dd:last-of-type { border-bottom: 0; }
+
+/* ── 開關 ──
+   checkbox 管多選，switch 管開/關，語意不同。用 <input type="checkbox" class="tc-switch">。
+   撥鈕用 ::after 畫，位移用 transform 不動版面。 */
+.tc-switch {
+  appearance: none; position: relative;
+  width: 36px; height: 20px; margin: 0; flex: none;
+  background: var(--tc-border);
+  border: 0; border-radius: 10px;
+  cursor: pointer;
+  transition: background-color .15s ease;
+  vertical-align: middle;
+}
+.tc-switch::after {
+  content: "";
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,.15);
+  transition: transform .15s ease;
+}
+.tc-switch:checked { background: var(--tc-primary-fill); }
+.tc-switch:checked::after { transform: translateX(16px); }
+.tc-switch:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: 2px; }
+.tc-switch:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── 摺疊面板 ──
+   用原生 <details class="tc-collapse">，白拿鍵盤操作與 open/close。
+   相鄰的 collapse 自動併邊框（accordion 效果），靠 :has() 撐住。
+   展開三角用 ::before 的 border trick 畫，旋轉靠 transform。 */
+.tc-collapse {
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  background: var(--tc-panel);
+}
+.tc-collapse + .tc-collapse { margin-top: -1px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.tc-collapse:has(+ .tc-collapse) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.tc-collapse > summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px;
+  font-size: var(--tc-fs); font-weight: 600; color: var(--tc-text);
+  cursor: pointer; list-style: none; user-select: none;
+  border-radius: inherit;
+}
+.tc-collapse > summary::-webkit-details-marker { display: none; }
+.tc-collapse > summary::before {
+  content: ""; flex: none;
+  border: 4px solid transparent; border-left: 5px solid var(--tc-muted);
+  transition: transform .15s ease;
+  margin-left: 2px;
+}
+.tc-collapse[open] > summary::before { transform: rotate(90deg); }
+.tc-collapse[open] > summary { border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.tc-collapse > summary:hover { background: var(--tc-hover); }
+.tc-collapse > summary:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: -2px; }
+.tc-collapse__body { padding: 0 14px 12px; font-size: var(--tc-fs); }
+
+/* ── 抽屜面板 ──
+   跟 .tc-dialog 共用原生 <dialog>，白拿 Esc / 焦點鎖 / backdrop。
+   差別只在定位：dialog 居中，drawer 靠右滿高。用 showModal() 開。 */
+.tc-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  margin: 0; padding: 0;
+  width: min(480px, 100vw); height: 100vh; max-height: 100vh;
+  background: var(--tc-panel);
+  border: 0; border-left: 1px solid var(--tc-border-subtle);
+  box-shadow: var(--tc-overlay-shadow);
+  display: flex; flex-direction: column;
+}
+.tc-drawer::backdrop { background: var(--tc-scrim); }
+.tc-drawer__header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--tc-border-subtle);
+  flex: none;
+}
+.tc-drawer__title { margin: 0; font-size: 15px; font-weight: 600; }
+.tc-drawer__body { padding: 16px; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.tc-drawer__footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--tc-border-subtle);
+  background: var(--tc-subtle);
+  flex: none;
+}
+
+/* ── 下拉動作選單 ──
+   樣式層：位置與焦點管理交給 headless primitive（Radix / Headless UI）。
+   demo 用原生 <details> 當觸發器，產品請換掉。 */
+.tc-dropdown { position: relative; display: inline-block; }
+.tc-dropdown > summary { display: inline-flex; align-items: center; list-style: none; cursor: pointer; }
+.tc-dropdown > summary::-webkit-details-marker { display: none; }
+.tc-dropdown__menu {
+  position: absolute; top: 100%; right: 0; margin-top: 4px;
+  min-width: 160px; padding: 4px;
+  background: var(--tc-panel);
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  box-shadow: var(--tc-overlay-shadow);
+  z-index: 20;
+  list-style: none;
+}
+.tc-dropdown__item {
+  display: block; width: 100%; padding: 7px 10px;
+  font: inherit; font-size: var(--tc-fs-sm); font-weight: 500;
+  color: var(--tc-text-2); text-align: left; text-decoration: none;
+  background: none; border: 0; border-radius: 4px; cursor: pointer;
+}
+.tc-dropdown__item:hover { background: var(--tc-hover); color: var(--tc-text); }
+.tc-dropdown__item:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: -2px; }
+.tc-dropdown__item--danger { color: var(--tc-err); }
+.tc-dropdown__item--danger:hover { background: color-mix(in srgb, var(--tc-err) 12%, transparent); }
+.tc-dropdown__divider { height: 1px; margin: 4px 0; background: var(--tc-border-subtle); }
+
+/* ── 提示氣泡 ──
+   CSS-only 版：加 data-tooltip 屬性就行。hover 與 focus-visible 觸發。
+   位置預設在上方，溢出邊界需自行處理（產品接 headless primitive）。 */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute; bottom: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px; font-size: 12px; font-weight: 500;
+  color: #fff; background: var(--tc-text);
+  border-radius: 4px; white-space: nowrap;
+  pointer-events: none; opacity: 0;
+  transition: opacity .1s ease;
+  z-index: 30;
+}
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after { opacity: 1; }
+
+/* ── 樹狀列表 ──
+   用巢狀 <ul class="tc-tree">，可展開節點包在 <details> 裡，原生鍵盤操作。
+   展開三角跟 .tc-collapse 同一個 border trick。 */
+.tc-tree { list-style: none; margin: 0; padding: 0; }
+.tc-tree .tc-tree { padding-left: 20px; }
+.tc-tree__node {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; font-size: var(--tc-fs-sm); color: var(--tc-text-2);
+  border-radius: 4px;
+}
+.tc-tree__node:hover { background: var(--tc-hover); color: var(--tc-text); }
+.tc-tree__node.is-selected { background: color-mix(in srgb, var(--tc-primary) 12%, transparent); color: var(--tc-text); font-weight: 600; }
+.tc-tree details > summary {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; font-size: var(--tc-fs-sm); color: var(--tc-text-2);
+  border-radius: 4px; cursor: pointer;
+  list-style: none; user-select: none;
+}
+.tc-tree details > summary::-webkit-details-marker { display: none; }
+.tc-tree details > summary::before {
+  content: ""; flex: none;
+  border: 4px solid transparent; border-left: 5px solid var(--tc-muted);
+  transition: transform .15s ease;
+}
+.tc-tree details[open] > summary::before { transform: rotate(90deg); }
+.tc-tree details > summary:hover { background: var(--tc-hover); color: var(--tc-text); }
+.tc-tree details > summary:focus-visible { outline: 3px solid var(--tc-ring-color); outline-offset: -2px; }
+
+/* ── 穿梭框 ──
+   權限指派、角色配置：兩欄互搬。中間操作按鈕用既有的 .tc-btn。 */
+.tc-transfer { display: flex; align-items: stretch; gap: 10px; }
+.tc-transfer__panel {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: var(--tc-radius);
+  background: var(--tc-panel);
+  overflow: hidden;
+}
+.tc-transfer__header {
+  padding: 8px 12px;
+  font-size: var(--tc-fs-sm); font-weight: 600; color: var(--tc-text-2);
+  border-bottom: 1px solid var(--tc-border-subtle);
+  background: var(--tc-subtle);
+}
+.tc-transfer__list {
+  list-style: none; margin: 0; padding: 4px;
+  flex: 1; overflow-y: auto; max-height: 200px;
+}
+.tc-transfer__item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; font-size: var(--tc-fs-sm);
+  border-radius: 4px;
+}
+.tc-transfer__item:hover { background: var(--tc-hover); }
+.tc-transfer__actions {
+  display: flex; flex-direction: column; justify-content: center; gap: 6px; flex: none;
+}
+
+/* ── 通知徽章 ──
+   在任何元素上加 data-count 屬性顯示數字角標。
+   空值或不帶 data-count 時顯示小圓點（無數字）。 */
+.tc-noti-dot { position: relative; display: inline-flex; }
+.tc-noti-dot::after {
+  content: attr(data-count);
+  position: absolute; top: -4px; right: -4px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  color: #fff; background: var(--tc-danger);
+  border-radius: 8px; border: 2px solid var(--tc-panel);
+}
+.tc-noti-dot:not([data-count])::after {
+  content: ""; min-width: 8px; height: 8px; padding: 0; top: 0; right: 0;
+}
+
+@media (hover: none) {
+  .tc-table .actions .tc-btn--ghost { color: var(--tc-text); }
+}
+
+/* 中階斷點（960px–1024px 視窗半屏分割或筆電情境）：
+   操作員在 1080p 螢幕左右各開一半視窗時寬度約 960px。
+   工具列在按鈕較多時允許換行，避免按鈕被切斷或橫向溢出。 */
+@media (max-width: 1024px) {
+  .tc-toolbar { flex-wrap: wrap; }
+}
+
+/* 三欄在筆電外接的小螢幕上會把圖表壓到讀不出來，900px 以下一律降兩欄。
+   這個區塊一定要排在 640px 前面：同權重的 media query 後面蓋前面。
+
+   降兩欄的同時 span 也要跟著收：格線只剩兩欄時，span 3 的子元素會拉出一條隱式的
+   第三欄，而隱式軌道是 auto 寬不是 1fr，整個網格變成「兩條等寬 + 一條 auto」的
+   畸形排法（880px 實測 220.7 / 220.7 / 147.6）。選擇器限定在 .tc-dashboard-grid 內：
+   .tc-span-3 是共用 helper，表單的 .tc-grid--3 也在用，那邊要到 640px 才降。 */
+@media (max-width: 900px) {
+  .tc-dashboard-grid,
+  .tc-dashboard-grid[data-cols="3"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tc-dashboard-grid .tc-span-3 { grid-column: span 2; }
+}
+
+@media (max-width: 640px) {
+  /* 下面 .tc-nav 與 .tc-page 的 width: 100% 都不能省，而且是同一個原因。
+     .tc-shell 一旦直排，水平軸就從主軸變成交錯軸，這兩個子元素的寬度不再自動
+     跟著容器走：交錯軸上的 width: auto 解成 fit-content，而 .tc-page 桌機用來
+     置中的 auto 水平邊界更會直接取消拉伸，連 align-items: stretch 都壓不過去。
+     結果是兩者都照內容算寬，再把整頁撐出視窗橫捲：.tc-nav 是所有導覽項目的總寬，
+     .tc-page 是裡面最寬那張表格的寬度。釘死 width 之後 auto 邊界解成 0，內容超出
+     的部分才會落回各自的捲動容器 —— .tc-nav 自己的 overflow-x，以及表格的
+     .tc-table-wrap。 */
+  .tc-shell { flex-direction: column; }
+  .tc-nav {
+    width: 100%; align-self: auto;
+    flex-direction: row; overflow-x: auto; gap: 4px;
+    padding: 8px 12px;
+    border-right: 0; border-bottom: 1px solid var(--tc-border-subtle);
+  }
+  .tc-nav__brand, .tc-nav__group { display: none; }
+  .tc-nav__item { white-space: nowrap; flex: none; }
+  .tc-page { width: 100%; padding: 16px 12px 40px; }
+  .tc-grid,
+  .tc-grid--3 { grid-template-columns: minmax(0, 1fr); }
+  .tc-dashboard-grid,
+  .tc-dashboard-grid[data-cols="3"] { grid-template-columns: minmax(0, 1fr); }
+  /* 第三條是為了蓋掉 900px 區塊裡的 .tc-dashboard-grid .tc-span-3。兩條 media query
+     在 640px 以下同時成立，這時比的是權重不是順序：兩個 class 的 (0,2,0) 壓過單一
+     class 的 (0,1,0)，只寫 .tc-span-3 蓋不動，單欄格線又會被 span 2 拉出隱式第二欄。 */
+  .tc-span-2,
+  .tc-span-3,
+  .tc-dashboard-grid .tc-span-3 { grid-column: auto; }
+  .tc-card__footer,
+  .tc-toolbar,
+  .tc-pagination { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}

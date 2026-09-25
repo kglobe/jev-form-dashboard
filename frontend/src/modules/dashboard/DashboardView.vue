@@ -116,7 +116,7 @@ async function saveLayout() {
   <div v-if="!preview && config.intents?.length" class="text-caption text-medium-emphasis mb-2">
     依據：{{ config.intents.join(' → ') }}
   </div>
-  <div class="tc-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
+  <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
       v-if="!loadError"
       v-model:layout="layout"

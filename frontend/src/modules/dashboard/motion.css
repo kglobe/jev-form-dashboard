@@ -36,18 +36,19 @@
 }
 
 /* 10.6：等 JEV 回應時圖表區變淡 */
-.tc-grid { transition: opacity var(--tc-dur-2) var(--tc-ease-out); }
-.tc-grid.is-busy { opacity: 0.6; }
+/* 不叫 tc‑grid：tactile-clean.css 的 .tc‑grid 是兩欄的 display: grid */
+.dash-grid { transition: opacity var(--tc-dur-2) var(--tc-ease-out); }
+.dash-grid.is-busy { opacity: 0.6; }
 
 /* 10.7：「復原」提示，出現 160ms、關閉 120ms */
-.tc-toast-enter-active {
+.undo-toast-enter-active {
   transition: opacity var(--tc-dur-2) var(--tc-ease-out), transform var(--tc-dur-2) var(--tc-ease-out);
 }
-.tc-toast-leave-active {
+.undo-toast-leave-active {
   transition: opacity var(--tc-dur-1) var(--tc-ease-out), transform var(--tc-dur-1) var(--tc-ease-out);
 }
-.tc-toast-enter-from,
-.tc-toast-leave-to {
+.undo-toast-enter-from,
+.undo-toast-leave-to {
   opacity: 0;
   transform: translateY(6px);
 }
@@ -65,9 +66,9 @@
 @media (prefers-reduced-motion: reduce) {
   .vgl-layout,
   .vgl-layout .vgl-item,
-  .tc-grid,
-  .tc-toast-enter-active,
-  .tc-toast-leave-active,
+  .dash-grid,
+  .undo-toast-enter-active,
+  .undo-toast-leave-active,
   .tc-intent-enter-active {
     transition: none !important;
   }
