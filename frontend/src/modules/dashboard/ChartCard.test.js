@@ -126,6 +126,14 @@ describe('ChartCard', () => {
     expect(tableCard.find('button[aria-label="移除這張圖"]').exists()).toBe(false)
   })
 
+  it('✕ is size small with default density, so it still reaches 28px under the global compact density', () => {
+    const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
+    const card = mountCard({ spec, data: null, highlight: null, removable: true })
+    const btn = card.get('button[aria-label="移除這張圖"]')
+    expect(btn.classes()).toContain('v-btn--size-small')
+    expect(btn.classes()).toContain('v-btn--density-default')
+  })
+
   it('✕ is disabled while the preview waits for JEV', () => {
     const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
     const card = mountCard({ spec, data: null, highlight: null, removable: true, removeDisabled: true })

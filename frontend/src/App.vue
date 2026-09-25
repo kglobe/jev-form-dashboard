@@ -73,6 +73,7 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
             <v-btn
               icon="mdi-delete"
               size="small"
+              density="default"
               variant="text"
               aria-label="刪除儀表板"
               @click.stop="askDelete(d)"

@@ -37,7 +37,10 @@ describe('App', () => {
     await flushPromises()
 
     expect(wrapper.get('.v-navigation-drawer').classes()).toContain('bg-background')
-    expect(findDashboardItem(wrapper).get('button[aria-label="刪除儀表板"]').classes()).toContain('v-btn--size-small')
+    const deleteBtn = findDashboardItem(wrapper).get('button[aria-label="刪除儀表板"]')
+    expect(deleteBtn.classes()).toContain('v-btn--size-small')
+    // 全域 density: 'compact' 會把 size small 的按鈕從 28px 縮到 20px，這裡要蓋回 default 才過得了 24×24
+    expect(deleteBtn.classes()).toContain('v-btn--density-default')
   })
 
   it('shows the error message when opening a dashboard fails', async () => {
