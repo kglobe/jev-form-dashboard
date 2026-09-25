@@ -1,6 +1,7 @@
 package jev.dashboard.dashboard;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -146,5 +147,34 @@ class DashboardControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
+    }
+
+    @Test
+    void intentsAreSavedReadBackAndValidated() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String json = TestData.dashboardJson(ds);
+        String withIntents = json.replace("\"name\":\"銷售總覽\",",
+            "\"name\":\"銷售總覽\",\"intents\":[\"各區每月營收\",\"不要圓餅圖\"],");
+
+        String id = create("u1", withIntents);
+        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.intents").value(contains("各區每月營收", "不要圓餅圖")));
+
+        // 沒有需求紀錄的儀表板（跟舊資料一樣）照常打開，回應裡沒有 intents
+        String plain = create("u1", json);
+        mvc.perform(get("/api/dashboards/" + plain).header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.intents").doesNotExist());
+
+        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content(json.replace("\"name\":\"銷售總覽\",", "\"name\":\"銷售總覽\",\"intents\":[\" \"],")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("需求紀錄不能有空白的句子"));
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content(json.replace("\"name\":\"銷售總覽\",",
+                    "\"name\":\"銷售總覽\",\"intents\":[\"" + "營".repeat(201) + "\"],")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("想看什麼最多 200 字"));
     }
 }

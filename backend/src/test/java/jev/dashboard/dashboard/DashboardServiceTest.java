@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -39,6 +40,10 @@ class DashboardServiceTest {
             .isInstanceOf(ApiException.class)
             .hasMessage(message)
             .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    static DashboardConfig withIntents(List<String> intents) {
+        return new DashboardConfig(null, "銷售總覽", UUID.randomUUID(), null, List.of(), intents);
     }
 
     @Test
@@ -98,5 +103,16 @@ class DashboardServiceTest {
             new Mapping(null, null, null, null, null, List.of("region"), "none", null), Map.of());
         assertThatCode(() -> DashboardService.requireComplete(config(at(new GridPos(6, 0, 6, 4)), table)))
             .doesNotThrowAnyException();
+    }
+
+    @Test
+    void intentsMustBeAtMostTenNonBlankSentencesOf200Chars() {
+        rejects(withIntents(Collections.nCopies(11, "看營收")), "需求紀錄最多 10 句");
+        rejects(withIntents(List.of("看營收", "  ")), "需求紀錄不能有空白的句子");
+        rejects(withIntents(Arrays.asList("看營收", null)), "需求紀錄不能有空白的句子");
+        rejects(withIntents(List.of("營".repeat(201))), "想看什麼最多 200 字");
+        assertThatCode(() -> DashboardService.requireComplete(withIntents(Collections.nCopies(10, "營".repeat(200)))))
+            .doesNotThrowAnyException();
+        assertThatCode(() -> DashboardService.requireComplete(withIntents(null))).doesNotThrowAnyException();
     }
 }
