@@ -417,6 +417,7 @@ describe('DashboardView', () => {
 
     const cards = wrapper.findAllComponents({ name: 'ChartCard' })
     expect(cards.map((c) => [c.props('removable'), c.props('removeDisabled')])).toEqual([[true, true], [true, true]])
+    expect(cards.map((c) => c.vm.$attrs['data-chart-id'])).toEqual(['c1', 'c2']) // 「復原」後找回這張卡片的「✕」
     expect(wrapper.get('.tc-grid').attributes('aria-busy')).toBe('true')
     expect(wrapper.get('.tc-grid').classes()).toContain('is-busy')
 

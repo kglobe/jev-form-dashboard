@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api.js'
 import DashboardView from './DashboardView.vue'
 import './motion.css'
@@ -25,7 +25,8 @@ const nameInvalid = computed(() => !preview.value?.name || !preview.value.name.t
 const history = computed(() => preview.value?.intents ?? [])
 const historyFull = computed(() => history.value.length >= MAX_INTENTS)
 const noFocus = computed(() => history.value.length > 0 && !preview.value.layout.some((s) => s.options?.focus))
-const canAdjust = computed(() => !!adjustText.value.trim() && !adjusting.value && !historyFull.value)
+// 名稱空白時 /preview/data 會拒絕，調整後的預覽就畫不出來
+const canAdjust = computed(() => !!adjustText.value.trim() && !adjusting.value && !historyFull.value && !nameInvalid.value)
 
 // 關掉預覽之後才回來的調整結果直接丟掉
 let adjustSeq = 0
@@ -104,6 +105,8 @@ function undo() {
   layout.splice(index, 0, spec)
   preview.value = { ...preview.value, layout: relayout(layout) }
   closeToast()
+  // 「復原」按鈕跟著提示消失，焦點移到放回來的那張卡片的「✕」
+  nextTick(() => document.querySelector(`[data-chart-id="${CSS.escape(spec.chartId)}"] [aria-label="移除這張圖"]`)?.focus())
 }
 
 function showToast(t) {
@@ -181,7 +184,7 @@ async function save() {
           variant="flat"
           class="mr-2"
           :loading="saving"
-          :disabled="nameInvalid || saving"
+          :disabled="nameInvalid || saving || adjusting"
           @click="save"
         >存為我的儀表板</v-btn>
       </v-toolbar>

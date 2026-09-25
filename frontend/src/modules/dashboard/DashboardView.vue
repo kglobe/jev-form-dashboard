@@ -142,6 +142,7 @@ async function saveLayout() {
         <!-- spec 10.4：動的是 GridItem 裡面的卡片；GridItem 自己的 transform 是格子位置 -->
         <ChartCard
           :spec="specById[item.i]"
+          :data-chart-id="item.i"
           :data="dataById[item.i]"
           :highlight="highlightById[item.i]"
           :removable="preview"

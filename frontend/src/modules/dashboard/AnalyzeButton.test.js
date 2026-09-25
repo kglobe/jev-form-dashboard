@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import AnalyzeButton from './AnalyzeButton.vue'
 import { api } from './api.js'
 import { vuetify } from './test-vuetify.js'
@@ -17,7 +18,10 @@ vi.mock('./DashboardView.vue', () => ({
     name: 'DashboardView',
     props: { config: Object, preview: Boolean, busy: Boolean },
     emits: ['remove'],
-    template: '<div class="dashboard-view-stub" />',
+    // 每張卡片一個「✕」，測「復原」之後焦點回到哪裡
+    template: `<div class="dashboard-view-stub">
+      <div v-for="s in config.layout" :key="s.chartId" :data-chart-id="s.chartId"><button aria-label="移除這張圖" /></div>
+    </div>`,
   },
 }))
 
@@ -230,6 +234,56 @@ describe('AnalyzeButton', () => {
     expect(button('調整').disabled).toBe(false)
   })
 
+  it('調整 is disabled while the dashboard name is blank', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
+    const wrapper = await openPreview()
+
+    await field(wrapper, '想怎麼調整？').find('input').setValue('不要圓餅圖')
+    expect(button('調整').disabled).toBe(false)
+    await field(wrapper, '儀表板名稱').find('input').setValue('   ')
+    await flushPromises()
+    expect(button('調整').disabled).toBe(true)
+  })
+
+  it('存為我的儀表板 is disabled while an adjust is pending', async () => {
+    api.analyze
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
+      .mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = await openPreview()
+    expect(button('存為我的儀表板').disabled).toBe(false)
+
+    await adjustWith(wrapper, '二')
+    expect(button('存為我的儀表板').disabled).toBe(true)
+  })
+
+  it('closing the preview clears the adjust error (no alert on the left panel) and drops a late adjust result', async () => {
+    const first = { name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] }
+    let resolveAdjust
+    api.analyze
+      .mockResolvedValueOnce(first)
+      .mockRejectedValueOnce(new Error('JEV 呼叫失敗（HTTP 500）'))
+      .mockResolvedValueOnce(first)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveAdjust = resolve }))
+    const wrapper = await openPreview()
+
+    await adjustWith(wrapper, '二')
+    expect(document.body.textContent).toContain('JEV 呼叫失敗（HTTP 500）')
+    button('取消').click()
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'VAlert' }).exists()).toBe(false) // 左側面板沒有錯誤訊息
+
+    await wrapper.get('button').trigger('click') // 重新分析，打開預覽
+    await flushPromises()
+    await adjustWith(wrapper, '三')
+    button('取消').click()
+    await flushPromises()
+    resolveAdjust({ name: 'late', datasourceId: 'ds1', intents: ['一', '三'], layout: [] })
+    await flushPromises()
+    expect(view(wrapper).props('config')).toEqual(first)
+    expect(field(wrapper, '想怎麼調整？').props('modelValue')).toBe('三')
+    expect(wrapper.findComponent({ name: 'VAlert' }).exists()).toBe(false)
+  })
+
   it('keeps a name the user typed; otherwise takes the new default name', async () => {
     const layout = [bar('c1', 'A', 0, { focus: true }), table('c2', 4)]
     api.analyze
@@ -307,6 +361,18 @@ describe('AnalyzeButton', () => {
 
     expect(view(wrapper).props('config').layout).toEqual(layout4())
     expect(toastEl()).toBeNull()
+  })
+
+  it('復原 moves focus to the restored card ✕', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    byText(region(), 'button', '復原').click()
+    await nextTick()
+    await nextTick()
+    expect(document.activeElement).toBe(document.body.querySelector('[data-chart-id="c2"] [aria-label="移除這張圖"]'))
   })
 
   it('the notice closes by itself after 6 seconds', async () => {
