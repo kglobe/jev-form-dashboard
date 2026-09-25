@@ -1,0 +1,2 @@
+# vitest 寫快照一律用 LF；Windows 的 autocrlf 會讓 npm test 之後工作區變髒
+frontend/src/modules/dashboard/charts/__snapshots__/*.snap text eol=lf
