@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { nextTick } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import DashboardView from './DashboardView.vue'
 import { api } from './api.js'
+import { prefersReducedMotion } from './motion.js'
 import { vuetify } from './test-vuetify.js'
 
 vi.mock('./api.js', () => ({
@@ -14,10 +16,13 @@ vi.mock('./api.js', () => ({
   },
 }))
 
+vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
+
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled'],
+    emits: ['remove'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
 }))
@@ -26,7 +31,7 @@ vi.mock('grid-layout-plus', () => ({
   GridLayout: {
     name: 'GridLayout',
     props: ['layout', 'colNum', 'rowHeight', 'isDraggable', 'isResizable'],
-    emits: ['update:layout'],
+    emits: ['update:layout', 'layout-ready'],
     template: '<div class="grid-layout-stub" :data-is-draggable="isDraggable" :data-is-resizable="isResizable"><slot /></div>',
   },
   GridItem: {
@@ -57,9 +62,21 @@ function mountView(props) {
   return mount(DashboardView, { props, global: { plugins: [vuetify] } })
 }
 
+const pos = (n) => ({ x: (n % 2) * 6, y: Math.floor(n / 2) * 4, w: 6, h: 4 })
+const bar = (chartId, n) => ({ chartId, type: 'bar', title: chartId, gridPos: pos(n), mapping: { x: 'region', value: 'amount' } })
+const table = (chartId, y) => ({ chartId, type: 'table', title: '明細', gridPos: { x: 0, y, w: 12, h: 5 }, mapping: { columns: ['region'] } })
+const previewOf = (...layout) => ({ name: 'n', datasourceId: 'ds1', layout })
+const chartCard = (wrapper, chartId) =>
+  wrapper.findAllComponents({ name: 'ChartCard' }).find((c) => c.props('spec').chartId === chartId)
+
 describe('DashboardView', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it('preview mode: loads via previewData only, disables drag/resize, and never persists grid moves', async () => {
@@ -263,5 +280,170 @@ describe('DashboardView', () => {
     const c1 = chartCardPayload(wrapper, 'c1')
     expect(c1.data).toEqual({ chartId: 'c1', tag: 'B' })
     expect(c1.highlight).toEqual({ chartId: 'c1', severity: 'B-severity' })
+  })
+
+  it('config change: a removed card keeps its exit class for 120 ms before it leaves the grid; kept cards stay mounted and keep their data until new data arrives', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    api.previewData.mockResolvedValueOnce([{ chartId: 'c1', v: 'old' }, { chartId: 'c2', v: 'old' }, { chartId: 'c3', v: 'old' }])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+    const kept = chartCard(wrapper, 'c1').vm
+
+    let resolveNext
+    api.previewData.mockImplementationOnce(() => new Promise((resolve) => { resolveNext = resolve }))
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), bar('c4', 1), table('c3', 4)) })
+
+    expect(wrapper.get('[data-chart-id="c2"]').classes()).toContain('tc-card-leave')
+    vi.advanceTimersByTime(119)
+    await flushPromises()
+    expect(wrapper.find('[data-chart-id="c2"]').exists()).toBe(true)
+    expect(wrapper.find('[data-chart-id="c4"]').exists()).toBe(false)
+    expect(api.previewData).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(1)
+    await flushPromises()
+    expect(wrapper.find('[data-chart-id="c2"]').exists()).toBe(false)
+    expect(chartCard(wrapper, 'c1').vm).toBe(kept)
+    expect(chartCardPayload(wrapper, 'c1').data).toEqual({ chartId: 'c1', v: 'old' })
+
+    resolveNext([{ chartId: 'c1', v: 'new' }, { chartId: 'c4', v: 'new' }, { chartId: 'c3', v: 'new' }])
+    await flushPromises()
+    expect(chartCardPayload(wrapper, 'c1').data).toEqual({ chartId: 'c1', v: 'new' })
+    expect(chartCardPayload(wrapper, 'c4').data).toEqual({ chartId: 'c4', v: 'new' })
+  })
+
+  it('reduced motion: a removed card leaves at once', async () => {
+    prefersReducedMotion.mockReturnValue(true)
+    api.previewData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), table('c3', 4)) })
+    await flushPromises()
+    expect(wrapper.find('[data-chart-id="c2"]').exists()).toBe(false)
+  })
+
+  it('cards that show up later get the enter class and their layout position for the stagger; nothing enters on the first display', async () => {
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+    expect(wrapper.findAll('.tc-card-enter')).toHaveLength(0)
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), bar('c2', 1), bar('c5', 2), bar('c6', 3), table('c3', 8)) })
+    await flushPromises()
+    const c5 = wrapper.get('[data-chart-id="c5"]')
+    const c6 = wrapper.get('[data-chart-id="c6"]')
+    expect(c5.classes()).toContain('tc-card-enter')
+    expect(c5.element.style.getPropertyValue('--tc-i')).toBe('2')
+    expect(c6.element.style.getPropertyValue('--tc-i')).toBe('3')
+    expect(wrapper.get('[data-chart-id="c1"]').classes()).not.toContain('tc-card-enter')
+  })
+
+  it('adds is-settled only two frames after GridLayout reports layout-ready', async () => {
+    let frame
+    vi.stubGlobal('requestAnimationFrame', (cb) => {
+      frame = cb
+      return 1
+    })
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), table('c3', 4)), preview: true })
+    await flushPromises()
+    const grid = wrapper.get('.grid-layout-stub')
+    expect(grid.classes()).not.toContain('is-settled')
+
+    wrapper.getComponent({ name: 'GridLayout' }).vm.$emit('layout-ready')
+    await nextTick()
+    expect(grid.classes()).not.toContain('is-settled')
+
+    frame()
+    await nextTick()
+    expect(grid.classes()).not.toContain('is-settled')
+
+    frame()
+    await nextTick()
+    expect(grid.classes()).toContain('is-settled')
+  })
+
+  it('preview: a config that only drops cards does not fetch data again', async () => {
+    prefersReducedMotion.mockReturnValue(true)
+    api.previewData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), table('c3', 4)) })
+    await flushPromises()
+    expect(api.previewData).toHaveBeenCalledTimes(1)
+    expect(chartCardPayload(wrapper, 'c1').data).toEqual({ chartId: 'c1' })
+  })
+
+  it('preview: a card that comes back unchanged (復原) reuses its data without fetching; the same chartId with a different chart fetches', async () => {
+    prefersReducedMotion.mockReturnValue(true)
+    api.previewData.mockResolvedValue([{ chartId: 'c1', v: 1 }, { chartId: 'c2', v: 2 }, { chartId: 'c3', v: 3 }])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), table('c3', 4)) })
+    await flushPromises()
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)) })
+    await flushPromises()
+    expect(api.previewData).toHaveBeenCalledTimes(1)
+    expect(chartCardPayload(wrapper, 'c2').data).toEqual({ chartId: 'c2', v: 2 })
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), table('c3', 4)) })
+    await flushPromises()
+    const other = { ...bar('c2', 1), mapping: { x: 'product', value: 'qty' } } // 同一個 chartId，但已經是另一張圖
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), other, table('c3', 4)) })
+    await flushPromises()
+    expect(api.previewData).toHaveBeenCalledTimes(2)
+  })
+
+  it('unmounting during the exit wait cancels the pending load', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
+    await flushPromises()
+
+    await wrapper.setProps({ config: previewOf(bar('c1', 0), bar('c4', 1), table('c3', 4)) })
+    wrapper.unmount()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    expect(api.previewData).toHaveBeenCalledTimes(1)
+  })
+
+  it('preview: cards get ✕ (disabled while busy), the grid area says aria-busy, and a card’s remove is passed up with its chartId', async () => {
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: makeConfig(), preview: true, busy: true })
+    await flushPromises()
+
+    const cards = wrapper.findAllComponents({ name: 'ChartCard' })
+    expect(cards.map((c) => [c.props('removable'), c.props('removeDisabled')])).toEqual([[true, true], [true, true]])
+    expect(cards.map((c) => c.vm.$attrs['data-chart-id'])).toEqual(['c1', 'c2']) // 「復原」後找回這張卡片的「✕」
+    expect(wrapper.get('.tc-grid').attributes('aria-busy')).toBe('true')
+    expect(wrapper.get('.tc-grid').classes()).toContain('is-busy')
+
+    await wrapper.setProps({ busy: false })
+    expect(wrapper.get('.tc-grid').attributes('aria-busy')).toBeUndefined()
+    expect(cards[0].props('removeDisabled')).toBe(false)
+
+    cards[0].vm.$emit('remove')
+    expect(wrapper.emitted('remove')).toEqual([['c1']])
+  })
+
+  it('saved dashboards: no ✕, and the intents show as 依據 joined by →; previews and dashboards without intents show no 依據', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    const saved = mountView({ config: { ...makeConfig(), intents: ['各區每月營收', '不要圓餅圖'] }, preview: false })
+    await flushPromises()
+    expect(saved.text()).toContain('依據：各區每月營收 → 不要圓餅圖')
+    expect(saved.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([false, false])
+
+    const plain = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+    expect(plain.text()).not.toContain('依據')
+
+    api.previewData.mockResolvedValue([])
+    const inPreview = mountView({ config: { ...makeConfig(), intents: ['各區每月營收'] }, preview: true })
+    await flushPromises()
+    expect(inPreview.text()).not.toContain('依據')
   })
 })

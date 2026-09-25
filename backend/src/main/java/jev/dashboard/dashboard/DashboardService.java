@@ -17,6 +17,9 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DashboardService {
+    static final int MAX_INTENTS = 10;
+    static final int MAX_INTENT_LENGTH = 200;
+
     private final DashboardRepository repo;
     private final DatasourceService datasources;
 
@@ -55,9 +58,15 @@ public class DashboardService {
             throw new ApiException(BAD_REQUEST, "name、datasourceId、layout 都必填");
         }
         if (c.name().isBlank()) throw new ApiException(BAD_REQUEST, "儀表板名稱不能空白");
+        requireValidCards(c.layout());
+        requireValidIntents(c.intents());
+    }
+
+    /** 每張卡片都要 transform() 處理得了；存檔、預覽和「調整」送來的 current 共用同一套訊息。 */
+    public static void requireValidCards(List<ChartSpec> layout) {
         Set<String> chartIds = new HashSet<>();
-        for (int i = 0; i < c.layout().size(); i++) {
-            ChartSpec s = c.layout().get(i);
+        for (int i = 0; i < layout.size(); i++) {
+            ChartSpec s = layout.get(i);
             if (s == null) throw new ApiException(BAD_REQUEST, "第 " + (i + 1) + " 張圖表是空的");
             if (s.chartId() == null || s.chartId().isBlank()) {
                 throw new ApiException(BAD_REQUEST, "第 " + (i + 1) + " 張圖表缺少 chartId");
@@ -66,6 +75,16 @@ public class DashboardService {
             String problem = cardProblem(s);
             if (problem != null) throw new ApiException(BAD_REQUEST, "圖表 " + s.chartId() + "：" + problem);
         }
+    }
+
+    /** spec 4、7：需求紀錄最多 10 句、每句最多 200 字、不能是空白。 */
+    public static void requireValidIntents(List<String> intents) {
+        if (intents == null) return;
+        for (String s : intents) {
+            if (s == null || s.isBlank()) throw new ApiException(BAD_REQUEST, "需求紀錄不能有空白的句子");
+            if (s.length() > MAX_INTENT_LENGTH) throw new ApiException(BAD_REQUEST, "想看什麼最多 200 字");
+        }
+        if (intents.size() > MAX_INTENTS) throw new ApiException(BAD_REQUEST, "需求紀錄最多 10 句");
     }
 
     private static String cardProblem(ChartSpec s) {

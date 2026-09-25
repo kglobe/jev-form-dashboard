@@ -8,7 +8,11 @@ const props = defineProps({
   spec: { type: Object, required: true },
   data: { type: Object, default: null },
   highlight: { type: Object, default: null },
+  // 預覽裡才有「✕」；等 JEV 回應時停用
+  removable: { type: Boolean, default: false },
+  removeDisabled: { type: Boolean, default: false },
 })
+const emit = defineEmits(['remove'])
 
 const SEVERITY_COLOR = { 正常波動: 'success', 值得注意: 'info', 需要關注: 'warning', 嚴重警示: 'error' }
 
@@ -27,9 +31,21 @@ const option = computed(() =>
     <v-card-title class="card-drag d-flex align-center text-subtitle-1">
       <span class="text-truncate">{{ spec.title }}</span>
       <v-spacer />
+      <v-chip v-if="spec.options?.focus" size="small" color="primary" class="mr-1">符合需求</v-chip>
       <v-chip v-if="highlight" size="small" :color="SEVERITY_COLOR[highlight.severity]">
         {{ highlight.severity }}
       </v-chip>
+      <!-- grid-layout-plus 的 dragIgnoreFrom 預設是 'a, button'，按「✕」不會被當成拖拉 -->
+      <v-btn
+        v-if="removable && spec.type !== 'table'"
+        icon="mdi-close"
+        size="x-small"
+        variant="text"
+        class="tc-remove ml-1"
+        aria-label="移除這張圖"
+        :disabled="removeDisabled"
+        @click="emit('remove')"
+      />
     </v-card-title>
     <v-card-text class="flex-grow-1 card-body">
       <div v-if="!data" class="text-medium-emphasis">載入中…</div>
@@ -60,4 +76,11 @@ const option = computed(() =>
 <style scoped>
 .card-drag { cursor: move; }
 .card-body { min-height: 0; }
+/* spec 10.5：靜止時就看得到，hover 變主文字色，按下時往下 1px；x-small 的圖示按鈕是 32×32，超過 24×24 */
+.tc-remove {
+  color: var(--tc-muted, rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)));
+  transition: none;
+}
+.tc-remove:hover { color: var(--tc-text, rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity))); }
+.tc-remove:active { transform: translateY(1px); }
 </style>

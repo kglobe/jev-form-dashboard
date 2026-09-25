@@ -1,0 +1,12 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "combo_0": {"type": "choice", "choice": "none", "confidence": 0.8},
+    "combo_1": {"type": "choice", "choice": "bar", "confidence": 0.9},
+    "combo_2": {"type": "choice", "choice": "none", "confidence": 0.8},
+    "combo_3": {"type": "choice", "choice": "none", "confidence": 0.8},
+    "combo_4": {"type": "choice", "choice": "none", "confidence": 0.8},
+    "combo_5": {"type": "choice", "choice": "bar", "confidence": 0.85}
+  },
+  "usage": {"input_tokens": 900, "output_tokens": 40}
+}

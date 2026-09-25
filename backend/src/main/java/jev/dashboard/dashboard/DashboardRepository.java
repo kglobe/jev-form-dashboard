@@ -1,5 +1,6 @@
 package jev.dashboard.dashboard;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.UncheckedIOException;
@@ -17,7 +18,9 @@ import org.springframework.stereotype.Repository;
 public class DashboardRepository {
     public record DashboardSummary(UUID id, String name, UUID datasourceId, OffsetDateTime updatedAt) {}
 
-    record Stored(List<ChartSpec> layout) {}
+    /** config_json 的內容。intents 是 null 時不寫出來，所以舊資料和沒有需求的儀表板長得一樣。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record Stored(List<ChartSpec> layout, List<String> intents) {}
 
     private final JdbcClient jdbc;
     private final ObjectMapper json;
@@ -36,7 +39,7 @@ public class DashboardRepository {
             .param("name", c.name())
             .param("ds", c.datasourceId())
             .param("by", userId)
-            .param("config", write(new Stored(c.layout())))
+            .param("config", write(new Stored(c.layout(), c.intents())))
             .update();
         return id;
     }
@@ -60,7 +63,7 @@ public class DashboardRepository {
                 update dashboard set name = :name, config_json = cast(:config as jsonb), updated_at = now()
                 where id = :id and created_by = :by""")
             .param("name", c.name())
-            .param("config", write(new Stored(c.layout())))
+            .param("config", write(new Stored(c.layout(), c.intents())))
             .param("id", id)
             .param("by", userId)
             .update() == 1;
@@ -80,7 +83,7 @@ public class DashboardRepository {
             throw new UncheckedIOException(e);
         }
         return new DashboardConfig(rs.getObject("id", UUID.class), rs.getString("name"),
-            rs.getObject("datasource_id", UUID.class), rs.getString("created_by"), stored.layout());
+            rs.getObject("datasource_id", UUID.class), rs.getString("created_by"), stored.layout(), stored.intents());
     }
 
     private String write(Object value) {

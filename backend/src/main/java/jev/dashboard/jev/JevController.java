@@ -4,9 +4,11 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.dashboard.DashboardDataService;
 import jev.dashboard.dashboard.DashboardService;
@@ -15,6 +17,7 @@ import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.UniversalTransformer;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,7 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/jev")
 public class JevController {
-    public record AnalyzeRequest(UUID datasourceId) {}
+    /** intents：需求紀錄（選填），最後一句是這次的需求。current：有值就是調整模式，放目前預覽裡的圖（含明細表）。 */
+    public record AnalyzeRequest(UUID datasourceId, List<String> intents, List<ChartSpec> current) {}
 
     private final DatasourceService datasources;
     private final AnalyzeService analyzer;
@@ -47,9 +51,21 @@ public class JevController {
 
     @PostMapping("/analyze")
     public DashboardConfig analyze(@RequestHeader("X-User-Id") String userId, @RequestBody AnalyzeRequest body) {
+        List<String> intents = clean(body.intents());
+        DashboardService.requireValidIntents(intents);
+        if (body.current() != null) {
+            if (intents.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "請輸入想怎麼調整");
+            DashboardService.requireValidCards(body.current());
+        }
         DatasourceService.Loaded loaded = datasources.load(userId, body.datasourceId());
         return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
-            loaded.datasource().schema(), loaded.rows().size());
+            loaded.datasource().schema(), loaded.rows().size(), intents, body.current());
+    }
+
+    /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */
+    static List<String> clean(List<String> intents) {
+        if (intents == null) return List.of();
+        return intents.stream().filter(Objects::nonNull).map(String::strip).filter(s -> !s.isEmpty()).toList();
     }
 
     @GetMapping("/highlight/{dashboardId}")
