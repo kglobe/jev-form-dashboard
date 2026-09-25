@@ -1,0 +1,71 @@
+/* spec 10.1：儀表板模組共用的動態設定。模組不能依賴模組以外的檔案，所以放在這裡。 */
+:root {
+  --tc-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --tc-dur-1: 120ms; /* 退場、淡出 */
+  --tc-dur-2: 160ms; /* 提示、需求紀錄、等待狀態 */
+  --tc-dur-3: 200ms; /* 卡片進場 */
+}
+
+/* 10.2：GridLayout 量好寬度的下一幀才加 is-settled，在那之前不做位移轉場，打開、切換儀表板時卡片不會飛過畫面 */
+.vgl-layout:not(.is-settled),
+.vgl-layout:not(.is-settled) .vgl-item { transition: none !important; }
+
+/* 10.4：調整後新增、按「復原」放回的卡片淡入加位移，依版面位置每張晚 30ms，最多晚 150ms */
+.vgl-item .tc-card-enter {
+  animation: tc-card-enter var(--tc-dur-3) var(--tc-ease-out) calc(min(var(--tc-i, 0), 5) * 30ms) both;
+}
+
+@keyframes tc-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* 10.5：被移除的卡片退場 */
+.vgl-item .tc-card-leave {
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity var(--tc-dur-1) var(--tc-ease-out), transform var(--tc-dur-1) var(--tc-ease-out);
+}
+
+/* 10.6：等 JEV 回應時圖表區變淡 */
+.tc-grid { transition: opacity var(--tc-dur-2) var(--tc-ease-out); }
+.tc-grid.is-busy { opacity: 0.6; }
+
+/* 10.7：「復原」提示，出現 160ms、關閉 120ms */
+.tc-toast-enter-active {
+  transition: opacity var(--tc-dur-2) var(--tc-ease-out), transform var(--tc-dur-2) var(--tc-ease-out);
+}
+.tc-toast-leave-active {
+  transition: opacity var(--tc-dur-1) var(--tc-ease-out), transform var(--tc-dur-1) var(--tc-ease-out);
+}
+.tc-toast-enter-from,
+.tc-toast-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* 10.8：需求紀錄新增一句 */
+.tc-intent-enter-active {
+  transition: opacity var(--tc-dur-2) var(--tc-ease-out), transform var(--tc-dur-2) var(--tc-ease-out);
+}
+.tc-intent-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* 10.9：減少動態效果時全部瞬間完成，補位也不滑。JS 那邊用 motion.js 的 prefersReducedMotion()。 */
+@media (prefers-reduced-motion: reduce) {
+  .vgl-layout,
+  .vgl-layout .vgl-item,
+  .vgl-item .tc-card-leave,
+  .tc-grid,
+  .tc-toast-enter-active,
+  .tc-toast-leave-active,
+  .tc-intent-enter-active {
+    transition: none !important;
+  }
+
+  .vgl-item .tc-card-enter { animation: none !important; }
+}

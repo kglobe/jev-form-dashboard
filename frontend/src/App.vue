@@ -83,7 +83,8 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
     <v-main>
       <v-container fluid>
         <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
-        <DashboardView v-if="current" :config="current" />
+        <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
+        <DashboardView v-if="current" :key="current.id" :config="current" />
         <div v-else class="text-medium-emphasis">選一份儀表板，或上傳資料後按「分析」。</div>
       </v-container>
     </v-main>

@@ -105,4 +105,22 @@ describe('App', () => {
 
     expect(wrapper.text()).toContain('刪除失敗')
   })
+
+  it('re-creates DashboardView when another saved dashboard is opened (keyed by id), so cards never slide over from the previous one', async () => {
+    api.listDashboards.mockResolvedValue([{ id: 'd1', name: 'Dash One' }, { id: 'd2', name: 'Dash Two' }])
+    api.getDashboard.mockImplementation(async (id) => ({ id, name: id, datasourceId: 'ds1', layout: [] }))
+    const wrapper = mount(App, { global: { plugins: [vuetify] } })
+    await flushPromises()
+    const item = (name) => wrapper.findAll('.v-list-item').find((w) => w.text().includes(name))
+
+    await item('Dash One').trigger('click')
+    await flushPromises()
+    const first = wrapper.findComponent({ name: 'DashboardView' }).vm
+
+    await item('Dash Two').trigger('click')
+    await flushPromises()
+    const second = wrapper.findComponent({ name: 'DashboardView' })
+    expect(second.props('config').id).toBe('d2')
+    expect(second.vm).not.toBe(first)
+  })
 })
