@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ChartCard from './ChartCard.vue'
 import { vuetify } from './test-vuetify.js'
+import tactileLight from './charts/themes/tactile-light.json'
 
 vi.mock('echarts', () => ({}))
 vi.mock('vue-echarts', () => ({
   default: {
     name: 'VChart',
-    props: ['option', 'autoresize'],
+    props: ['option', 'autoresize', 'theme'],
     template: '<div class="v-chart-stub" />',
   },
 }))
@@ -17,7 +18,16 @@ function mountCard(props) {
   return mount(ChartCard, { props, global: { plugins: [vuetify] } })
 }
 
+const barSpec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
+const barData = { chartId: 'c1', type: 'bar', dimensions: ['region', 'amount'], rows: [['北區', 1200000]] }
+const chartOf = (card) => card.getComponent({ name: 'VChart' })
+const optionFor = (type) => chartOf(mountCard({ spec: { ...barSpec, type }, data: { ...barData, type }, highlight: null })).props('option')
+
 describe('ChartCard', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('shows the FIELD_MISSING alert and renders no chart when a required field is missing', () => {
     const wrapper = mountCard({
       spec: { chartId: 'c1', type: 'bar', title: 'T', mapping: {} },
@@ -158,5 +168,43 @@ describe('ChartCard', () => {
       highlight: null,
     })
     expect(card.get('.v-alert').classes()).toContain('tc-fade-in')
+  })
+
+  it('passes the tactile theme; every series, the hover state and the tooltip get the tuned animation, and the tooltip keeps its settings', () => {
+    const card = mountCard({
+      spec: { chartId: 'c1', type: 'stacked_bar', title: 'T', mapping: {} },
+      data: { chartId: 'c1', type: 'stacked_bar', dimensions: ['month', 'region', 'amount'], rows: [['1月', '北區', 1], ['1月', '南區', 2]] },
+      highlight: null,
+    })
+    expect(chartOf(card).props('theme')).toBe(tactileLight)
+    const option = chartOf(card).props('option')
+    expect(option.series).toHaveLength(2)
+    for (const s of option.series) {
+      expect(s).toMatchObject({ animationDuration: 300, animationEasing: 'cubicOut', animationDurationUpdate: 250, animationEasingUpdate: 'cubicOut' })
+    }
+    expect(option.stateAnimation).toEqual({ duration: 120, easing: 'cubicOut' })
+    expect(option.tooltip).toEqual({ trigger: 'axis', transitionDuration: 0 })
+    expect(option.animation).toBeUndefined()
+    expect(option.aria).toEqual({ enabled: true, decal: { show: true } })
+  })
+
+  it('bar and pie turn on aria decals too, since the theme has only 6 colours; line does not', () => {
+    expect(optionFor('bar').aria).toEqual({ enabled: true, decal: { show: true } })
+    expect(optionFor('pie').aria).toEqual({ enabled: true, decal: { show: true } })
+    expect(optionFor('line').aria).toBeUndefined()
+  })
+
+  it('value axes label numbers in compact zh-TW form; category axes are left as they were', () => {
+    const option = optionFor('bar')
+    expect(option.yAxis.type).toBe('value')
+    expect(option.yAxis.axisLabel.formatter(1200000)).toBe('120萬')
+    expect(option.xAxis).toEqual({ type: 'category' })
+  })
+
+  it('reduced motion: the chart does not animate and the hover state is instant', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }))
+    const option = optionFor('bar')
+    expect(option.animation).toBe(false)
+    expect(option.stateAnimation.duration).toBe(0)
   })
 })
