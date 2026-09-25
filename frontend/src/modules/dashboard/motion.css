@@ -10,9 +10,11 @@
 .vgl-layout:not(.is-settled),
 .vgl-layout:not(.is-settled) .vgl-item { transition: none !important; }
 
-/* 10.4：調整後新增、按「復原」放回的卡片淡入加位移，依版面位置每張晚 30ms，最多晚 150ms */
+/* 10.4、Tactile spec 4.4：打開已存儀表板時每張卡片都進場，調整後新增、按「復原」放回的也進場；
+   依畫面位置每張晚 30ms，最多晚 150ms。fill 用 backwards 不用 both：延遲期間停在 from，播完就放掉，
+   不然播完的動畫會一直壓著 transform，拖拉時的抬起（4.5）就出不來 */
 .vgl-item .tc-card-enter {
-  animation: tc-card-enter var(--tc-dur-3) var(--tc-ease-out) calc(min(var(--tc-i, 0), 5) * 30ms) both;
+  animation: tc-card-enter var(--tc-dur-3) var(--tc-ease-out) calc(min(var(--tc-i, 0), 5) * 30ms) backwards;
 }
 
 @keyframes tc-card-enter {
@@ -33,6 +35,77 @@
     opacity: 0;
     transform: scale(0.98);
   }
+}
+
+/* Tactile spec 4.2：骨架先等 150ms 才淡入，資料很快回來時骨架根本不會出現；接著 shimmer 每 1.4s 一輪。
+   tc-shimmer 定義在 tactile-clean.css，沒有 App 層樣式時就只剩淡入。
+   選擇器要寫兩個 class：tactile-clean.css 比這個檔案晚載入，只寫一個 class 的話會被它的 .tc-skeleton 蓋掉 */
+.tc-skeleton.card-skeleton {
+  animation: tc-fade-in var(--tc-dur-1) var(--tc-ease-out) 150ms both, tc-shimmer 1.4s ease-in-out 150ms infinite;
+}
+
+@keyframes tc-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Tactile spec 4.2、4.7：明細表、卡片裡的警示、異常標籤出現時淡入。異常標籤比圖表晚到，不縮放、不彈跳、不閃爍 */
+.tc-fade-in {
+  transition: opacity var(--tc-dur-1) var(--tc-ease-out);
+}
+
+@starting-style {
+  .tc-fade-in {
+    opacity: 0;
+  }
+}
+
+/* Tactile spec 4.5：拖拉、縮放中的卡片往上抬 2px（跟按鈕下沉的 2px 對稱），陰影換成浮層。
+   覆寫檔裡的 .v-card 帶 !important，這裡也要加，靠較高的權重蓋過去 */
+.vgl-item > .v-card {
+  transition: box-shadow var(--tc-dur-2) var(--tc-ease-out), transform var(--tc-dur-2) var(--tc-ease-out);
+}
+
+.vgl-item--dragging > .v-card,
+.vgl-item--resizing > .v-card {
+  box-shadow: var(--tc-overlay-shadow, 0 16px 32px -8px rgba(15, 23, 42, 0.24), 0 4px 8px -2px rgba(15, 23, 42, 0.12)) !important;
+  transform: translateY(-2px);
+}
+
+/* 多一層 .vgl-layout：ChartCard scoped 的 .card-drag { cursor: move } 權重跟這條一樣，載入順序又不一定 */
+.vgl-layout .vgl-item--dragging .card-drag {
+  cursor: grabbing;
+}
+
+/* 佔位框用主色：套件預設的紅色在這套系統代表錯誤。縮放時不變淡，看得清楚自己在縮什麼。
+   套件把這些變數定義在 .vgl-layout 上，要多一層 .dash-grid 才蓋得過 */
+.dash-grid .vgl-layout {
+  --vgl-placeholder-bg: color-mix(in srgb, var(--tc-primary, #005caf) 10%, transparent);
+  --vgl-placeholder-opacity: 100%;
+  --vgl-item-resizing-opacity: 100%;
+  --vgl-resizer-border-color: var(--tc-border-strong, #737980);
+}
+
+.dash-grid .vgl-item--placeholder {
+  border: 1px dashed var(--tc-primary, #005caf);
+  border-radius: var(--tc-radius-lg, 8px);
+}
+
+/* Tactile spec 4.6：預覽對話框往上浮入 200ms、往下淡出 120ms，不縮放 */
+.tc-sheet-enter-active {
+  transition: opacity var(--tc-dur-3) var(--tc-ease-out), transform var(--tc-dur-3) var(--tc-ease-out);
+}
+.tc-sheet-leave-active {
+  transition: opacity var(--tc-dur-1) var(--tc-ease-out), transform var(--tc-dur-1) var(--tc-ease-out);
+}
+.tc-sheet-enter-from {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.tc-sheet-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 /* 10.6：等 JEV 回應時圖表區變淡 */
@@ -62,19 +135,30 @@
   transform: translateY(4px);
 }
 
-/* 10.9：減少動態效果時全部瞬間完成，補位也不滑。JS 那邊用 motion.js 的 prefersReducedMotion()。 */
+/* 10.9、Tactile spec 4.9：減少動態效果時全部瞬間完成，補位也不滑。JS 那邊用 motion.js 的 prefersReducedMotion()。
+   拖拉抬起的陰影照樣加深，那是層次不是動態；位移和轉場歸零 */
 @media (prefers-reduced-motion: reduce) {
   .vgl-layout,
   .vgl-layout .vgl-item,
+  .vgl-item > .v-card,
   .dash-grid,
   .undo-toast-enter-active,
   .undo-toast-leave-active,
-  .tc-intent-enter-active {
+  .tc-intent-enter-active,
+  .tc-fade-in,
+  .tc-sheet-enter-active,
+  .tc-sheet-leave-active {
     transition: none !important;
   }
 
   .vgl-item .tc-card-enter,
-  .vgl-item .tc-card-leave {
+  .vgl-item .tc-card-leave,
+  .tc-skeleton.card-skeleton {
     animation: none !important;
+  }
+
+  .vgl-item--dragging > .v-card,
+  .vgl-item--resizing > .v-card {
+    transform: none;
   }
 }
