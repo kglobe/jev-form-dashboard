@@ -6,8 +6,8 @@
 
 ## 功能構想
 
-- P3 · 分析前先讓使用者用一段文字講想看什麼（一個輸入框／對話框），JEV 再照這個提示挑欄位、選圖表。（human 提出的構想）
-- P3 · 存檔後用對話的方式說「幫我加一張圖」。JEV 目前只回答結構化的題目（choice / score / noul），沒有自由對話能力，這個功能要嘛在前面加一層「把需求轉成結構化題目」的邏輯，要嘛換一個支援對話的模型，需要另外設計，不是這次架構能直接做的事。（human 提出的構想）
+- ~~P3 · 分析前先讓使用者用一段文字講想看什麼（一個輸入框／對話框），JEV 再照這個提示挑欄位、選圖表。（human 提出的構想）~~ 已完成：分析前可以輸入需求，預覽裡也能「調整」，見 spec `docs/superpowers/specs/2026-09-25-jev-dashboard-intent-analysis-design.md`。
+- P3 · 已存儀表板的對話式修改：存檔後用一句話說「幫我加一張圖」。預覽裡的「調整」已經把需求轉成 JEV 的結構化題目（`rel_i`、`keep_<chartId>`，加上 `current`），這裡可以沿用同一套機制，入口和存檔流程另立 spec 設計。（human 提出的構想）
 
 ## 正式上線前
 
@@ -32,13 +32,16 @@
 - P3 · `/data` 或 `/highlight` 哪天真的回了 204（目前的 `api.js` 對 204 一律回傳 `null`），`DashboardView.vue` 的 `found.map(...)` 會直接丟例外，打斷原本「查不到就安靜不標註」的設計。（frontend ledger，Task 3）
 - P3 · `ChartCard` 只認得 `FIELD_MISSING` 這個錯誤代碼；卡片如果帶著其他 `error` 值回來，畫面上什麼提示都不會顯示，直接變成空白圖表。（frontend ledger，Task 3）
 - P3 · `DatasourcePanel` 用同一個 `busy` 旗標擋上傳／註冊和逐欄位的敏感勾選，操作其中一個時其他都會被鎖住。（frontend ledger，Task 4）
-- P3 · 分析預覽存檔失敗的錯誤訊息，取消對話框後不會清掉，下次打開還會看到舊的錯誤。（frontend ledger，Task 4）
+- ~~P3 · 分析預覽存檔失敗的錯誤訊息，取消對話框後不會清掉，下次打開還會看到舊的錯誤。（frontend ledger，Task 4）~~ 已修正：關掉預覽時會清掉錯誤訊息（依需求分析與調整）。
 - P3 · 切換儀表板（`App.vue` 的 `open()`）沒有防過期回應的機制，快速切換時舊的回應可能蓋掉新畫面。（frontend ledger，Task 4）
 - P3 · PUT 更新儀表板時，body 裡的 `datasourceId` 會被完全忽略，換成別的資料源也不會報錯。（backend ledger，Task 10）
 - P3 · 外部 API 回應是空 body（204 或空陣列）時目前回 502，訊息不夠精準。（backend ledger，Task 6）
 - P3 · 外部 API 回應如果不是 UTF-8（例如 Big5/MS950），現在的串流 JSON 解析不會另外處理編碼。（backend ledger，Task 6）
 - P3 · 舊版 `.xls`（非 `.xlsx`）還是用一次載入整本活頁簿的 POI API，大檔案一樣有吃滿記憶體的風險；這次只有 `.xlsx` 改成邊讀邊處理。（backend ledger，Task 5）
 - P3 · `RestClientException` 全部歸類成「無法連線」，其實也包含非連線類的失敗（例如回應格式解析錯誤），訊息可能誤導。（backend ledger，Task 7）
+- P3 · 第一次分析沒填需求時保留下來的圖，之後即使做了調整也不會被標「符合需求」，因為它一開始就不是照焦點欄位選出來的。（spec gap）
+- P3 · 調整還在等 JEV 回應時，「存為我的儀表板」沒有跟著停用，這時候按下去存的是調整前的版面。（frontend ledger）
+- P3 · 按「復原」把卡片放回去之後，焦點沒有回到那張卡片或任何有意義的地方，會落在 `document.body` 上。（frontend ledger）
 
 ## 資料品質
 
