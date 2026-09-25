@@ -338,7 +338,7 @@ describe('DashboardView', () => {
     expect(wrapper.get('[data-chart-id="c1"]').classes()).not.toContain('tc-card-enter')
   })
 
-  it('adds is-settled only on the frame after GridLayout reports layout-ready', async () => {
+  it('adds is-settled only two frames after GridLayout reports layout-ready', async () => {
     let frame
     vi.stubGlobal('requestAnimationFrame', (cb) => {
       frame = cb
@@ -351,6 +351,10 @@ describe('DashboardView', () => {
     expect(grid.classes()).not.toContain('is-settled')
 
     wrapper.getComponent({ name: 'GridLayout' }).vm.$emit('layout-ready')
+    await nextTick()
+    expect(grid.classes()).not.toContain('is-settled')
+
+    frame()
     await nextTick()
     expect(grid.classes()).not.toContain('is-settled')
 

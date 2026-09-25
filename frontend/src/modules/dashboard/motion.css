@@ -22,11 +22,17 @@
   }
 }
 
-/* 10.5：被移除的卡片退場 */
+/* 10.5：被移除的卡片退場。用 animation 不用 transition，且要寫在 10.4 後面：
+   兩條規則的 specificity 一樣，同一張卡片還沒清掉 tc-card-enter 時，後宣告的這條才蓋得過還在 fill 的進場動畫 */
 .vgl-item .tc-card-leave {
-  opacity: 0;
-  transform: scale(0.98);
-  transition: opacity var(--tc-dur-1) var(--tc-ease-out), transform var(--tc-dur-1) var(--tc-ease-out);
+  animation: tc-card-leave var(--tc-dur-1) var(--tc-ease-out) both;
+}
+
+@keyframes tc-card-leave {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
 }
 
 /* 10.6：等 JEV 回應時圖表區變淡 */
@@ -59,7 +65,6 @@
 @media (prefers-reduced-motion: reduce) {
   .vgl-layout,
   .vgl-layout .vgl-item,
-  .vgl-item .tc-card-leave,
   .tc-grid,
   .tc-toast-enter-active,
   .tc-toast-leave-active,
@@ -67,5 +72,8 @@
     transition: none !important;
   }
 
-  .vgl-item .tc-card-enter { animation: none !important; }
+  .vgl-item .tc-card-enter,
+  .vgl-item .tc-card-leave {
+    animation: none !important;
+  }
 }

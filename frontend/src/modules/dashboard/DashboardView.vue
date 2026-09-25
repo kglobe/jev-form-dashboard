@@ -91,9 +91,10 @@ onBeforeUnmount(() => {
   loadSeq++
 })
 
-// spec 10.2：套件量好寬度、卡片就定位的下一幀，才打開位移轉場
+// spec 10.2：layout-ready 那個 task 裡，grid-layout-plus 量完寬度但這一幀還沒 recalc 版面；
+// 用兩層 rAF 等到下一幀才打開位移轉場，才不會跟卡片定位同一次生效，飛過畫面
 function onLayoutReady() {
-  requestAnimationFrame(() => (settled.value = true))
+  requestAnimationFrame(() => requestAnimationFrame(() => (settled.value = true)))
 }
 
 async function saveLayout() {
