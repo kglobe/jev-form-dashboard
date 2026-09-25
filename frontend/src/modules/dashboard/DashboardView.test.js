@@ -30,7 +30,7 @@ vi.mock('./ChartCard.vue', () => ({
 vi.mock('grid-layout-plus', () => ({
   GridLayout: {
     name: 'GridLayout',
-    props: ['layout', 'colNum', 'rowHeight', 'isDraggable', 'isResizable'],
+    props: ['layout', 'colNum', 'rowHeight', 'isDraggable', 'isResizable', 'margin'],
     emits: ['update:layout', 'layout-ready'],
     template: '<div class="grid-layout-stub" :data-is-draggable="isDraggable" :data-is-resizable="isResizable"><slot /></div>',
   },
@@ -323,7 +323,7 @@ describe('DashboardView', () => {
     expect(wrapper.find('[data-chart-id="c2"]').exists()).toBe(false)
   })
 
-  it('cards that show up later get the enter class and their layout position for the stagger; nothing enters on the first display', async () => {
+  it('preview: nothing enters on the first display (the dialog has its own transition); cards that show up later enter, staggered after the kept cards', async () => {
     api.previewData.mockResolvedValue([])
     const wrapper = mountView({ config: previewOf(bar('c1', 0), bar('c2', 1), table('c3', 4)), preview: true })
     await flushPromises()
@@ -445,5 +445,25 @@ describe('DashboardView', () => {
     const inPreview = mountView({ config: { ...makeConfig(), intents: ['各區每月營收'] }, preview: true })
     await flushPromises()
     expect(inPreview.text()).not.toContain('依據')
+  })
+
+  it('saved dashboard, first display: every card enters, staggered in on-screen (y, x) order rather than array order', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    // 陣列順序跟畫面順序不同：c1 在右上、c2 在左上，好比使用者拖過之後存的版面
+    const config = { ...makeConfig(), layout: [bar('c1', 1), bar('c2', 0), table('c3', 4)] }
+    const wrapper = mountView({ config, preview: false })
+    await flushPromises()
+
+    const card = (id) => wrapper.get(`[data-chart-id="${id}"]`)
+    for (const id of ['c1', 'c2', 'c3']) expect(card(id).classes()).toContain('tc-card-enter')
+    expect(['c2', 'c1', 'c3'].map((id) => card(id).element.style.getPropertyValue('--tc-i'))).toEqual(['0', '1', '2'])
+  })
+
+  it('cards sit 14px apart', async () => {
+    api.previewData.mockResolvedValue([])
+    const wrapper = mountView({ config: makeConfig(), preview: true })
+    await flushPromises()
+    expect(wrapper.getComponent({ name: 'GridLayout' }).props('margin')).toEqual([14, 14])
   })
 })

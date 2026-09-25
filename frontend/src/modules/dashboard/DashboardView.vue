@@ -30,6 +30,11 @@ const entering = ref(new Set())
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 
+// spec 4.4：錯開的順序照畫面位置（先 y 再 x）。使用者拖過之後，layout 陣列的順序不一定等於畫面順序
+const screenOrder = computed(() =>
+  Object.fromEntries([...layout.value].sort((a, b) => a.y - b.y || a.x - b.x).map((l, n) => [l.i, n])),
+)
+
 let loadSeq = 0
 // 預覽裡最近一次被拿掉的卡片：chartId → { spec, data }；按「復原」放回同一張圖時直接沿用資料
 let removed = {}
@@ -48,8 +53,9 @@ async function load() {
     if (seq !== loadSeq) return
   }
   leaving.value = new Set()
-  // spec 10.4：第一次顯示不做進場；之後才出現的卡片（調整新增的、按「復原」放回的）才進場
-  entering.value = new Set(shown.length ? [...ids].filter((id) => !shown.includes(id)) : [])
+  // spec 4.4：已存的儀表板第一次顯示時每張都進場（App 用 :key 換儀表板，每次打開都是第一次）；
+  // 預覽第一次顯示不進場，對話框自己有轉場；之後才出現的卡片（調整新增的、按「復原」放回的）才進場
+  entering.value = new Set(shown.length ? [...ids].filter((id) => !shown.includes(id)) : props.preview ? [] : ids)
   // spec 10.7：按「復原」放回同一張圖時，沿用它被拿掉時的資料，不重抓、不閃「載入中」
   const restored = Object.fromEntries(next
     .filter((s) => removed[s.chartId] && sameChart(removed[s.chartId].spec, s))
@@ -123,12 +129,13 @@ async function saveLayout() {
       :class="{ 'is-settled': settled }"
       :col-num="12"
       :row-height="80"
+      :margin="[14, 14]"
       :is-draggable="!preview"
       :is-resizable="!preview"
       @layout-ready="onLayoutReady"
     >
       <GridItem
-        v-for="(item, index) in layout"
+        v-for="item in layout"
         :key="item.i"
         :i="item.i"
         :x="item.x"
@@ -148,7 +155,7 @@ async function saveLayout() {
           :removable="preview"
           :remove-disabled="busy"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
-          :style="entering.has(item.i) ? { '--tc-i': index } : undefined"
+          :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
           @remove="emit('remove', item.i)"
         />
       </GridItem>
