@@ -114,8 +114,9 @@ const option = computed(() =>
 .card-skeleton { height: 100%; min-height: 120px; border-radius: var(--tc-radius, 4px); }
 /* spec 3.8：數字寬度一致，上下好比對 */
 .tc-num { font-variant-numeric: tabular-nums; text-align: right; }
-/* spec 10.5：靜止時就看得到，hover 變主文字色，按下時往下 1px；size small + density default 是 28×28，
-   超過 24×24；全域 density: 'compact'（main.js）會把它縮到 20×20，這裡才特別蓋回 default */
+/* spec 10.5：靜止時就看得到，hover 變主文字色，按下時往下 1px；size small + density default 是 40×40
+   （28px 的 --v-btn-height 加 12px 的圖示留白，VBtn.css），超過 24×24；全域 density: 'compact'
+   （main.js）會把它縮到 20×20，這裡才特別蓋回 default */
 .tc-remove {
   color: var(--tc-muted, rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)));
   transition: none;
