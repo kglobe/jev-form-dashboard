@@ -70,4 +70,16 @@ describe('api', () => {
     })
     await expect(api.deleteDashboard('d1')).resolves.toBeNull()
   })
+
+  it('analyze sends intents and current only when they are given', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({}))
+    await api.analyze('ds1', ['各區每月營收'], [{ chartId: 'c1' }])
+    expect(fetch.mock.calls[0][1].body).toBe(
+      JSON.stringify({ datasourceId: 'ds1', intents: ['各區每月營收'], current: [{ chartId: 'c1' }] }),
+    )
+
+    fetch.mockResolvedValueOnce(jsonResponse({}))
+    await api.analyze('ds1', ['各區每月營收'])
+    expect(fetch.mock.calls[1][1].body).toBe('{"datasourceId":"ds1","intents":["各區每月營收"]}')
+  })
 })

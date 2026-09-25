@@ -26,7 +26,8 @@ export const api = {
   uploadDatasource: (form) => request('POST', '/api/datasources/upload', form),
   registerApi: (body) => request('POST', '/api/datasources/api', body),
   setSensitive: (id, fields) => request('PATCH', `/api/datasources/${id}/sensitive`, { fields }),
-  analyze: (datasourceId) => request('POST', '/api/jev/analyze', { datasourceId }),
+  // intents、current 沒給時 JSON.stringify 會略過，body 跟原本一樣只有 datasourceId
+  analyze: (datasourceId, intents, current) => request('POST', '/api/jev/analyze', { datasourceId, intents, current }),
   listDashboards: () => request('GET', '/api/dashboards'),
   getDashboard: (id) => request('GET', `/api/dashboards/${id}`),
   createDashboard: (config) => request('POST', '/api/dashboards', config),
