@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api.js'
 import DashboardView from './DashboardView.vue'
 import './motion.css'
@@ -8,6 +8,7 @@ const props = defineProps({ datasourceId: { type: String, default: null } })
 const emit = defineEmits(['saved'])
 
 const MAX_INTENTS = 10 // spec 3.2：需求紀錄最多 10 句
+const TOAST_MS = 6000 // spec 3.2：「復原」提示停留 6 秒
 
 const intent = ref('')
 const preview = ref(null)
@@ -18,6 +19,7 @@ const error = ref('')
 const adjustText = ref('')
 const adjusting = ref(false)
 const nameEdited = ref(false)
+const toast = ref(null) // { spec, index }：剛移除的卡片和它在移除前的位置
 
 const nameInvalid = computed(() => !preview.value?.name || !preview.value.name.trim())
 const history = computed(() => preview.value?.intents ?? [])
@@ -27,6 +29,8 @@ const canAdjust = computed(() => !!adjustText.value.trim() && !adjusting.value &
 
 // 關掉預覽之後才回來的調整結果直接丟掉
 let adjustSeq = 0
+let toastTimer = 0
+const toastHold = { hover: false, focus: false }
 
 async function analyze() {
   busy.value = true
@@ -47,6 +51,7 @@ async function analyze() {
 
 async function adjust() {
   if (!canAdjust.value) return
+  closeToast() // spec 3.2：按「調整」時提示立即關閉，已移除的圖不能再復原
   const seq = ++adjustSeq
   adjusting.value = true
   error.value = ''
@@ -64,13 +69,65 @@ async function adjust() {
   }
 }
 
-// 關掉預覽（取消、存檔、Esc）時，還在等的調整作廢；錯誤訊息也清掉，才不會跑到左側面板
+// 關掉預覽（取消、存檔、Esc）時，還在等的調整作廢；錯誤訊息也清掉，才不會跑到左側面板；提示一併關掉
 watch(open, (isOpen) => {
   if (isOpen) return
   adjustSeq++
   adjusting.value = false
   error.value = ''
+  closeToast()
 })
+
+// spec 6.6：依順序每列兩張（6×4），明細表放最後（12×5），跟後端的 ConfigAssembler.layOut 同一套
+function relayout(layout) {
+  const charts = layout.filter((s) => s.type !== 'table')
+  const y = Math.ceil(charts.length / 2) * 4
+  return [
+    ...charts.map((s, n) => ({ ...s, gridPos: { x: (n % 2) * 6, y: Math.floor(n / 2) * 4, w: 6, h: 4 } })),
+    ...layout.filter((s) => s.type === 'table').map((s) => ({ ...s, gridPos: { x: 0, y, w: 12, h: 5 } })),
+  ]
+}
+
+// spec 3.2：只在前端拿掉，不呼叫 API；下次「調整」送出的 current 也不會有這張
+function remove(chartId) {
+  const layout = preview.value.layout
+  const index = layout.findIndex((s) => s.chartId === chartId)
+  if (index < 0) return // 退場那 120ms 裡又用鍵盤按了一次「✕」
+  preview.value = { ...preview.value, layout: relayout(layout.filter((s) => s.chartId !== chartId)) }
+  showToast({ spec: layout[index], index })
+}
+
+function undo() {
+  if (!toast.value) return // 提示退場那 120ms 裡「復原」還在，又按了一次
+  const { spec, index } = toast.value
+  const layout = [...preview.value.layout]
+  layout.splice(index, 0, spec)
+  preview.value = { ...preview.value, layout: relayout(layout) }
+  closeToast()
+}
+
+function showToast(t) {
+  closeToast() // 一次只有一個提示，前一張就不能再復原
+  toast.value = t
+  toastTimer = setTimeout(closeToast, TOAST_MS)
+}
+
+function closeToast() {
+  clearTimeout(toastTimer)
+  toast.value = null
+  toastHold.hover = false
+  toastHold.focus = false
+}
+
+// ponytail: 滑鼠和焦點都離開後重新計滿 6 秒，不記剩下的時間；要精準暫停再記 Date.now()
+function holdToast(kind, on) {
+  if (!toast.value) return
+  toastHold[kind] = on
+  clearTimeout(toastTimer)
+  if (!toastHold.hover && !toastHold.focus) toastTimer = setTimeout(closeToast, TOAST_MS)
+}
+
+onBeforeUnmount(() => clearTimeout(toastTimer))
 
 async function save() {
   if (saving.value || nameInvalid.value) return
@@ -103,7 +160,8 @@ async function save() {
   />
   <v-btn color="primary" block :loading="busy" :disabled="!datasourceId" @click="analyze">分析</v-btn>
   <v-alert v-if="error && !open" type="error" density="compact" class="mt-2">{{ error }}</v-alert>
-  <v-dialog v-model="open" fullscreen>
+  <!-- scrollable：捲動的是 v-card-text，工具列和下面的提示都固定不動 -->
+  <v-dialog v-model="open" fullscreen scrollable>
     <v-card>
       <v-toolbar title="儀表板預覽">
         <v-text-field
@@ -151,9 +209,53 @@ async function save() {
             />
             <v-btn color="primary" :loading="adjusting" :disabled="!canAdjust" @click="adjust">調整</v-btn>
           </div>
-          <DashboardView :config="preview" preview :busy="adjusting" />
+          <DashboardView :config="preview" preview :busy="adjusting" @remove="remove" />
         </template>
       </v-card-text>
+      <!-- 放在 v-card 底下、v-card-text 後面：內容捲動時提示還在預覽下方中央，也還在對話框的焦點範圍裡。
+           role="status" 放在一直存在的外框上，提示出現時螢幕報讀器才念得到 -->
+      <div class="tc-toast-region" role="status">
+        <Transition name="tc-toast">
+          <div
+            v-if="toast"
+            class="tc-toast"
+            @mouseenter="holdToast('hover', true)"
+            @mouseleave="holdToast('hover', false)"
+            @focusin="holdToast('focus', true)"
+            @focusout="holdToast('focus', false)"
+          >
+            <span>已移除「{{ toast.spec.title }}」</span>
+            <v-btn variant="text" size="small" @click="undo">復原</v-btn>
+          </div>
+        </Transition>
+      </div>
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+/* spec 3.2：預覽畫面下方中央，內容捲動時也不動；外框不擋點擊，只有提示本身可以按。
+   .v-card 是 position: relative；不用 position: fixed，因為全螢幕對話框的 .v-overlay__content 有 contain: layout */
+.tc-toast-region {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.tc-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 16px;
+  border-radius: 4px;
+  background: rgb(var(--v-theme-surface-variant));
+  color: rgb(var(--v-theme-on-surface-variant));
+  box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2), 0 6px 10px 0 rgba(0, 0, 0, 0.14);
+  pointer-events: auto;
+}
+</style>

@@ -16,6 +16,7 @@ vi.mock('./DashboardView.vue', () => ({
   default: {
     name: 'DashboardView',
     props: { config: Object, preview: Boolean, busy: Boolean },
+    emits: ['remove'],
     template: '<div class="dashboard-view-stub" />',
   },
 }))
@@ -37,6 +38,9 @@ const view = (wrapper) => wrapper.findComponent({ name: 'DashboardView' })
 const field = (wrapper, label) => wrapper.findAllComponents({ name: 'VTextField' }).find((f) => f.props('label') === label)
 const button = (text) => byText(document.body, 'button', text)
 const historyItems = () => [...document.body.querySelectorAll('.tc-intents li')].map((li) => li.textContent.trim())
+const layout4 = () => [bar('c1', 'A', 0), bar('c2', 'B', 1), bar('c3', 'C', 2), table('c4', 8)]
+const region = () => document.body.querySelector('.tc-toast-region')
+const toastEl = () => document.body.querySelector('.tc-toast')
 
 async function openPreview() {
   const wrapper = mountButton('ds1')
@@ -57,6 +61,7 @@ describe('AnalyzeButton', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     document.body.innerHTML = ''
   })
 
@@ -266,5 +271,139 @@ describe('AnalyzeButton', () => {
     expect(field(wrapper, '想怎麼調整？').props('disabled')).toBe(true)
     expect(document.body.textContent).toContain('需求紀錄最多 10 句')
     expect(button('調整').disabled).toBe(true)
+  })
+
+  it('✕ removes the card locally and re-flows the rest (two per row, table last); the next 調整 no longer sends it', async () => {
+    api.analyze
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['不要圓餅圖'], layout: [] })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+
+    expect(view(wrapper).props('config').layout.map((s) => [s.chartId, s.gridPos])).toEqual([
+      ['c2', { x: 0, y: 0, w: 6, h: 4 }],
+      ['c3', { x: 6, y: 0, w: 6, h: 4 }],
+      ['c4', { x: 0, y: 4, w: 12, h: 5 }],
+    ])
+    expect(api.analyze).toHaveBeenCalledTimes(1) // 「✕」不呼叫 API
+    expect(region().getAttribute('role')).toBe('status')
+    expect(region().textContent).toContain('已移除「A」')
+    expect(byText(region(), 'button', '復原')).toBeTruthy()
+
+    await adjustWith(wrapper, '不要圓餅圖')
+    expect(api.analyze.mock.calls[1][2].map((s) => s.chartId)).toEqual(['c2', 'c3', 'c4'])
+  })
+
+  it('復原 puts the card back in its old slot and closes the notice', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    byText(region(), 'button', '復原').click()
+    await flushPromises()
+
+    expect(view(wrapper).props('config').layout).toEqual(layout4())
+    expect(toastEl()).toBeNull()
+  })
+
+  it('the notice closes by itself after 6 seconds', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+    vi.advanceTimersByTime(5999)
+    await flushPromises()
+    expect(toastEl()).not.toBeNull()
+
+    vi.advanceTimersByTime(1)
+    await flushPromises()
+    expect(toastEl()).toBeNull()
+  })
+
+  it('hovering or focusing the notice stops the countdown; it starts over once both have left', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+    vi.advanceTimersByTime(3000)
+    toastEl().dispatchEvent(new Event('mouseenter'))
+    toastEl().dispatchEvent(new Event('focusin'))
+    vi.advanceTimersByTime(10000)
+    toastEl().dispatchEvent(new Event('mouseleave'))
+    vi.advanceTimersByTime(10000)
+    await flushPromises()
+    expect(toastEl()).not.toBeNull() // 焦點還在提示裡
+
+    toastEl().dispatchEvent(new Event('focusout'))
+    vi.advanceTimersByTime(5999)
+    await flushPromises()
+    expect(toastEl()).not.toBeNull() // 兩個都離開後重新計 6 秒
+
+    vi.advanceTimersByTime(1)
+    await flushPromises()
+    expect(toastEl()).toBeNull()
+  })
+
+  it('removing another card replaces the notice; only the latest removal can be undone', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(region().textContent).toContain('已移除「B」')
+    expect(region().textContent).not.toContain('已移除「A」')
+
+    byText(region(), 'button', '復原').click()
+    await flushPromises()
+    expect(view(wrapper).props('config').layout.map((s) => s.chartId)).toEqual(['c2', 'c3', 'c4'])
+  })
+
+  it('closing the preview or pressing 調整 closes the notice for good', async () => {
+    api.analyze
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+      .mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+    button('取消').click()
+    await flushPromises()
+    expect(toastEl()).toBeNull()
+
+    await wrapper.get('button').trigger('click') // 再分析一次，重新打開預覽
+    await flushPromises()
+    expect(toastEl()).toBeNull()
+
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(toastEl()).not.toBeNull()
+    await field(wrapper, '想怎麼調整？').find('input').setValue('不要圓餅圖')
+    button('調整').click()
+    await flushPromises()
+    expect(toastEl()).toBeNull()
+  })
+
+  it('unmounting clears the notice timer', async () => {
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await openPreview()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    await flushPromises()
+    const pending = vi.getTimerCount()
+    expect(pending).toBeGreaterThan(0)
+
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(pending - 1)
   })
 })
