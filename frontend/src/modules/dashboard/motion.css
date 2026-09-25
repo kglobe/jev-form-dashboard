@@ -36,7 +36,7 @@
 }
 
 /* 10.6：等 JEV 回應時圖表區變淡 */
-/* 不叫 tc‑grid：tactile-clean.css 的 .tc‑grid 是兩欄的 display: grid */
+/* 不沿用 tactile-clean.css 裡同名的 grid class：那個 class 是兩欄的 display: grid */
 .dash-grid { transition: opacity var(--tc-dur-2) var(--tc-ease-out); }
 .dash-grid.is-busy { opacity: 0.6; }
 

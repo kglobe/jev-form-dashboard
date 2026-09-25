@@ -237,7 +237,7 @@ async function save() {
 </template>
 
 <style scoped>
-/* 不叫 tc‑toast：tactile-clean.css 有同名的 class（fixed 定位、translateX(-50%)），會把這個提示拉歪 */
+/* 不沿用 tactile-clean.css 裡同名的 toast class：那個 class 是 fixed 定位、translateX(-50%)，會把這個提示拉歪 */
 /* spec 3.2：預覽畫面下方中央，內容捲動時也不動；外框不擋點擊，只有提示本身可以按。
    .v-card 是 position: relative；不用 position: fixed，因為全螢幕對話框的 .v-overlay__content 有 contain: layout */
 .undo-toast-region {
