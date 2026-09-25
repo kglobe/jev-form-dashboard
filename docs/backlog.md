@@ -8,6 +8,8 @@
 
 - ~~P3 · 分析前先讓使用者用一段文字講想看什麼（一個輸入框／對話框），JEV 再照這個提示挑欄位、選圖表。（human 提出的構想）~~ 已完成：分析前可以輸入需求，預覽裡也能「調整」，見 spec `docs/superpowers/specs/2026-09-25-jev-dashboard-intent-analysis-design.md`。
 - P3 · 已存儀表板的對話式修改：存檔後用一句話說「幫我加一張圖」。預覽裡的「調整」已經把需求轉成 JEV 的結構化題目（`rel_i`、`keep_<chartId>`，加上 `current`），這裡可以沿用同一套機制，入口和存檔流程另立 spec 設計。（human 提出的構想）
+- P3 · 深色模式與主題切換：這次只做淺色一套。`tactile-clean.css` 已經有六套色盤，但 Vuetify 的 theme 每一套都要各寫一個條目，也要另外設計切換入口，理由見 skill 的 `references/color-cognition.md` 第一節。（spec `docs/superpowers/specs/2026-09-25-jev-dashboard-tactile-clean-design.md` 第 2 節）
+- P3 · 刪除確認對話框改成 Tactile 的 header／body／footer 結構，按鈕文案改成「保留」／「刪除儀表板」。（同上，第 2 節）
 
 ## 正式上線前
 
