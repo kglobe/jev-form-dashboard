@@ -101,7 +101,7 @@ const option = computed(() =>
 </template>
 
 <style scoped>
-/* spec 3.3：標題列同 .tc-card__header 的字級、字重和下框線 */
+/* spec 3.3：標題列比照 tactile-clean.css 卡片標題列的字級、字重和下框線 */
 .tc-card-title {
   font-size: 15px;
   font-weight: 600;
