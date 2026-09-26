@@ -28,6 +28,13 @@ describe('ChartCard', () => {
     vi.unstubAllGlobals()
   })
 
+  it('title comes from data.title (field labels applied by the backend) once loaded, spec.title before that', async () => {
+    const card = mountCard({ spec: { ...barSpec, title: 'amount 依 region' }, data: null, highlight: null })
+    expect(card.get('.tc-card-title').text()).toBe('amount 依 region')
+    await card.setProps({ data: { ...barData, title: '金額 依 地區' } })
+    expect(card.get('.tc-card-title').text()).toBe('金額 依 地區')
+  })
+
   it('shows the FIELD_MISSING alert and renders no chart when a required field is missing', () => {
     const wrapper = mountCard({
       spec: { chartId: 'c1', type: 'bar', title: 'T', mapping: {} },

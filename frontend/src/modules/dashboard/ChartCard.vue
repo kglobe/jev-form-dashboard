@@ -45,7 +45,7 @@ const unsupportedType = computed(() => ready.value && !Object.hasOwn(toOption, p
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
   ready.value && props.spec.type !== 'table' && Object.hasOwn(toOption, props.spec.type)
-    ? tactileOption(toOption[props.spec.type](props.data, props.spec.mapping))
+    ? tactileOption(toOption[props.spec.type](props.data))
     : null,
 )
 </script>
@@ -53,7 +53,7 @@ const option = computed(() =>
 <template>
   <v-card class="fill-height d-flex flex-column">
     <v-card-title class="card-drag tc-card-title d-flex align-center">
-      <span class="text-truncate">{{ spec.title }}</span>
+      <span class="text-truncate">{{ data?.title ?? spec.title }}</span>
       <v-spacer />
       <span v-if="spec.options?.focus" class="tc-tag mr-1">符合需求</span>
       <span v-if="highlight" class="tc-badge tc-fade-in" :class="SEVERITY_CLASS[highlight.severity]">

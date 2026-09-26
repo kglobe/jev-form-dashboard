@@ -90,6 +90,14 @@ describe('AnalyzeButton', () => {
     expect(w2.get('button').element.disabled).toBe(false)
   })
 
+  it('sends the picked fields with the analysis even without an intent', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: [] })
+    const wrapper = mount(AnalyzeButton, { props: { datasourceId: 'ds1', fields: ['region'] }, global: { plugins: [vuetify] } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', undefined, undefined, ['region'])
+  })
+
   it('analyzes, previews in a dialog, and saves the previewed config', async () => {
     const previewConfig = { name: 'preview', layout: [] }
     api.analyze.mockResolvedValue(previewConfig)

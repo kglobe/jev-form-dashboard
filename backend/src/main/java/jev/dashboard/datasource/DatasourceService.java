@@ -6,9 +6,11 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
@@ -75,6 +77,24 @@ public class DatasourceService {
     public Datasource markSensitive(String userId, UUID id, Collection<String> fields) {
         Datasource ds = get(userId, id);
         List<FieldSchema> schema = ds.schema().stream().map(f -> f.withSensitive(fields.contains(f.name()))).toList();
+        repo.updateSchema(id, schema);
+        return ds.withSchema(schema);
+    }
+
+    /** labels 是「欄位 → 顯示名稱」；沒列到的欄位、空白的名稱都清掉。 */
+    public Datasource setLabels(String userId, UUID id, Map<String, String> labels) {
+        Datasource ds = get(userId, id);
+        List<FieldSchema> schema = ds.schema().stream().map(f -> {
+            String label = labels.get(f.name());
+            return f.withLabel(label == null || label.isBlank() ? null : label.strip());
+        }).toList();
+        // 圖表的 dataset 用顯示名稱當維度名，重複了 ECharts 會分不出來
+        Set<String> seen = new HashSet<>();
+        for (FieldSchema f : schema) {
+            String shown = f.label() != null ? f.label() : f.name();
+            if (!seen.add(shown)) throw new ApiException(BAD_REQUEST, "顯示名稱「" + shown + "」重複");
+            if (shown.length() > 50) throw new ApiException(BAD_REQUEST, "顯示名稱最多 50 個字");
+        }
         repo.updateSchema(id, schema);
         return ds.withSchema(schema);
     }

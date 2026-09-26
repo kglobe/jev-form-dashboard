@@ -2,8 +2,14 @@
 import { onMounted, ref } from 'vue'
 import { api } from './api.js'
 
-defineProps({ selectedId: { type: String, default: null } })
-const emit = defineEmits(['select'])
+const props = defineProps({
+  selectedId: { type: String, default: null },
+  // 勾選想看的欄位（只屬於 selectedId 那個資料源）
+  picked: { type: Array, default: () => [] },
+})
+const emit = defineEmits(['select', 'update:picked'])
+// 哪個資料源的隱私設定是展開的；預設都收起來，避免把敏感勾選當成選欄位
+const privacyOpen = ref(null)
 
 const tab = ref('upload')
 const list = ref([])
@@ -86,6 +92,33 @@ async function toggleSensitive(ds, field, on) {
     busy.value = false
   }
 }
+
+function togglePick(ds, field, on) {
+  // 勾別的資料源的欄位：先切換過去，勾選從這一欄重新開始
+  if (ds.id !== props.selectedId) {
+    emit('select', ds.id)
+    emit('update:picked', on ? [field] : [])
+    return
+  }
+  emit('update:picked', on ? [...props.picked, field] : props.picked.filter((n) => n !== field))
+}
+
+async function saveLabel(ds, field, value) {
+  const current = ds.schema.find((f) => f.name === field)
+  if ((current.label ?? '') === value.trim()) return
+  busy.value = true
+  try {
+    const labels = Object.fromEntries(ds.schema.filter((f) => f.label).map((f) => [f.name, f.label]))
+    labels[field] = value
+    await api.setLabels(ds.id, labels)
+    await refresh()
+    error.value = ''
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    busy.value = false
+  }
+}
 </script>
 
 <template>
@@ -132,18 +165,53 @@ async function toggleSensitive(ds, field, on) {
           />
         </template>
         <v-list-item density="compact">
-          <p class="text-caption text-medium-emphasis">勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。</p>
+          <p class="text-caption text-medium-emphasis">勾選想看的欄位，按「分析」時會優先用它們出圖，可以搭配下方「想看什麼」一起用；都不勾就由 JEV 自己挑。</p>
+          <p class="text-caption text-medium-emphasis">顯示名稱會用在圖表標題、座標軸和明細表頭，空白就顯示原始欄位名稱。</p>
         </v-list-item>
         <v-list-item v-for="f in ds.schema" :key="f.name" density="compact">
           <v-checkbox
-            :model-value="f.sensitive"
-            :label="`${f.name}（${f.type}）敏感`"
+            :model-value="ds.id === selectedId && picked.includes(f.name)"
+            :label="`${f.name}（${f.type}）`"
             density="compact"
             hide-details
+            @update:model-value="(on) => togglePick(ds, f.name, on)"
+          />
+          <v-text-field
+            :model-value="f.label ?? ''"
+            :label="`${f.name} 顯示名稱`"
+            :placeholder="f.name"
+            density="compact"
+            hide-details
+            class="mb-2"
             :disabled="busy"
-            @update:model-value="(on) => toggleSensitive(ds, f.name, on)"
+            @change="(e) => saveLabel(ds, f.name, e.target.value)"
           />
         </v-list-item>
+        <v-list-item density="compact">
+          <v-btn
+            variant="text"
+            size="small"
+            :aria-expanded="privacyOpen === ds.id"
+            @click="privacyOpen = privacyOpen === ds.id ? null : ds.id"
+          >
+            隱私設定（{{ ds.schema.filter((f) => f.sensitive).length }} 個敏感欄位）
+          </v-btn>
+        </v-list-item>
+        <template v-if="privacyOpen === ds.id">
+          <v-list-item density="compact">
+            <p class="text-caption text-medium-emphasis">勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。</p>
+          </v-list-item>
+          <v-list-item v-for="f in ds.schema" :key="f.name" density="compact">
+            <v-checkbox
+              :model-value="f.sensitive"
+              :label="`${f.name}（${f.type}）敏感`"
+              density="compact"
+              hide-details
+              :disabled="busy"
+              @update:model-value="(on) => toggleSensitive(ds, f.name, on)"
+            />
+          </v-list-item>
+        </template>
       </v-list-group>
     </v-list>
   </div>

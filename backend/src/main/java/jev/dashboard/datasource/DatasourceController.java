@@ -18,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/datasources")
 public class DatasourceController {
     public record SensitiveFields(List<String> fields) {}
+    public record FieldLabels(Map<String, String> labels) {}
     public record ApiRegistration(String name, String url, Map<String, String> headers) {}
 
     private final DatasourceService service;
@@ -48,5 +49,11 @@ public class DatasourceController {
     public Datasource sensitive(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
                                 @RequestBody SensitiveFields body) {
         return service.markSensitive(userId, id, body.fields() == null ? List.of() : body.fields());
+    }
+
+    @PatchMapping("/{id}/labels")
+    public Datasource labels(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+                             @RequestBody FieldLabels body) {
+        return service.setLabels(userId, id, body.labels() == null ? Map.of() : body.labels());
     }
 }

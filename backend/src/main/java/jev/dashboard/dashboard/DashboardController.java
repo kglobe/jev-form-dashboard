@@ -56,12 +56,12 @@ public class DashboardController {
 
     @GetMapping("/{id}/data")
     public List<ChartData> data(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {
-        return data.load(userId, service.get(userId, id));
+        return data.display(userId, service.get(userId, id));
     }
 
     @PostMapping("/preview/data")
     public List<ChartData> preview(@RequestHeader("X-User-Id") String userId, @RequestBody DashboardConfig body) {
         DashboardService.requireComplete(body);
-        return data.load(userId, body);
+        return data.display(userId, body);
     }
 }

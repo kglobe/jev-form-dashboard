@@ -4,7 +4,11 @@ import { api } from './api.js'
 import DashboardView from './DashboardView.vue'
 import './motion.css'
 
-const props = defineProps({ datasourceId: { type: String, default: null } })
+const props = defineProps({
+  datasourceId: { type: String, default: null },
+  // 側欄勾選想看的欄位，分析和調整都一起送
+  fields: { type: Array, default: () => [] },
+})
 const emit = defineEmits(['saved'])
 
 const MAX_INTENTS = 10 // spec 3.2：需求紀錄最多 10 句
@@ -38,8 +42,10 @@ async function analyze() {
   error.value = ''
   const first = intent.value.trim()
   try {
-    // 沒填需求就跟原本一樣只送 datasourceId
-    preview.value = await (first ? api.analyze(props.datasourceId, [first]) : api.analyze(props.datasourceId))
+    // 有勾欄位才多送 fields；沒填需求、沒勾欄位就跟原本一樣只送 datasourceId
+    preview.value = await (props.fields.length
+      ? api.analyze(props.datasourceId, first ? [first] : undefined, undefined, props.fields)
+      : first ? api.analyze(props.datasourceId, [first]) : api.analyze(props.datasourceId))
     nameEdited.value = false
     adjustText.value = ''
     open.value = true
@@ -58,7 +64,7 @@ async function adjust() {
   error.value = ''
   try {
     const next = await api.analyze(preview.value.datasourceId, [...history.value, adjustText.value.trim()],
-      preview.value.layout)
+      preview.value.layout, ...(props.fields.length ? [props.fields] : []))
     if (seq !== adjustSeq) return
     // spec 3.2：使用者改過名稱就保留他改的，沒改過就用新結果的預設名稱
     preview.value = { ...next, name: nameEdited.value ? preview.value.name : next.name }
