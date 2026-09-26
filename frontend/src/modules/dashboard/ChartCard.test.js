@@ -192,12 +192,12 @@ describe('ChartCard', () => {
     expect(option.stateAnimation).toEqual({ duration: 120, easing: 'cubicOut' })
     expect(option.tooltip).toEqual({ trigger: 'axis', transitionDuration: 0 })
     expect(option.animation).toBeUndefined()
-    expect(option.aria).toEqual({ enabled: true, decal: { show: true } })
+    expect(option.aria).toBeUndefined()
   })
 
-  it('bar and pie turn on aria decals too, since the theme has only 6 colours; line does not', () => {
-    expect(optionFor('bar').aria).toEqual({ enabled: true, decal: { show: true } })
-    expect(optionFor('pie').aria).toEqual({ enabled: true, decal: { show: true } })
+  it('no chart type draws decal patterns; series are told apart by the 8-colour theme', () => {
+    expect(optionFor('bar').aria).toBeUndefined()
+    expect(optionFor('pie').aria).toBeUndefined()
     expect(optionFor('line').aria).toBeUndefined()
   })
 

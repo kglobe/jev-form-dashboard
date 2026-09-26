@@ -20,8 +20,6 @@ const emit = defineEmits(['remove'])
 // spec 3.5：正常波動用中性灰、不加修飾子；Tactile 的規則是好消息不染綠
 const SEVERITY_CLASS = { 正常波動: '', 值得注意: 'tc-badge--info', 需要關注: 'tc-badge--warn', 嚴重警示: 'tc-badge--err' }
 
-// spec 3.7：主題只有 6 色，堆疊長條最多 10 個系列會撞色，用花紋區分
-const DECAL_TYPES = new Set(['bar', 'pie', 'stacked_bar'])
 // spec 4.3：一定要寫在 series 層。ECharts 6 的圓餅、折線在 series 預設裡有自己的時長和 easing，只寫在最外層蓋不掉
 const SERIES_ANIMATION = { animationDuration: 300, animationEasing: 'cubicOut', animationDurationUpdate: 250, animationEasingUpdate: 'cubicOut' }
 const compact = new Intl.NumberFormat('zh-TW', { notation: 'compact' })
@@ -29,14 +27,13 @@ const compactValueAxis = (axis) =>
   axis?.type === 'value' ? { ...axis, axisLabel: { ...axis.axisLabel, formatter: (v) => compact.format(v) } } : axis
 
 // 包在 toOption 結果的外層，charts/*.js 不動，快照不變；每次算 option 都重新問一次減少動態效果
-function tactileOption(base, type) {
+function tactileOption(base) {
   const reduced = prefersReducedMotion()
   return {
     ...base,
     ...(reduced && { animation: false }),
     stateAnimation: { duration: reduced ? 0 : 120, easing: 'cubicOut' },
     tooltip: { ...base.tooltip, transitionDuration: 0 },
-    ...(DECAL_TYPES.has(type) && { aria: { enabled: true, decal: { show: true } } }),
     ...(base.xAxis && { xAxis: compactValueAxis(base.xAxis) }),
     ...(base.yAxis && { yAxis: compactValueAxis(base.yAxis) }),
     series: base.series.map((s) => ({ ...s, ...SERIES_ANIMATION })),
@@ -48,7 +45,7 @@ const unsupportedType = computed(() => ready.value && !Object.hasOwn(toOption, p
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
   ready.value && props.spec.type !== 'table' && Object.hasOwn(toOption, props.spec.type)
-    ? tactileOption(toOption[props.spec.type](props.data, props.spec.mapping), props.spec.type)
+    ? tactileOption(toOption[props.spec.type](props.data, props.spec.mapping))
     : null,
 )
 </script>
