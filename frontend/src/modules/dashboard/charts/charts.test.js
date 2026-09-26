@@ -26,7 +26,7 @@ describe('toOption', () => {
   })
 
   it('scatter', () => {
-    const o = toOption.scatter(points, { x: 'amount', y: 'qty' })
+    const o = toOption.scatter(points)
     expect(o.xAxis).toEqual({ type: 'value', name: 'amount' })
     expect(o.yAxis).toEqual({ type: 'value', name: 'qty' })
     expect(o).toMatchSnapshot()

@@ -50,6 +50,12 @@ public class AnalyzeService {
      */
     public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
                                    List<String> intents, List<ChartSpec> current) {
+        return analyze(name, datasourceId, schema, rowCount, intents, current, Set.of());
+    }
+
+    /** @param picked 使用者勾選想看的欄位，跟 JEV 判定「直接相關」的欄位一樣當焦點欄位 */
+    public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
+                                   List<String> intents, List<ChartSpec> current, Set<String> picked) {
         String intent = intents.isEmpty() ? null : intents.get(intents.size() - 1);
         Map<String, Object> state = state(schema, rowCount, intents, current);
 
@@ -75,7 +81,8 @@ public class AnalyzeService {
         }
         Map<String, Answer> a1 = jev.ask(state, round1);
 
-        List<FieldEval> evals = ConfigAssembler.evaluate(schema, a1);
+        List<FieldEval> evals = ConfigAssembler.evaluate(schema, a1).stream()
+            .map(e -> picked.contains(e.name()) ? new FieldEval(e.field(), e.importance(), e.role(), true) : e).toList();
         List<FieldEval> candidates = ConfigAssembler.candidates(evals);
         int k = ConfigAssembler.chartCount(a1.get("chart_count"));
         List<ChartSpec> kept = current == null ? null : ConfigAssembler.kept(current, a1);

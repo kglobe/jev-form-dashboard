@@ -30,7 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/jev")
 public class JevController {
     /** intents：需求紀錄（選填），最後一句是這次的需求。current：有值就是調整模式，放目前預覽裡的圖（含明細表）。 */
-    public record AnalyzeRequest(UUID datasourceId, List<String> intents, List<ChartSpec> current) {}
+    /** fields 是使用者勾選想看的欄位，分析時當成焦點欄位優先出圖；沒勾就是空的。 */
+    public record AnalyzeRequest(UUID datasourceId, List<String> intents, List<ChartSpec> current, List<String> fields) {}
 
     private final DatasourceService datasources;
     private final AnalyzeService analyzer;
@@ -59,7 +60,8 @@ public class JevController {
         }
         DatasourceService.Loaded loaded = datasources.load(userId, body.datasourceId());
         return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
-            loaded.datasource().schema(), loaded.rows().size(), intents, body.current());
+            loaded.datasource().schema(), loaded.rows().size(), intents, body.current(),
+            body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()));
     }
 
     /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */

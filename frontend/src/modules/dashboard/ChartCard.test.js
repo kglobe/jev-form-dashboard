@@ -28,6 +28,13 @@ describe('ChartCard', () => {
     vi.unstubAllGlobals()
   })
 
+  it('title comes from data.title (field labels applied by the backend) once loaded, spec.title before that', async () => {
+    const card = mountCard({ spec: { ...barSpec, title: 'amount 依 region' }, data: null, highlight: null })
+    expect(card.get('.tc-card-title').text()).toBe('amount 依 region')
+    await card.setProps({ data: { ...barData, title: '金額 依 地區' } })
+    expect(card.get('.tc-card-title').text()).toBe('金額 依 地區')
+  })
+
   it('shows the FIELD_MISSING alert and renders no chart when a required field is missing', () => {
     const wrapper = mountCard({
       spec: { chartId: 'c1', type: 'bar', title: 'T', mapping: {} },
@@ -192,12 +199,12 @@ describe('ChartCard', () => {
     expect(option.stateAnimation).toEqual({ duration: 120, easing: 'cubicOut' })
     expect(option.tooltip).toEqual({ trigger: 'axis', transitionDuration: 0 })
     expect(option.animation).toBeUndefined()
-    expect(option.aria).toEqual({ enabled: true, decal: { show: true } })
+    expect(option.aria).toBeUndefined()
   })
 
-  it('bar and pie turn on aria decals too, since the theme has only 6 colours; line does not', () => {
-    expect(optionFor('bar').aria).toEqual({ enabled: true, decal: { show: true } })
-    expect(optionFor('pie').aria).toEqual({ enabled: true, decal: { show: true } })
+  it('no chart type draws decal patterns; series are told apart by the 8-colour theme', () => {
+    expect(optionFor('bar').aria).toBeUndefined()
+    expect(optionFor('pie').aria).toBeUndefined()
     expect(optionFor('line').aria).toBeUndefined()
   })
 

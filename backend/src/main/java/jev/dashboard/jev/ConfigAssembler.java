@@ -36,7 +36,7 @@ public final class ConfigAssembler {
         CHART_TYPES_ZH.put("stacked_bar", "堆疊長條圖：比較各分類的組成");
     }
 
-    /** focus：spec 6.1 的焦點欄位（rel_i 答「直接相關」）。沒有需求時一律是 false。 */
+    /** focus：spec 6.1 的焦點欄位（rel_i 答「直接相關」），或使用者勾選想看的欄位。 */
     public record FieldEval(FieldSchema field, double importance, String role, boolean focus) {
         public FieldEval(FieldSchema field, double importance, String role) {
             this(field, importance, role, false);
@@ -310,7 +310,7 @@ public final class ConfigAssembler {
         };
     }
 
-    static String title(String type, Mapping m) {
+    public static String title(String type, Mapping m) {
         if (type.equals("scatter")) return m.x() + " 與 " + m.y();
         if (type.equals("radar")) return m.series() + " 各指標比較";
         String second = m.series() != null ? m.series() : m.y();

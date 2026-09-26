@@ -11,6 +11,7 @@ vi.mock('./api.js', () => ({
     uploadDatasource: vi.fn(),
     registerApi: vi.fn(),
     setSensitive: vi.fn(),
+    setLabels: vi.fn(),
   },
 }))
 
@@ -29,8 +30,18 @@ function mountPanel() {
   return mount(DatasourcePanel, { props: { selectedId: null }, global: { plugins: [vuetify] } })
 }
 
+// 敏感勾選框（隱私設定展開後才有）
 function checkboxes(wrapper) {
-  return wrapper.findAll('input[type="checkbox"]')
+  return wrapper.findAllComponents({ name: 'VCheckbox' }).filter((c) => c.props('label').endsWith('敏感')).map((c) => c.find('input'))
+}
+
+// 想看的欄位勾選框
+function pickBoxes(wrapper) {
+  return wrapper.findAllComponents({ name: 'VCheckbox' }).filter((c) => !c.props('label').endsWith('敏感')).map((c) => c.find('input'))
+}
+
+async function openPrivacy(wrapper) {
+  await wrapper.findAll('button').find((b) => b.text().startsWith('隱私設定')).trigger('click')
 }
 
 async function openApiTab(wrapper) {
@@ -53,6 +64,7 @@ describe('DatasourcePanel', () => {
     await flushPromises()
     expect(api.listDatasources).toHaveBeenCalledTimes(1)
 
+    await openPrivacy(wrapper)
     await checkboxes(wrapper)[0].setValue(true) // region
     await flushPromises()
 
@@ -73,6 +85,7 @@ describe('DatasourcePanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
+    await openPrivacy(wrapper)
     await checkboxes(wrapper)[0].setValue(true)
     await flushPromises()
 
@@ -89,6 +102,7 @@ describe('DatasourcePanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
+    await openPrivacy(wrapper)
     await checkboxes(wrapper)[0].setValue(true) // region: fails
     await flushPromises()
     expect(wrapper.text()).toContain('找不到資料源')
@@ -99,14 +113,35 @@ describe('DatasourcePanel', () => {
     expect(wrapper.text()).not.toContain('找不到資料源')
   })
 
-  it('labels sensitive checkboxes with 敏感 and shows an explanatory caption above the field list', async () => {
+  it('field rows are pick checkboxes; the 敏感 checkboxes stay hidden until 隱私設定 is opened', async () => {
     api.listDatasources.mockResolvedValue([ds1])
     const wrapper = mountPanel()
     await flushPromises()
 
-    const checkboxLabels = wrapper.findAllComponents({ name: 'VCheckbox' }).map((c) => c.props('label'))
-    expect(checkboxLabels).toEqual(['region（string）敏感', 'memo（string）敏感', 'qty（number）敏感'])
+    const labels = () => wrapper.findAllComponents({ name: 'VCheckbox' }).map((c) => c.props('label'))
+    expect(labels()).toEqual(['region（string）', 'memo（string）', 'qty（number）'])
+    expect(wrapper.text()).toContain('隱私設定（1 個敏感欄位）')
+    expect(wrapper.text()).not.toContain('勾選為敏感的欄位')
+
+    await openPrivacy(wrapper)
+    expect(labels().slice(3)).toEqual(['region（string）敏感', 'memo（string）敏感', 'qty（number）敏感'])
     expect(wrapper.text()).toContain('勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。')
+  })
+
+  it('picking a field of the selected datasource adds it to picked; on another datasource it selects that one first', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mount(DatasourcePanel, { props: { selectedId: 'ds1', picked: ['qty'] }, global: { plugins: [vuetify] } })
+    await flushPromises()
+
+    expect(pickBoxes(wrapper)[2].element.checked).toBe(true)
+    await pickBoxes(wrapper)[0].setValue(true)
+    expect(wrapper.emitted('update:picked').at(-1)).toEqual([['qty', 'region']])
+    expect(wrapper.emitted('select')).toBeUndefined()
+
+    await wrapper.setProps({ selectedId: 'other', picked: [] })
+    await pickBoxes(wrapper)[1].setValue(true)
+    expect(wrapper.emitted('select')).toEqual([['ds1']])
+    expect(wrapper.emitted('update:picked').at(-1)).toEqual([['memo']])
   })
 
   it('uploads the selected file as FormData with name/sheet, and emits select on success', async () => {
@@ -254,5 +289,22 @@ describe('DatasourcePanel', () => {
     await flushPromises()
     const items = wrapper.findAllComponents({ name: 'VWindowItem' })
     expect(items.map((w) => [w.props('transition'), w.props('reverseTransition')])).toEqual([[false, false], [false, false]])
+  })
+
+  it('changing a display name sends every label with this one replaced, then refreshes; an unchanged value sends nothing', async () => {
+    api.listDatasources.mockResolvedValue([{ ...ds1, schema: [{ ...ds1.schema[0], label: '地區' }, ...ds1.schema.slice(1)] }])
+    api.setLabels.mockResolvedValue({})
+    const wrapper = mountPanel()
+    await flushPromises()
+    const inputs = wrapper.findAll('input[type="text"]').filter((el) => el.attributes('placeholder'))
+
+    await inputs[0].setValue('地區')
+    await flushPromises()
+    expect(api.setLabels).not.toHaveBeenCalled()
+
+    await inputs[2].setValue('數量')
+    await flushPromises()
+    expect(api.setLabels).toHaveBeenCalledWith('ds1', { region: '地區', qty: '數量' })
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
   })
 })

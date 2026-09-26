@@ -3,6 +3,13 @@ import { onMounted, ref } from 'vue'
 import { AnalyzeButton, DashboardView, DatasourcePanel, api } from './modules/dashboard/index.js'
 
 const datasourceId = ref(null)
+// 側欄勾選想看的欄位；只屬於目前選的資料源，換資料源就清空
+const pickedFields = ref([])
+
+function selectDatasource(id) {
+  if (id !== datasourceId.value) pickedFields.value = []
+  datasourceId.value = id
+}
 const dashboards = ref([])
 const current = ref(null)
 const error = ref('')
@@ -55,9 +62,9 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
   <v-app>
     <!-- spec 3.3：側欄跟主區同底色，只靠右框線分開 -->
     <v-navigation-drawer permanent width="380" color="background">
-      <DatasourcePanel :selected-id="datasourceId" @select="(id) => (datasourceId = id)" />
+      <DatasourcePanel v-model:picked="pickedFields" :selected-id="datasourceId" @select="selectDatasource" />
       <div class="px-4 pb-4">
-        <AnalyzeButton :datasource-id="datasourceId" @saved="onSaved" />
+        <AnalyzeButton :datasource-id="datasourceId" :fields="pickedFields" @saved="onSaved" />
       </div>
       <v-divider />
       <v-list density="compact">

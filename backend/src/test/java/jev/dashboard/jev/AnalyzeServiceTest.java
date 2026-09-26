@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.Fixtures;
@@ -18,6 +19,7 @@ import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
 import jev.dashboard.transform.Mapping;
+import jev.dashboard.transform.UniversalTransformer;
 import org.junit.jupiter.api.Test;
 
 class AnalyzeServiceTest {
@@ -76,6 +78,22 @@ class AnalyzeServiceTest {
             assertThat(server.bodies.get(0)).doesNotContain("rel_").doesNotContain("keep_")
                 .doesNotContain("\"intent\"").doesNotContain("\"history\"").doesNotContain("\"current\"");
             assertThat(server.bodies.get(1)).doesNotContain("使用者想看");
+        }
+    }
+
+    @Test
+    void pickedFieldsAreFocusFieldsEvenWithoutAnIntent() throws Exception {
+        try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
+            DashboardConfig c = service(server).analyze("銷售 總覽", UUID.randomUUID(), Fixtures.SALES_SCHEMA, 12,
+                List.of(), null, Set.of("region"));
+
+            ChartSpec table = c.layout().get(c.layout().size() - 1);
+            assertThat(table.mapping().columns()).startsWith("region");
+            List<ChartSpec> charts = c.layout().subList(0, c.layout().size() - 1);
+            assertThat(charts).isNotEmpty().allSatisfy(s -> assertThat(s.options().containsKey("focus"))
+                .isEqualTo(UniversalTransformer.referencedFields(s.mapping()).contains("region")));
+            assertThat(charts).anySatisfy(s -> assertThat(s.options()).containsEntry("focus", true));
+            assertThat(server.bodies.get(0)).doesNotContain("rel_");
         }
     }
 

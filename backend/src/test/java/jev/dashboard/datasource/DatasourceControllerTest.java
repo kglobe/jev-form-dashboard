@@ -70,6 +70,21 @@ class DatasourceControllerTest {
     }
 
     @Test
+    void setFieldLabels() throws Exception {
+        String id = TestData.uploadSales(mvc, "u1");
+        mvc.perform(patch("/api/datasources/" + id + "/labels").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"labels\":{\"order_date\":\" 訂單日期 \",\"amount\":\"  \"}}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.schema[0].label").value("訂單日期"))
+            .andExpect(jsonPath("$.schema[1].label").doesNotExist());
+        // 顯示名稱不能和另一個欄位重複
+        mvc.perform(patch("/api/datasources/" + id + "/labels").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"labels\":{\"order_date\":\"amount\"}}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("顯示名稱「amount」重複"));
+    }
+
+    @Test
     void badCsvReportsLineNumber() throws Exception {
         mvc.perform(multipart("/api/datasources/upload").file(csv("bad.csv", "a,b\n1,2\n3\n"))
                 .param("name", "壞檔").header("X-User-Id", "u1"))
