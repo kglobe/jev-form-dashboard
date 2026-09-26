@@ -11,7 +11,8 @@ import './styles/vuetify-overrides.css'
 const vuetify = createVuetify({
   defaults: {
     global: { density: 'compact' },
-    VBtn: { variant: 'flat', ripple: false },
+    // 全域 compact 會把按鈕壓到 24px，比 43px 的輸入框矮一截；按鈕回到 default 的 36px，對上 --tc-h-md
+    VBtn: { variant: 'flat', ripple: false, density: 'default' },
     VListItem: { ripple: false },
     VTab: { ripple: false },
     VCheckbox: { ripple: false },

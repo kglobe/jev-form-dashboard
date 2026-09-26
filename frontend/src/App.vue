@@ -63,9 +63,6 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
     <!-- spec 3.3：側欄跟主區同底色，只靠右框線分開 -->
     <v-navigation-drawer permanent width="380" color="background">
       <DatasourcePanel v-model:picked="pickedFields" :selected-id="datasourceId" @select="selectDatasource" />
-      <div class="px-4 pb-4">
-        <AnalyzeButton :datasource-id="datasourceId" :fields="pickedFields" @saved="onSaved" />
-      </div>
       <v-divider />
       <v-list density="compact">
         <v-list-subheader>我的儀表板</v-list-subheader>
@@ -88,13 +85,31 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
           </template>
         </v-list-item>
       </v-list>
+      <!-- 資料源一多，「分析」就被擠到畫面外；固定在側欄底部，勾完欄位不必往下捲 -->
+      <template #append>
+        <div class="analyze-dock pa-4">
+          <AnalyzeButton :datasource-id="datasourceId" :fields="pickedFields" @saved="onSaved" />
+        </div>
+      </template>
     </v-navigation-drawer>
     <v-main>
       <v-container fluid>
         <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
-        <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
-        <DashboardView v-if="current" :key="current.id" :config="current" />
-        <div v-else class="text-medium-emphasis">選一份儀表板，或上傳資料後按「分析」。</div>
+        <template v-if="current">
+          <h1 class="tc-page-bar__title mb-1">{{ current.name }}</h1>
+          <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
+          <DashboardView :key="current.id" :config="current" />
+        </template>
+        <div v-else class="tc-empty empty-start">
+          <v-icon icon="mdi-view-dashboard-outline" size="40" class="mb-3" />
+          <h1 class="tc-page-bar__title mb-3">還沒有打開儀表板</h1>
+          <ol class="empty-steps">
+            <li>在左側上傳 CSV / Excel，或註冊外部 API。</li>
+            <li>點選資料源，想指定欄位就勾起來。</li>
+            <li>按左下角的「分析」，預覽滿意再存檔。</li>
+          </ol>
+          <p v-if="dashboards.length" class="mt-3">已經存過的儀表板在左側「我的儀表板」。</p>
+        </div>
       </v-container>
     </v-main>
     <v-dialog :model-value="!!confirmDelete" max-width="400" @update:model-value="(v) => !v && (confirmDelete = null)">
@@ -109,3 +124,20 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
     </v-dialog>
   </v-app>
 </template>
+
+<style scoped>
+/* 固定在底部的「分析」區塊跟上方捲動的清單用一條框線分開 */
+.analyze-dock {
+  border-top: 1px solid var(--tc-border-subtle);
+}
+.empty-start {
+  max-width: 36rem;
+  margin: 12vh auto 0;
+}
+.empty-steps {
+  display: inline-block;
+  text-align: left;
+  line-height: 1.8;
+  color: var(--tc-text-2);
+}
+</style>
