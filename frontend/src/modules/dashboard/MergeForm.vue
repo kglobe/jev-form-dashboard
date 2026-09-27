@@ -117,7 +117,8 @@ async function runPreview() {
     // 等回應的時候定義又改了：這份預覽已經不是目前的定義，丟掉
     if (key === definitionKey.value) preview.value = result
   } catch (e) {
-    error.value = e.message
+    // 舊預覽的錯誤：定義已經改了，不要蓋掉現在的畫面
+    if (key === definitionKey.value) error.value = e.message
   } finally {
     busy.value = false
   }

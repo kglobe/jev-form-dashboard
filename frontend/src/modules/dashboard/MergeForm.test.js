@@ -118,6 +118,18 @@ describe('MergeForm（疊加）', () => {
     expect(btn(w, '建立').attributes('disabled')).toBeDefined()
   })
 
+  it('a stale preview rejection after the definition changed is ignored', async () => {
+    let reject
+    api.previewMerged.mockReturnValue(new Promise((_, rej) => { reject = rej }))
+    const w = mountForm()
+    await pick(w, '來源', ['n', 's'])
+    await btn(w, '預覽').trigger('click')
+    await field(w, '來源欄名稱').vm.$emit('update:modelValue', '區') // 等回應的時候定義又改了
+    reject(new Error('舊預覽的錯誤'))
+    await flushPromises()
+    expect(w.text()).not.toContain('舊預覽的錯誤')
+  })
+
   it('the default name follows the picked sources until the user types one', async () => {
     const w = mountForm()
     await pick(w, '來源', ['n', 's'])
