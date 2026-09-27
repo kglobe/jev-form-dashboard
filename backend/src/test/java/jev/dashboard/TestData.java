@@ -31,6 +31,17 @@ public final class TestData {
         return JsonPath.read(body, "$.id");
     }
 
+    /** 上傳一段 CSV 文字，檔名是「name.csv」，回傳新來源的 id。 */
+    public static String uploadCsv(MockMvc mvc, String userId, String name, String csv) throws Exception {
+        String body = mvc.perform(multipart("/api/datasources/upload")
+                .file(new MockMultipartFile("file", name + ".csv", "text/csv", csv.getBytes(UTF_8)))
+                .param("name", name)
+                .header("X-User-Id", userId))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        return JsonPath.read(body, "$.id");
+    }
+
     /** c1、c2 有時間欄位；c3 沒有；c4 用了不存在的欄位 profit。 */
     public static String dashboardJson(String datasourceId) {
         return """

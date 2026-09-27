@@ -20,6 +20,8 @@ public class DatasourceController {
     public record SensitiveFields(List<String> fields) {}
     public record FieldLabels(Map<String, String> labels) {}
     public record ApiRegistration(String name, String url, Map<String, String> headers) {}
+    /** merge 是合併定義，JSON 用 op 分辨疊加（union）和查表（lookup），見 spec 4.2、4.3。 */
+    public record MergeRequest(String name, MergeDefinition merge) {}
 
     private final DatasourceService service;
 
@@ -38,6 +40,17 @@ public class DatasourceController {
     @PostMapping("/api")
     public Datasource registerApi(@RequestHeader("X-User-Id") String userId, @RequestBody ApiRegistration body) {
         return service.registerApi(userId, body.name(), body.url(), body.headers());
+    }
+
+    @PostMapping("/merged/preview")
+    public DatasourceService.MergePreview previewMerged(@RequestHeader("X-User-Id") String userId,
+                                                        @RequestBody MergeRequest body) {
+        return service.previewMerged(userId, body.merge());
+    }
+
+    @PostMapping("/merged")
+    public Datasource createMerged(@RequestHeader("X-User-Id") String userId, @RequestBody MergeRequest body) {
+        return service.createMerged(userId, body.name(), body.merge());
     }
 
     @GetMapping

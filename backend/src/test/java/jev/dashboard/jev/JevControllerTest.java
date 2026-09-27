@@ -188,4 +188,31 @@ class JevControllerTest {
             .andExpect(jsonPath("$.error").value("找不到資料源"));
         assertThat(JEV.bodies).isEmpty();
     }
+
+    @Test
+    void analyzingAMergedSourceKeepsInheritedSensitiveSamplesAwayFromJev() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String products = TestData.uploadCsv(mvc, "u1", "產品主檔", "code,category,owner\nA,家電,王小明\nB,文具,李小華\nC,食品,陳大文\n");
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
+            .andExpect(status().isOk());
+        mvc.perform(patch("/api/datasources/" + products + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"owner\"]}"))
+            .andExpect(status().isOk());
+        String merge = """
+            {"op":"lookup","main":"%s","lookup":"%s","keys":[{"main":"product","lookup":"code"}],
+             "bring":[{"name":"category","from":"category"},{"name":"owner","from":"owner"}]}""".formatted(sales, products);
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售（補產品主檔）\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String merged = JsonPath.read(created, "$.id");
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + merged + "\"}"))
+            .andExpect(status().isOk());
+
+        // 第一輪的 state：category 有樣本；從 sales、產品主檔繼承來的敏感欄位沒有
+        assertThat(JEV.bodies.get(0)).contains("家電").doesNotContain("首購").doesNotContain("王小明");
+    }
 }
