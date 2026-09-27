@@ -280,5 +280,5 @@ JEV 逾時：連線 5 秒；讀取時分析用 30 秒、異常檢查用 10 秒�
 
 - 動態表單：下一份 spec。
 - 登入與權限：先用固定的 `X-User-Id` header 識別使用者，接 ERP 時再整合。
-- 一份儀表板接多個資料源。
+- 一份儀表板接多個資料源。已由 `docs/superpowers/specs/2026-09-27-multi-source-dashboard-design.md` 處理：每張圖各自一個來源。
 - 在畫面上調整 mapping 或 `timeGrain`，要改就重新分析。
