@@ -27,6 +27,8 @@ export const api = {
   registerApi: (body) => request('POST', '/api/datasources/api', body),
   setSensitive: (id, fields) => request('PATCH', `/api/datasources/${id}/sensitive`, { fields }),
   setLabels: (id, labels) => request('PATCH', `/api/datasources/${id}/labels`, { labels }),
+  previewMerged: (body) => request('POST', '/api/datasources/merged/preview', body),
+  createMerged: (body) => request('POST', '/api/datasources/merged', body),
   // intents、current、fields 沒給時 JSON.stringify 會略過，body 跟原本一樣只有 datasourceId
   analyze: (datasourceId, intents, current, fields) => request('POST', '/api/jev/analyze', { datasourceId, intents, current, fields }),
   listDashboards: () => request('GET', '/api/dashboards'),
