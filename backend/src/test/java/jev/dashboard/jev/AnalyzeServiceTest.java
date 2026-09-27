@@ -38,7 +38,7 @@ class AnalyzeServiceTest {
 
             assertThat(c.id()).isNull();
             assertThat(c.name()).isEqualTo("銷售 總覽");
-            assertThat(c.datasourceId()).isEqualTo(ds);
+            assertThat(c.layout()).extracting(ChartSpec::datasourceId).containsOnly(ds);
             assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "stacked_bar", "bar", "table");
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
             assertThat(server.bodies).hasSize(2);
@@ -138,7 +138,8 @@ class AnalyzeServiceTest {
         List<String> intents = List.of("各區每月營收", "不要圓餅圖，加各產品的數量");
 
         try (FakeJevServer server = FakeJevServer.start(AnalyzeServiceTest::intentRoute)) {
-            DashboardConfig c = service(server).analyze("銷售 總覽", UUID.randomUUID(), Fixtures.SALES_SCHEMA, 12,
+            UUID ds = UUID.randomUUID();
+            DashboardConfig c = service(server).analyze("銷售 總覽", ds, Fixtures.SALES_SCHEMA, 12,
                 intents, List.of(line, pie, table));
 
             assertThat(c.intents()).isEqualTo(intents);
@@ -147,7 +148,8 @@ class AnalyzeServiceTest {
                 tuple("c4", "bar", new GridPos(6, 0, 6, 4)),      // 新圖的編號接在 c3 後面
                 tuple("c5", "bar", new GridPos(0, 4, 6, 4)),
                 tuple("c3", "table", new GridPos(0, 8, 12, 5)));  // keep_c2：移除；明細表放最後
-            assertThat(c.layout().get(0)).isEqualTo(line);        // 保留的圖設定原封不動
+            assertThat(c.layout().get(0)).isEqualTo(line.withDatasourceId(ds)); // 保留的圖只多了這次分析的來源
+            assertThat(c.layout()).extracting(ChartSpec::datasourceId).containsOnly(ds);
             assertThat(c.layout().get(1).options()).isEqualTo(Map.of("focus", true));
             assertThat(c.layout().get(3).mapping()).isEqualTo(table.mapping());
 

@@ -41,7 +41,7 @@
 - ~~P3 · `DatasourcePanel` 用同一個 `busy` 旗標擋上傳／註冊和逐欄位的敏感勾選，操作其中一個時其他都會被鎖住。（frontend ledger，Task 4）~~ 已修正：新增來源移到對話框，改用自己的 `adding` 狀態，上傳或註冊時不會再鎖住欄位表。（UI 改版）
 - ~~P3 · 分析預覽存檔失敗的錯誤訊息，取消對話框後不會清掉，下次打開還會看到舊的錯誤。（frontend ledger，Task 4）~~ 已修正：關掉預覽時會清掉錯誤訊息（依需求分析與調整）。
 - P3 · 切換儀表板（`App.vue` 的 `open()`）沒有防過期回應的機制，快速切換時舊的回應可能蓋掉新畫面。（frontend ledger，Task 4）
-- P3 · PUT 更新儀表板時，body 裡的 `datasourceId` 會被完全忽略，換成別的資料源也不會報錯。（backend ledger，Task 10）
+- ~~P3 · PUT 更新儀表板時，body 裡的 `datasourceId` 會被完全忽略，換成別的資料源也不會報錯。（backend ledger，Task 10）~~ 已修正：來源改成記在每張圖上，PUT 會檢查每個來源都是自己的（多來源儀表板，`docs/superpowers/specs/2026-09-27-multi-source-dashboard-design.md`）。
 - P3 · 外部 API 回應是空 body（204 或空陣列）時目前回 502，訊息不夠精準。（backend ledger，Task 6）
 - P3 · 外部 API 回應如果不是 UTF-8（例如 Big5/MS950），現在的串流 JSON 解析不會另外處理編碼。（backend ledger，Task 6）
 - P3 · 舊版 `.xls`（非 `.xlsx`）還是用一次載入整本活頁簿的 POI API，大檔案一樣有吃滿記憶體的風險；這次只有 `.xlsx` 改成邊讀邊處理。（backend ledger，Task 5）

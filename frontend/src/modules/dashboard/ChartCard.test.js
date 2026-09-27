@@ -123,7 +123,7 @@ describe('ChartCard', () => {
     expect(mountCard({ spec, data: null, highlight: null }).find('.tc-badge').exists()).toBe(false)
   })
 
-  it('✕: shown on removable chart cards only (not on the table, not when not removable), named 移除這張圖, emits remove', async () => {
+  it('✕: shown only when removable (DashboardView decides which cards), named 移除這張圖, emits remove', async () => {
     const spec = { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }
     const card = mountCard({ spec, data: null, highlight: null, removable: true })
     await card.get('button[aria-label="移除這張圖"]').trigger('click')
@@ -131,7 +131,7 @@ describe('ChartCard', () => {
 
     expect(mountCard({ spec, data: null, highlight: null }).find('button[aria-label="移除這張圖"]').exists()).toBe(false)
     const tableCard = mountCard({ spec: { ...spec, type: 'table' }, data: null, highlight: null, removable: true })
-    expect(tableCard.find('button[aria-label="移除這張圖"]').exists()).toBe(false)
+    expect(tableCard.find('button[aria-label="移除這張圖"]').exists()).toBe(true)
   })
 
   it('✕ is size small with default density, so it still reaches 40×40 under the global compact density', () => {
@@ -232,5 +232,26 @@ describe('ChartCard', () => {
     const option = optionFor('bar')
     expect(option.animation).toBe(false)
     expect(option.stateAnimation.duration).toBe(0)
+  })
+
+  it('source: the source name sits after the title in small muted text, truncated with the full name on hover; none without it', () => {
+    const card = mountCard({ spec: barSpec, data: null, highlight: null, source: 'R7 Excel 退貨' })
+    const tag = card.get('.tc-card-title .tc-source')
+    expect(tag.text()).toBe('R7 Excel 退貨')
+    expect(tag.attributes('title')).toBe('R7 Excel 退貨')
+    expect(tag.classes()).toContain('text-truncate')
+    expect(mountCard({ spec: barSpec, data: null, highlight: null }).find('.tc-source').exists()).toBe(false)
+  })
+
+  it('SOURCE_FAILED: a warning names the source when it is known, and no chart is drawn', () => {
+    const failed = (source) => mountCard({
+      spec: barSpec,
+      data: { chartId: 'c1', type: 'bar', error: 'SOURCE_FAILED', ...(source && { source }) },
+      highlight: null,
+    })
+    const named = failed('銷售 API')
+    expect(named.text()).toContain('資料來源「銷售 API」載入失敗，請稍後重新整理')
+    expect(named.find('.v-chart-stub').exists()).toBe(false)
+    expect(failed().text()).toContain('資料來源載入失敗，請稍後重新整理')
   })
 })

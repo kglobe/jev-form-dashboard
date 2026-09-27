@@ -48,6 +48,12 @@ public class DashboardController {
         return service.update(userId, id, body);
     }
 
+    @PostMapping("/{id}/charts")
+    public DashboardConfig append(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+                                  @RequestBody DashboardConfig body) {
+        return service.append(userId, id, body);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {

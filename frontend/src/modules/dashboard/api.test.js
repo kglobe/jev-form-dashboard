@@ -94,4 +94,18 @@ describe('api', () => {
       ['/api/datasources/merged', 'POST', JSON.stringify(body)],
     ])
   })
+
+  it('appendCharts POSTs the batch to /api/dashboards/{id}/charts', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ id: 'd1' }))
+    await api.appendCharts('d1', { layout: [{ chartId: 'c1' }], intents: ['各區退貨'] })
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toBe('/api/dashboards/d1/charts')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ layout: [{ chartId: 'c1' }], intents: ['各區退貨'] }))
+  })
+
+  it('a rejected request also carries the HTTP status, so callers can tell a 404 apart', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '找不到儀表板' }, { status: 404 }))
+    await expect(api.getDashboard('d1')).rejects.toMatchObject({ message: '找不到儀表板', status: 404 })
+  })
 })

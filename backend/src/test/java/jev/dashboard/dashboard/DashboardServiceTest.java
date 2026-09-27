@@ -18,13 +18,14 @@ import org.springframework.http.HttpStatus;
 
 class DashboardServiceTest {
     static final GridPos POS = new GridPos(0, 0, 6, 4);
+    static final UUID DS = UUID.randomUUID();
 
     static ChartSpec card(String type, Mapping m) {
-        return new ChartSpec("c1", type, "t", POS, m, Map.of());
+        return new ChartSpec("c1", type, "t", POS, m, Map.of(), DS);
     }
 
     static ChartSpec at(GridPos pos) {
-        return new ChartSpec("c1", "bar", "t", pos, x("region"), Map.of());
+        return new ChartSpec("c1", "bar", "t", pos, x("region"), Map.of(), DS);
     }
 
     static Mapping x(String x) {
@@ -32,7 +33,7 @@ class DashboardServiceTest {
     }
 
     static DashboardConfig config(ChartSpec... cards) {
-        return new DashboardConfig(null, "銷售總覽", UUID.randomUUID(), null, Arrays.asList(cards));
+        return new DashboardConfig(null, "銷售總覽", null, Arrays.asList(cards));
     }
 
     static void rejects(DashboardConfig c, String message) {
@@ -43,12 +44,12 @@ class DashboardServiceTest {
     }
 
     static DashboardConfig withIntents(List<String> intents) {
-        return new DashboardConfig(null, "銷售總覽", UUID.randomUUID(), null, List.of(), intents);
+        return new DashboardConfig(null, "銷售總覽", null, List.of(), intents, null);
     }
 
     @Test
     void blankNameIsRejected() {
-        rejects(new DashboardConfig(null, "  ", UUID.randomUUID(), null, List.of()), "儀表板名稱不能空白");
+        rejects(new DashboardConfig(null, "  ", null, List.of()), "儀表板名稱不能空白");
     }
 
     @Test
@@ -100,7 +101,7 @@ class DashboardServiceTest {
     @Test
     void validCardsPass() {
         ChartSpec table = new ChartSpec("c2", "table", "明細", new GridPos(0, 4, 12, 5),
-            new Mapping(null, null, null, null, null, List.of("region"), "none", null), Map.of());
+            new Mapping(null, null, null, null, null, List.of("region"), "none", null), Map.of(), DS);
         assertThatCode(() -> DashboardService.requireComplete(config(at(new GridPos(6, 0, 6, 4)), table)))
             .doesNotThrowAnyException();
     }
@@ -114,5 +115,21 @@ class DashboardServiceTest {
         assertThatCode(() -> DashboardService.requireComplete(withIntents(Collections.nCopies(10, "營".repeat(200)))))
             .doesNotThrowAnyException();
         assertThatCode(() -> DashboardService.requireComplete(withIntents(null))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void everyCardNeedsADatasourceId() {
+        rejects(config(card("bar", x("region")).withDatasourceId(null)), "圖表 c1：缺少 datasourceId");
+    }
+
+    @Test
+    void basisGroupsNeedADatasourceIdAndValidIntents() {
+        assertThatThrownBy(() -> DashboardService.requireValidBasis(Arrays.asList(new DashboardConfig.Basis(DS, List.of("看營收")), null)))
+            .isInstanceOf(ApiException.class).hasMessage("依據缺少 datasourceId");
+        assertThatThrownBy(() -> DashboardService.requireValidBasis(List.of(new DashboardConfig.Basis(null, List.of("看營收")))))
+            .hasMessage("依據缺少 datasourceId");
+        assertThatThrownBy(() -> DashboardService.requireValidBasis(List.of(new DashboardConfig.Basis(DS, List.of(" ")))))
+            .hasMessage("需求紀錄不能有空白的句子");
+        assertThatCode(() -> DashboardService.requireValidBasis(null)).doesNotThrowAnyException();
     }
 }

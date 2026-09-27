@@ -16,7 +16,8 @@ async function request(method, url, body) {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.error || `HTTP ${res.status}`)
+    // 帶上狀態碼，呼叫端才分得出「找不到」（例如儀表板在別的分頁被刪了）
+    throw Object.assign(new Error(err.error || `HTTP ${res.status}`), { status: res.status })
   }
   return res.status === 204 ? null : res.json()
 }
@@ -35,6 +36,8 @@ export const api = {
   getDashboard: (id) => request('GET', `/api/dashboards/${id}`),
   createDashboard: (config) => request('POST', '/api/dashboards', config),
   updateDashboard: (id, config) => request('PUT', `/api/dashboards/${id}`, config),
+  // 多來源 spec 6.3：把預覽裡的一批圖接在既有儀表板最下面，回傳更新後的設定
+  appendCharts: (id, batch) => request('POST', `/api/dashboards/${id}/charts`, batch),
   deleteDashboard: (id) => request('DELETE', `/api/dashboards/${id}`),
   dashboardData: (id) => request('GET', `/api/dashboards/${id}/data`),
   previewData: (config) => request('POST', '/api/dashboards/preview/data', config),
