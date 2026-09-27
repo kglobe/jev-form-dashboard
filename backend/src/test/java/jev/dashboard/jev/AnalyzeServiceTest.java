@@ -38,7 +38,6 @@ class AnalyzeServiceTest {
 
             assertThat(c.id()).isNull();
             assertThat(c.name()).isEqualTo("銷售 總覽");
-            assertThat(c.datasourceId()).isEqualTo(ds);
             assertThat(c.layout()).extracting(ChartSpec::datasourceId).containsOnly(ds);
             assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "stacked_bar", "bar", "table");
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();

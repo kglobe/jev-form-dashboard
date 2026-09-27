@@ -117,7 +117,7 @@ class JevControllerTest {
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """
-            {"name":"分區銷售","datasourceId":"%1$s","layout":[
+            {"name":"分區銷售","layout":[
               {"chartId":"c1","datasourceId":"%1$s","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}},
               {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
@@ -205,12 +205,12 @@ class JevControllerTest {
              "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}}""";
         String first = card.formatted("c1", plain, 0);
         String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"兩個來源\",\"datasourceId\":\"" + plain + "\",\"layout\":[" + first + "]}"))
+                .content("{\"name\":\"兩個來源\",\"layout\":[" + first + "]}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
         mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"兩個來源\",\"datasourceId\":\"" + plain + "\",\"layout\":["
+                .content("{\"name\":\"兩個來源\",\"layout\":["
                     + first + "," + card.formatted("c2", secret, 6) + "]}"))
             .andExpect(status().isOk());
 

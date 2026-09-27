@@ -34,7 +34,7 @@ public final class TestData {
     /** c1、c2 有時間欄位；c3 沒有；c4 用了不存在的欄位 profit。每張圖都讀 datasourceId 這個來源。 */
     public static String dashboardJson(String datasourceId) {
         return """
-            {"name":"銷售總覽","datasourceId":"%1$s","layout":[
+            {"name":"銷售總覽","layout":[
               {"chartId":"c1","datasourceId":"%1$s","type":"line","title":"月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","value":"amount","aggregate":"sum"}},
               {"chartId":"c2","datasourceId":"%1$s","type":"bar","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},

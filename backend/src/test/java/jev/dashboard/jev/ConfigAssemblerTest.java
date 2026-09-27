@@ -199,7 +199,7 @@ class ConfigAssemblerTest {
         // 存檔前 AnalyzeService 會把這次分析的來源寫進每張圖
         List<ChartSpec> saved = layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList();
         assertThatCode(() -> DashboardService.requireComplete(
-            new DashboardConfig(null, "銷售 總覽", UUID.randomUUID(), null, saved))).doesNotThrowAnyException();
+            new DashboardConfig(null, "銷售 總覽", null, saved))).doesNotThrowAnyException();
     }
 
     @Test

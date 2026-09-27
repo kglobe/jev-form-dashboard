@@ -42,6 +42,13 @@ class DashboardControllerTest {
         return JsonPath.read(body, "$.id");
     }
 
+    static String card(String chartId, String ds, int y) {
+        return """
+            {"chartId":"%s","datasourceId":"%s","type":"bar","title":"amount 依 region",
+             "gridPos":{"x":0,"y":%d,"w":6,"h":4},"mapping":{"x":"region","value":"amount","aggregate":"sum"}}"""
+            .formatted(chartId, ds, y);
+    }
+
     @Test
     void crudIsScopedToTheOwner() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
@@ -114,7 +121,7 @@ class DashboardControllerTest {
         String id = create("u1", json);
 
         mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"壞\",\"datasourceId\":\"" + ds + "\",\"layout\":[null]}"))
+                .content("{\"name\":\"壞\",\"layout\":[null]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("第 1 張圖表是空的"));
         mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
@@ -150,7 +157,7 @@ class DashboardControllerTest {
     }
 
     @Test
-    void intentsAreSavedReadBackAndValidated() throws Exception {
+    void intentsBecomeTheFirstBasisGroupAndAreValidated() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String json = TestData.dashboardJson(ds);
         String withIntents = json.replace("\"name\":\"銷售總覽\",",
@@ -159,22 +166,95 @@ class DashboardControllerTest {
         String id = create("u1", withIntents);
         mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.intents").value(contains("各區每月營收", "不要圓餅圖")));
+            .andExpect(jsonPath("$.intents").doesNotExist())
+            .andExpect(jsonPath("$.basis.length()").value(1))
+            .andExpect(jsonPath("$.basis[0].datasourceId").value(ds))
+            .andExpect(jsonPath("$.basis[0].intents").value(contains("各區每月營收", "不要圓餅圖")));
 
-        // 沒有需求紀錄的儀表板（跟舊資料一樣）照常打開，回應裡沒有 intents
+        // 沒有需求紀錄就沒有依據
         String plain = create("u1", json);
         mvc.perform(get("/api/dashboards/" + plain).header("X-User-Id", "u1"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.intents").doesNotExist());
+            .andExpect(jsonPath("$.basis").doesNotExist());
 
         mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace("\"name\":\"銷售總覽\",", "\"name\":\"銷售總覽\",\"intents\":[\" \"],")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("需求紀錄不能有空白的句子"));
         mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
-                .content(json.replace("\"name\":\"銷售總覽\",",
-                    "\"name\":\"銷售總覽\",\"intents\":[\"" + "營".repeat(201) + "\"],")))
+                .content(json.replace("\"name\":\"銷售總覽\",", "\"name\":\"銷售總覽\",\"basis\":[{\"datasourceId\":\""
+                    + ds + "\",\"intents\":[\"" + "營".repeat(201) + "\"]}],")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("想看什麼最多 200 字"));
+    }
+
+    @Test
+    void createNeedsAtLeastOneCardAllFromOneSource() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String other = TestData.uploadSales(mvc, "u1");
+        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"空\",\"layout\":[]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("沒有要存入的圖表"));
+        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"混\",\"layout\":[" + card("c1", ds, 0) + "," + card("c2", other, 4) + "]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("一次存入的圖表要來自同一個資料來源"));
+        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"缺\",\"layout\":[" + card("c1", ds, 0).replace("\"datasourceId\":\"" + ds + "\",", "") + "]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("圖表 c1：缺少 datasourceId"));
+        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void putChecksEverySourceAndDropsBasisGroupsThatLostTheirCharts() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String returns = TestData.uploadSales(mvc, "u1");
+        String strangers = TestData.uploadSales(mvc, "u2");
+        String id = create("u1", "{\"name\":\"週報\",\"intents\":[\"各區每月營收\"],\"layout\":[" + card("c1", sales, 0) + "]}");
+        String basis = "\"basis\":[{\"datasourceId\":\"" + sales + "\",\"intents\":[\"各區每月營收\"]},"
+            + "{\"datasourceId\":\"" + returns + "\",\"intents\":[\"各區退貨\"]}]";
+
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\"," + basis + ",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", returns, 4) + "]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout[*].datasourceId").value(contains(sales, returns)))
+            .andExpect(jsonPath("$.basis[*].datasourceId").value(contains(sales, returns)));
+
+        // 銷售的圖全部拿掉：銷售那組依據跟著刪
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\"," + basis + ",\"layout\":[" + card("c2", returns, 4) + "]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.basis.length()").value(1))
+            .andExpect(jsonPath("$.basis[0].datasourceId").value(returns))
+            .andExpect(jsonPath("$.basis[0].intents").value(contains("各區退貨")));
+
+        // backlog 第 42 行：圖指到別人的來源就擋下來
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"layout\":[" + card("c1", strangers, 0) + "]}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"basis\":[{\"intents\":[\"各區退貨\"]}],\"layout\":[" + card("c2", returns, 4) + "]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("依據缺少 datasourceId"));
+
+        // 最後一張也可以拿掉：layout 變成空的，依據也沒了
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\"," + basis + ",\"layout\":[]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout.length()").value(0))
+            .andExpect(jsonPath("$.basis").doesNotExist());
+    }
+
+    @Test
+    void theListNoLongerCarriesADatasourceId() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        create("u1", TestData.dashboardJson(ds));
+        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1"))
+            .andExpect(jsonPath("$[0].name").value("銷售總覽"))
+            .andExpect(jsonPath("$[0].updatedAt").exists())
+            .andExpect(jsonPath("$[0].datasourceId").doesNotExist());
     }
 }

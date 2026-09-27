@@ -62,7 +62,7 @@ class DashboardDataServiceTest {
     }
 
     static DashboardConfig config(ChartSpec... layout) {
-        return new DashboardConfig(null, "x", null, "u1", List.of(layout));
+        return new DashboardConfig(null, "x", "u1", List.of(layout));
     }
 
     @Test
@@ -82,7 +82,7 @@ class DashboardDataServiceTest {
         ChartSpec bar = new ChartSpec("c1", "bar", "t", pos, new Mapping("region", null, null, "amount", null, null, "sum", null), Map.of());
         ChartSpec gone = new ChartSpec("c2", "bar", "t", pos, new Mapping("region", null, null, "profit", null, null, "sum", null), Map.of());
 
-        List<ChartData> data = new DashboardDataService(datasources).load("u1", new DashboardConfig(null, "x", id, "u1", List.of(bar, gone)));
+        List<ChartData> data = new DashboardDataService(datasources).load("u1", new DashboardConfig(null, "x", "u1", List.of(bar, gone)));
 
         assertThat(data.get(0).error()).isNull();
         assertThat(data.get(0).rows()).isEqualTo(List.of(List.of("南區", 5.0)));
@@ -108,7 +108,7 @@ class DashboardDataServiceTest {
         Mapping m = new Mapping("region", null, null, "amount", null, null, "sum", null);
         ChartSpec bar = new ChartSpec("c1", "bar", "amount 依 region", pos, m, Map.of());
         ChartSpec named = new ChartSpec("c2", "bar", "自己取的名字", pos, m, Map.of());
-        DashboardConfig c = new DashboardConfig(null, "x", id, "u1", List.of(bar, named));
+        DashboardConfig c = new DashboardConfig(null, "x", "u1", List.of(bar, named));
 
         List<ChartData> shown = new DashboardDataService(datasources).display("u1", c);
 
