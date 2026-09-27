@@ -20,6 +20,7 @@ import jev.dashboard.transform.UniversalTransformer;
 
 /** 把 JEV 的答案組成儀表板配置。全部是純函式，不呼叫 JEV。 */
 public final class ConfigAssembler {
+    /** Choice／Score 的信心門檻；照 JevConfig.TUNED_MODEL（jev-1.13.0）調的，換模型要重新調校。 */
     public static final double MIN_CONFIDENCE = 0.5;
     static final int MAX_CANDIDATES = 8;
     /** spec 6.5：調整後最多 6 張圖（不含明細表）。 */
@@ -78,7 +79,7 @@ public final class ConfigAssembler {
         return out;
     }
 
-    /** spec 6.1：rel_i 的 round(score) 等於 2（直接相關），而且 confidence ≥ 0.5；JEV 沒回答就不算。 */
+    /** spec 6.1：rel_i 的 round(score) 等於 2（直接相關），而且 confidence ≥ 0.5；JEV 沒回答就不算。四捨五入對級照 jev-1.13.0 調的。 */
     static boolean isFocus(Answer rel) {
         return rel != null && rel.score() != null && rel.confidence() != null
             && Math.round(rel.score()) == 2 && rel.confidence() >= MIN_CONFIDENCE;

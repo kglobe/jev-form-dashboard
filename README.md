@@ -42,7 +42,7 @@ cp backend/.env.example backend/.env
 |---|---|---|
 | `server.address` | `127.0.0.1` | 只聽本機連線；對外開放前看下面的身分識別警語 |
 | `jev.api-url` | `https://api.typesafe.ai/v1/systemone` | JEV 分析 API 端點 |
-| `jev.model` | `jev-1.13.0` | 呼叫 JEV 用的模型版本 |
+| `jev.model` | `jev-1.13.0` | 呼叫 JEV 用的模型版本。信心門檻是照 `jev-1.13.0` 調的；換成別的版本（包括 `jev-latest`），啟動時會印警告，門檻也要重新調校 |
 | `jev.upload.max-rows` | `100000` | 上傳檔案或外部 API 回應可接受的最大列數 |
 | `jev.datasource.allowed-hosts` | `[]`（空清單） | 允許註冊的外部 API host，預設空＝不開放註冊外部 API |
 | `spring.servlet.multipart.max-file-size` | `50MB` | 單一上傳檔案大小上限 |
@@ -187,6 +187,9 @@ npm run build
 | 訊息 | 原因 | 處理方式 |
 |---|---|---|
 | `503`、`未設定 TYPESAFE_API_KEY` | `backend/.env` 裡 `TYPESAFE_API_KEY` 是空的 | 申請 JEV 金鑰後填入 `.env`，重啟後端 |
+| `503`、`JEV 目前請求太多，請稍後再試` | 超過 JEV 的速率限制（每分鐘 1,200 次請求、每秒 250,000 tokens）。後端已經照 `retry-after` 等過並重試一次；要等太久（分析超過 10 秒、異常檢查超過 2 秒）就不等，直接回這個訊息 | 等一下再按一次 |
+| `413`、`送給 JEV 的資料太大…` | 欄位太多或樣本太長，state 加上最長的一題，估算超過 JEV 單次 32k tokens 的上限（題目加總超過 64k 的話，後端會自己拆成幾次送，不會報錯） | 減少欄位，或把長文字欄位標成敏感（敏感欄位不送樣本） |
+| 想看 JEV 每一題的完整機率（例如 Choice 第二名是誰） | 預設不記錄 | 啟動後端時加 `--logging.level.jev.dashboard.jev.JevClient=DEBUG`，log 會印出每題的 `probabilities` 和 `legend` |
 | `未開放註冊外部 API：jev.datasource.allowed-hosts 是空的` | `jev.datasource.allowed-hosts` 預設是空清單 | 用命令列參數或環境變數加上要開放的 host（見「`application.yml` 常用設定」） |
 | `header「...」的值只能寫 ${DS_環境變數名}` | 註冊外部 API 時 header 值寫了字面字串，不是 `${DS_XXX}` 格式 | 改成 `${DS_你的變數名}`，實際值透過同名環境變數提供 |
 | `網址不能包含帳密或 token，請改放在 headers，值寫 ${DS_環境變數名}` | 註冊外部 API 時網址裡帶了 `user:pass@`，或帶了 `token`／`api_key`／`password` 之類的 query 參數 | 把驗證資訊改放進 headers，值寫成 `${DS_你的變數名}` |

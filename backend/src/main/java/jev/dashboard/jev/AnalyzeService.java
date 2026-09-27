@@ -113,6 +113,13 @@ public class AnalyzeService {
         return new DashboardConfig(null, name, datasourceId, null, layout, intents.isEmpty() ? null : intents);
     }
 
+    /** 樣本值只是讓 JEV 看出欄位像什麼，截短就夠；一個長備註欄不會把整個請求撐過上限。 */
+    static final int MAX_SAMPLE_CHARS = 60;
+
+    static String clip(String sample) {
+        return sample == null || sample.length() <= MAX_SAMPLE_CHARS ? sample : sample.substring(0, MAX_SAMPLE_CHARS) + "…";
+    }
+
     static Map<String, Object> state(List<FieldSchema> schema, long rowCount, List<String> intents,
                                      List<ChartSpec> current) {
         List<Map<String, Object>> fields = new ArrayList<>();
@@ -122,7 +129,7 @@ public class AnalyzeService {
             m.put("type", f.type());
             if (!f.sensitive()) {
                 m.put("distinctCount", f.distinctCount());
-                m.put("samples", f.samples());
+                m.put("samples", f.samples() == null ? null : f.samples().stream().map(AnalyzeService::clip).toList());
             }
             fields.add(m);
         }

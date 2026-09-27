@@ -15,6 +15,8 @@ import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.Fixtures;
 import jev.dashboard.dashboard.DashboardConfig;
+import jev.dashboard.datasource.FieldSchema;
+import jev.dashboard.datasource.FieldType;
 import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
@@ -167,5 +169,15 @@ class AnalyzeServiceTest {
             assertThat(memoField(round1)).isEqualTo(Map.of("name", "memo", "type", "string"));
             assertThat(memoField(server.bodies.get(1))).isEqualTo(Map.of("name", "memo", "type", "string"));
         }
+    }
+
+    @Test
+    void longSamplesAreClippedInTheStateSoOneMemoFieldCannotBlowTheRequestSize() {
+        String memo = "備".repeat(200);
+        List<FieldSchema> schema = List.of(new FieldSchema("memo", FieldType.STRING, 2, List.of(memo, "短"), false, null, null));
+        Map<String, Object> state = AnalyzeService.state(schema, 2, List.of(), null);
+        @SuppressWarnings("unchecked")
+        List<String> samples = (List<String>) ((List<Map<String, Object>>) state.get("fields")).get(0).get("samples");
+        assertThat(samples).containsExactly("備".repeat(AnalyzeService.MAX_SAMPLE_CHARS) + "…", "短");
     }
 }

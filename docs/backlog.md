@@ -11,6 +11,9 @@
 - ~~P3 · 淺色主題與切換：介面改成深色指揮中心風格後，只有深色一套（`frontend/src/styles/command-center.css`、圖表的 `command-dark.json`）。要加淺色，得另外定色盤、用 dataviz 的 `validate_palette.js` 驗圖表配色，再設計切換入口。（UI 改版，2026-09-27）~~ 已完成：導覽列最下面有深色／淺色切換鈕，選過的主題存在 localStorage。淺色圖表色盤驗證時，有三個顏色對白底的對比不到 3:1，改靠圖例和明細表辨識（dataviz 的 relief rule）。
 - ~~P3 · 刪除確認對話框改成 Tactile 的 header／body／footer 結構，按鈕文案改成「保留」／「刪除儀表板」。（同上，第 2 節）~~ 已調整：確認框加上標題「刪除儀表板」，兩顆按鈕改成實心，刪除鈕用錯誤色；文案還是「取消」／「刪除」。（UI 改版）
 
+- P2 · 送給 JEV 的題目和選項改成英文：jevai.wiki 的 state 頁寫「英文是主要訓練語言；其他語言（包括中日韓文字）雖可使用，但準確度較低」，現在的 instructions 和 criteria 全是中文（`AnalyzeService`、`HighlightService`）。使用者的需求和欄位名照原樣送。改完之後挑圖結果會變，要重新實測。（JEV 官方文件對照，2026-09-27）
+- P3 · Score 的內插值不要拿來排序：jevai.wiki 的 primitives 頁說期望值只適合判斷門檻，`ConfigAssembler.candidates` 和組合排序卻直接比小數（2.75 排在 3.0 後面）。可以改成先比 `round(score)`，再比 confidence 或機率。（同上）
+
 ## 正式上線前
 
 - P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）

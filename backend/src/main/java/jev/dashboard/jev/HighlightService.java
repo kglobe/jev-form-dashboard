@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 public class HighlightService {
     private static final Logger log = LoggerFactory.getLogger(HighlightService.class);
     static final List<String> SEVERITY = List.of("正常波動", "值得注意", "需要關注", "嚴重警示");
+    /** noul 超過這個值才標註；照 JevConfig.TUNED_MODEL（jev-1.13.0）調的，換模型要重新調校。 */
     static final double THRESHOLD = 0.7;
 
     private final JevClient jev;
