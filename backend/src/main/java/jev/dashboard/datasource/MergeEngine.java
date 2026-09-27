@@ -210,6 +210,16 @@ public final class MergeEngine {
         return out;
     }
 
+    /** spec 6.3：提供這個輸出欄位的輸入欄位，輸入來源 id → 欄位名稱；來源欄沒有輸入欄位。 */
+    public static Map<UUID, String> sources(MergeDefinition def, String field) {
+        return switch (def) {
+            case Union u -> u.columns().stream().filter(c -> c.name().equals(field)).findFirst()
+                .map(Union.Column::from).orElse(Map.of());
+            case Lookup l -> l.bring().stream().filter(b -> b.name().equals(field)).findFirst()
+                .map(b -> Map.of(l.lookup(), b.from())).orElse(Map.of(l.main(), field));
+        };
+    }
+
     static FieldSchema field(Datasource ds, String name) {
         FieldSchema f = find(ds, name);
         if (f == null) throw bad(ds.name() + "沒有 " + name + " 這個欄位");

@@ -18,6 +18,7 @@ import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
 import jev.dashboard.datasource.DatasourceService.Loaded;
 import jev.dashboard.datasource.DatasourceService.MergePreview;
+import jev.dashboard.datasource.MergeDefinition.Lookup;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import org.junit.jupiter.api.Test;
 
@@ -185,5 +186,74 @@ class MergedDatasourceServiceTest {
         repo.insertRows(a, List.of());
         repo.insertRows(b, List.of());
         assertThat(service(1).load("u1", m).rows()).isEmpty();
+    }
+
+    @Test
+    void sensitivityFollowsTheInputsAndCannotBeTurnedOffOnTheMergedSource() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,memo", "北區,首購");
+        UUID s = upload("南區", "region,memo", "南區,備註");
+        UUID m = service.createMerged("u1", "全區", union(List.of(n, s), "region", "memo")).id();
+        assertThat(field(service.get("u1", m), "memo").sensitive()).isFalse();
+
+        service.markSensitive("u1", s, List.of("memo"));
+        FieldSchema memo = field(service.get("u1", m), "memo");
+        assertThat(memo.sensitive()).isTrue();
+        assertThat(memo.sensitiveFrom()).isEqualTo("南區");
+        Datasource listed = service.list("u1").stream().filter(d -> d.id().equals(m)).findFirst().orElseThrow();
+        assertThat(field(listed, "memo").sensitiveFrom()).isEqualTo("南區");
+        assertThat(field(service.load("u1", m).datasource(), "memo").sensitive()).isTrue();
+
+        // 畫面會把繼承來的也一起送回來；在合併來源上關不掉，存下來的只有自己勾的
+        Datasource toggled = service.markSensitive("u1", m, List.of("region", "memo"));
+        assertThat(field(toggled, "memo").sensitiveFrom()).isEqualTo("南區");
+        assertThat(field(repo.sources.get(m), "memo").sensitive()).isFalse();
+        assertThat(field(repo.sources.get(m), "region").sensitive()).isTrue();
+        assertThat(repo.sources.get(m).schema()).allMatch(f -> f.sensitiveFrom() == null);
+
+        service.markSensitive("u1", s, List.of());
+        assertThat(field(service.get("u1", m), "memo").sensitive()).isFalse();
+    }
+
+    @Test
+    void nestedAndLookupSourcesPointAtTheSourceWhoseSwitchIsOn() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "product,memo", "A,首購");
+        UUID s = upload("南區", "product,memo", "B,備註");
+        UUID p = upload("產品主檔", "code,owner", "A,王小明", "B,李小華");
+        service.markSensitive("u1", n, List.of("memo"));
+        service.markSensitive("u1", p, List.of("owner"));
+        UUID all = service.createMerged("u1", "全區", union(List.of(n, s), "product", "memo")).id();
+        Lookup enrich = new Lookup(all, p, List.of(new Lookup.Key("product", "code")), List.of(new Lookup.Bring("負責人", "owner")));
+        UUID enriched = service.createMerged("u1", "全區（補產品主檔）", enrich).id();
+
+        Datasource e = service.get("u1", enriched);
+        assertThat(field(e, "memo").sensitiveFrom()).isEqualTo("北區");
+        assertThat(field(e, "負責人").sensitiveFrom()).isEqualTo("產品主檔");
+        assertThat(field(e, "product").sensitive()).isFalse();
+        assertThat(field(e, "來源").sensitive()).isFalse();
+        assertThat(service.previewMerged("u1", enrich).schema()).filteredOn(FieldSchema::sensitive)
+            .extracting(FieldSchema::name).containsExactly("memo", "負責人");
+    }
+
+    @Test
+    void displayNamesComeFromTheInputsAndCanBeChangedOnTheMergedSource() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,amount", "北區,100");
+        UUID s = upload("南區", "region,amount", "南區,50");
+        service.setLabels("u1", n, Map.of("region", "地區"));
+        service.markSensitive("u1", n, List.of("amount"));
+        UUID m = service.createMerged("u1", "全區", union(List.of(n, s), "region", "amount")).id();
+        assertThat(field(service.get("u1", m), "region").label()).isEqualTo("地區");
+
+        Datasource renamed = service.setLabels("u1", m, Map.of("region", "區域", "來源", "資料來源"));
+
+        assertThat(field(renamed, "region").label()).isEqualTo("區域");
+        assertThat(field(renamed, "來源").label()).isEqualTo("資料來源");
+        assertThat(field(renamed, "amount").sensitiveFrom()).isEqualTo("北區");
+        // 改顯示名稱時不能把即時算出來的敏感設定一起存進去
+        assertThat(field(repo.sources.get(m), "amount").sensitive()).isFalse();
+        assertThat(repo.sources.get(m).schema()).allMatch(f -> f.sensitiveFrom() == null);
+        assertThat(field(service.get("u1", n), "region").label()).isEqualTo("地區");
     }
 }

@@ -203,4 +203,12 @@ class MergeEngineTest {
         assertThatThrownBy(() -> MergeEngine.validate(new Union(List.of(), List.of(), "來源"), only()))
             .hasMessage("疊加要選 2 到 5 個來源");
     }
+
+    @Test
+    void sourcesNameTheInputFieldsBehindEachOutputColumn() {
+        assertThat(MergeEngine.sources(regionAmountReason(), "region")).isEqualTo(from(north, "region", south, "area"));
+        assertThat(MergeEngine.sources(regionAmountReason(), "來源")).isEmpty();
+        assertThat(MergeEngine.sources(productLookup(), "產品主檔·owner")).isEqualTo(Map.of(products.datasource().id(), "owner"));
+        assertThat(MergeEngine.sources(productLookup(), "qty")).isEqualTo(Map.of(returns.datasource().id(), "qty"));
+    }
 }

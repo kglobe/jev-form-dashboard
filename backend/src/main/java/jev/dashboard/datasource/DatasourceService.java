@@ -12,6 +12,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
 import jev.dashboard.datasource.MergeDefinition.Lookup;
@@ -76,11 +78,13 @@ public class DatasourceService {
     }
 
     public List<Datasource> list(String userId) {
-        return repo.list(userId);
+        List<Datasource> all = repo.list(userId);
+        Map<UUID, Datasource> byId = all.stream().collect(Collectors.toMap(Datasource::id, d -> d));
+        return all.stream().map(d -> effective(d, byId::get)).toList();
     }
 
     public Datasource get(String userId, UUID id) {
-        return stored(userId, id);
+        return effective(stored(userId, id), i -> repo.find(i, userId).orElse(null));
     }
 
     /** 資料庫裡存的樣子；改 schema 一律從這裡拿。 */
@@ -89,15 +93,18 @@ public class DatasourceService {
     }
 
     public Datasource markSensitive(String userId, UUID id, Collection<String> fields) {
-        Datasource ds = get(userId, id);
-        List<FieldSchema> schema = ds.schema().stream().map(f -> f.withSensitive(fields.contains(f.name()))).toList();
+        // spec 6.3：繼承來的不算自己勾的，輸入來源取消時，合併來源才會跟著取消
+        Set<String> inherited = get(userId, id).schema().stream().filter(f -> f.sensitiveFrom() != null)
+            .map(FieldSchema::name).collect(Collectors.toSet());
+        List<FieldSchema> schema = stored(userId, id).schema().stream()
+            .map(f -> f.withSensitive(fields.contains(f.name()) && !inherited.contains(f.name()))).toList();
         repo.updateSchema(id, schema);
-        return ds.withSchema(schema);
+        return get(userId, id);
     }
 
     /** labels 是「欄位 → 顯示名稱」；沒列到的欄位、空白的名稱都清掉。 */
     public Datasource setLabels(String userId, UUID id, Map<String, String> labels) {
-        Datasource ds = get(userId, id);
+        Datasource ds = stored(userId, id);
         List<FieldSchema> schema = ds.schema().stream().map(f -> {
             String label = labels.get(f.name());
             return f.withLabel(label == null || label.isBlank() ? null : label.strip());
@@ -110,7 +117,7 @@ public class DatasourceService {
             if (shown.length() > 50) throw new ApiException(BAD_REQUEST, "顯示名稱最多 50 個字");
         }
         repo.updateSchema(id, schema);
-        return ds.withSchema(schema);
+        return get(userId, id);
     }
 
     public Loaded load(String userId, UUID id) {
@@ -128,7 +135,8 @@ public class DatasourceService {
     /** 不存檔。預覽只看定義，body 裡的名稱用不到。 */
     public MergePreview previewMerged(String userId, MergeDefinition def) {
         MergeEngine.Result r = build(userId, def);
-        return new MergePreview(MergeEngine.schema(r), r.rows().subList(0, Math.min(PREVIEW_ROWS, r.rows().size())),
+        List<FieldSchema> schema = inherit(def, MergeEngine.schema(r), i -> repo.find(i, userId).orElse(null));
+        return new MergePreview(schema, r.rows().subList(0, Math.min(PREVIEW_ROWS, r.rows().size())),
             r.rows().size(), r.warnings());
     }
 
@@ -165,6 +173,32 @@ public class DatasourceService {
             case Union u -> MergeEngine.union(u, u.inputs().stream().map(id -> load(userId, id)).toList());
             case Lookup l -> MergeEngine.lookup(l, load(userId, l.main()), load(userId, l.lookup()));
         };
+    }
+
+    /** spec 6.3：合併來源實際的敏感設定＝自己勾的，或任何一個提供這欄的輸入欄位是敏感的。讀取時才算，不存。 */
+    private Datasource effective(Datasource ds, Function<UUID, Datasource> find) {
+        return "merged".equals(ds.kind()) ? ds.withSchema(inherit(ds.merge(), ds.schema(), find)) : ds;
+    }
+
+    private List<FieldSchema> inherit(MergeDefinition def, List<FieldSchema> schema, Function<UUID, Datasource> find) {
+        return schema.stream().map(f -> {
+            String from = sensitiveFrom(def, f.name(), find);
+            return from == null ? f : f.withInheritedSensitive(from);
+        }).toList();
+    }
+
+    /** 讓這欄變敏感的來源名稱：巢狀時一路往下，找到真正打開開關的那個來源；都不敏感就是 null。 */
+    private String sensitiveFrom(MergeDefinition def, String field, Function<UUID, Datasource> find) {
+        for (Map.Entry<UUID, String> e : MergeEngine.sources(def, field).entrySet()) {
+            Datasource input = find.apply(e.getKey());
+            if (input == null) continue;
+            for (FieldSchema f : effective(input, find).schema()) {
+                if (f.name().equals(e.getValue()) && f.sensitive()) {
+                    return f.sensitiveFrom() != null ? f.sensitiveFrom() : input.name();
+                }
+            }
+        }
+        return null;
     }
 
     void checkRows(int count) {
