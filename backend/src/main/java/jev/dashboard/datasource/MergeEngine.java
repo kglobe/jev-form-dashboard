@@ -2,7 +2,9 @@ package jev.dashboard.datasource;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,14 +13,17 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.datasource.DatasourceService.Loaded;
+import jev.dashboard.datasource.MergeDefinition.Lookup;
 import jev.dashboard.datasource.MergeDefinition.Union;
 
 /** 合併來源的規則（spec 第 5、6、9 節）：檢查定義、合併資料列、算出輸出欄位。全是純函式，不碰資料庫。 */
 public final class MergeEngine {
     static final int MAX_UNION_INPUTS = 5;
     static final int MAX_NAME_LENGTH = 50;
+    static final int MAX_KEYS = 3;
     static final Map<FieldType, String> TYPE_ZH =
         Map.of(FieldType.NUMBER, "數字", FieldType.DATE, "日期", FieldType.STRING, "文字");
 
@@ -29,6 +34,15 @@ public final class MergeEngine {
     public record Output(String name, FieldType type, String label) {}
 
     private MergeEngine() {}
+
+    /** 依 op 分派；def 是 null 代表 request 沒帶 merge。 */
+    public static void validate(MergeDefinition def, Function<UUID, Datasource> input) {
+        switch (def) {
+            case null -> throw bad("請選擇合併方式");
+            case Union u -> validateUnion(u, input);
+            case Lookup l -> validateLookup(l, input);
+        }
+    }
 
     /** spec 第 9 節。input 依 id 取輸入來源，找不到或不是這位使用者的，由 input 自己丟 404。 */
     public static void validateUnion(Union u, Function<UUID, Datasource> input) {
@@ -59,6 +73,33 @@ public final class MergeEngine {
             }
         }
         requireName(u.sourceColumn(), taken, "來源欄名稱");
+    }
+
+    public static void validateLookup(Lookup l, Function<UUID, Datasource> input) {
+        if (l.main() == null || l.lookup() == null) throw bad("查表要選主來源和主檔");
+        if (l.main().equals(l.lookup())) throw bad("主來源和主檔不能是同一個");
+        Datasource main = input.apply(l.main());
+        Datasource lookup = input.apply(l.lookup());
+        if (l.keys() == null || l.keys().isEmpty() || l.keys().size() > MAX_KEYS || l.keys().stream().anyMatch(Objects::isNull)) {
+            throw bad("對接欄位要 1 到 3 組");
+        }
+        for (Lookup.Key k : l.keys()) {
+            FieldSchema a = field(main, k.main());
+            FieldSchema b = field(lookup, k.lookup());
+            if (a.type() != b.type()) {
+                throw bad("對接欄位「" + a.name() + "」是" + TYPE_ZH.get(a.type()) + "、「" + b.name() + "」是"
+                    + TYPE_ZH.get(b.type()) + "，型別要相同");
+            }
+        }
+        if (l.bring() == null || l.bring().isEmpty()) throw bad("至少要補上一個欄位");
+        Set<String> mainNames = main.schema().stream().map(FieldSchema::name).collect(Collectors.toSet());
+        Set<String> taken = new HashSet<>();
+        for (Lookup.Bring b : l.bring()) {
+            String name = b == null ? null : b.name();
+            if (name != null && mainNames.contains(name)) throw bad("欄位名稱「" + name + "」跟主來源的欄位重複");
+            requireName(name, taken, "欄位名稱");
+            field(lookup, b.from());
+        }
     }
 
     /** spec 5.1：照 inputs 的順序接起來；沒對應或值是空的就不放 key，最後一欄標出來源名稱。 */
@@ -99,6 +140,54 @@ public final class MergeEngine {
         }
         columns.add(new Output(u.sourceColumn(), FieldType.STRING, null));
         return new Result(columns, rows, warnings);
+    }
+
+    /** spec 5.2：left join，主來源一列不增也不減；主檔的對接值重複時用排最前面的那一列。 */
+    public static Result lookup(Lookup l, Loaded main, Loaded lookup) {
+        Map<String, Map<String, Object>> index = new HashMap<>();
+        Set<String> duplicated = new HashSet<>();
+        for (Map<String, Object> row : lookup.rows()) {
+            String k = key(row, l.keys(), Lookup.Key::lookup);
+            if (k != null && index.putIfAbsent(k, row) != null) duplicated.add(k);
+        }
+        List<Map<String, Object>> rows = new ArrayList<>(main.rows().size());
+        int unmatched = 0;
+        for (Map<String, Object> row : main.rows()) {
+            Map<String, Object> out = new LinkedHashMap<>(row);
+            String k = key(row, l.keys(), Lookup.Key::main);
+            Map<String, Object> hit = k == null ? null : index.get(k);
+            if (hit == null) {
+                unmatched++;
+            } else {
+                for (Lookup.Bring b : l.bring()) {
+                    Object v = hit.get(b.from());
+                    if (v != null) out.put(b.name(), v);
+                }
+            }
+            rows.add(out);
+        }
+        List<Output> columns = new ArrayList<>();
+        for (FieldSchema f : main.datasource().schema()) columns.add(new Output(f.name(), f.type(), f.label()));
+        for (Lookup.Bring b : l.bring()) {
+            FieldSchema f = find(lookup.datasource(), b.from());
+            columns.add(new Output(b.name(), f == null ? FieldType.STRING : f.type(), f == null ? null : f.label()));
+        }
+        List<String> warnings = new ArrayList<>();
+        if (!duplicated.isEmpty()) warnings.add("主檔有 " + duplicated.size() + " 個對接值重複，用排最前面的那一列");
+        if (unmatched > 0) warnings.add(unmatched + " 筆對不到主檔，補上的欄位是空的");
+        return new Result(columns, rows, warnings);
+    }
+
+    /** 所有對接欄位都有值才算得出 key；數字去掉多餘的小數零，1 和 1.0 算同一個值。 */
+    static String key(Map<String, Object> row, List<Lookup.Key> keys, Function<Lookup.Key, String> side) {
+        StringBuilder sb = new StringBuilder();
+        for (Lookup.Key k : keys) {
+            Object v = row.get(side.apply(k));
+            if (v == null) return null;
+            sb.append(v instanceof Number n ? new BigDecimal(n.toString()).stripTrailingZeros().toPlainString() : v)
+                .append('\u0000');
+        }
+        return sb.toString();
     }
 
     /**

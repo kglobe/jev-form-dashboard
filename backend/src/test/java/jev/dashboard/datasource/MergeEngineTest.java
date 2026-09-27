@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,9 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import jev.dashboard.ApiException;
 import jev.dashboard.datasource.DatasourceService.Loaded;
+import jev.dashboard.datasource.MergeDefinition.Lookup;
+import jev.dashboard.datasource.MergeDefinition.Lookup.Bring;
+import jev.dashboard.datasource.MergeDefinition.Lookup.Key;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import jev.dashboard.datasource.MergeEngine.Output;
 import jev.dashboard.datasource.MergeEngine.Result;
@@ -22,6 +26,8 @@ import org.springframework.http.HttpStatus;
 class MergeEngineTest {
     final Loaded north = csv("北區", "region,amount", "北區,100", "北區,200");
     final Loaded south = csv("南區", "area,amount,reason", "南區,50,瑕疵");
+    final Loaded returns = csv("退貨", "product,qty,owner", "A,1,甲", "B,2,乙", "Z,3,丙", ",4,丁");
+    final Loaded products = csv("產品主檔", "code,category,owner", "A,家電,王小明", "B,文具,李小華", "A,重複,張三");
 
     /** 疊加的 from：依序是「來源、欄位」一對一對。 */
     static Map<UUID, String> from(Object... pairs) {
@@ -127,5 +133,74 @@ class MergeEngineTest {
         assertThat(schema.get(4).min()).isEqualTo("2026-07-01");
         assertThat(schema.get(4).max()).isEqualTo("2026-08-01");
         assertThat(schema).noneMatch(FieldSchema::sensitive);
+    }
+
+    Lookup productLookup() {
+        return new Lookup(returns.datasource().id(), products.datasource().id(), List.of(new Key("product", "code")),
+            List.of(new Bring("category", "category"), new Bring("產品主檔·owner", "owner")));
+    }
+
+    void lookupIsRejected(Lookup l, String message) {
+        assertThatThrownBy(() -> MergeEngine.validate(l, only(returns, products)))
+            .isInstanceOf(ApiException.class).hasMessage(message);
+    }
+
+    @Test
+    void lookupKeepsEveryMainRowBringsColumnsFromTheFirstMatchAndCountsProblems() {
+        Result r = MergeEngine.lookup(productLookup(), returns, labeled(products, "category", "類別"));
+
+        assertThat(r.rows()).hasSize(4);
+        assertThat(r.rows().get(0))
+            .isEqualTo(Map.of("product", "A", "qty", 1.0, "owner", "甲", "category", "家電", "產品主檔·owner", "王小明"));
+        assertThat(r.rows().get(1)).containsEntry("category", "文具");
+        assertThat(r.rows().get(2)).containsEntry("product", "Z").doesNotContainKeys("category", "產品主檔·owner");
+        assertThat(r.rows().get(3)).containsEntry("qty", 4.0).doesNotContainKey("category");
+        assertThat(r.columns()).extracting(Output::name)
+            .containsExactly("product", "qty", "owner", "category", "產品主檔·owner");
+        assertThat(r.columns().get(3)).isEqualTo(new Output("category", FieldType.STRING, "類別"));
+        assertThat(r.warnings()).containsExactly("主檔有 1 個對接值重複，用排最前面的那一列", "2 筆對不到主檔，補上的欄位是空的");
+    }
+
+    @Test
+    void keysIgnoreTrailingZerosNeedEveryPartAndDoNotRunTogether() {
+        List<Key> one = List.of(new Key("a", "b"));
+        assertThat(MergeEngine.key(Map.of("a", 1.0), one, Key::main)).isEqualTo(MergeEngine.key(Map.of("b", 1), one, Key::lookup));
+        List<Key> two = List.of(new Key("a", "a"), new Key("c", "c"));
+        Map<String, Object> half = new HashMap<>();
+        half.put("a", "x");
+        half.put("c", null);
+        assertThat(MergeEngine.key(half, two, Key::main)).isNull();
+        assertThat(MergeEngine.key(Map.of("a", "x", "c", "y"), two, Key::main))
+            .isNotEqualTo(MergeEngine.key(Map.of("a", "xy", "c", ""), two, Key::main));
+    }
+
+    @Test
+    void lookupDefinitionsAreCheckedAgainstTheInputs() {
+        UUID r = returns.datasource().id();
+        UUID p = products.datasource().id();
+        List<Key> keys = productLookup().keys();
+        List<Bring> bring = productLookup().bring();
+        lookupIsRejected(new Lookup(null, p, keys, bring), "查表要選主來源和主檔");
+        lookupIsRejected(new Lookup(r, r, keys, bring), "主來源和主檔不能是同一個");
+        lookupIsRejected(new Lookup(r, p, List.of(), bring), "對接欄位要 1 到 3 組");
+        lookupIsRejected(new Lookup(r, p, Collections.nCopies(4, keys.get(0)), bring), "對接欄位要 1 到 3 組");
+        lookupIsRejected(new Lookup(r, p, List.of(new Key("sku", "code")), bring), "退貨沒有 sku 這個欄位");
+        lookupIsRejected(new Lookup(r, p, List.of(new Key("product", "sku")), bring), "產品主檔沒有 sku 這個欄位");
+        lookupIsRejected(new Lookup(r, p, List.of(new Key("qty", "code")), bring), "對接欄位「qty」是數字、「code」是文字，型別要相同");
+        lookupIsRejected(new Lookup(r, p, keys, List.of()), "至少要補上一個欄位");
+        lookupIsRejected(new Lookup(r, p, keys, List.of(new Bring("owner", "owner"))), "欄位名稱「owner」跟主來源的欄位重複");
+        lookupIsRejected(new Lookup(r, p, keys, List.of(new Bring("category", "category"), new Bring("category", "owner"))),
+            "欄位名稱「category」重複");
+        lookupIsRejected(new Lookup(r, p, keys, List.of(new Bring(" ", "category"))), "欄位名稱不能空白");
+        lookupIsRejected(new Lookup(r, p, keys, List.of(new Bring("price", "price"))), "產品主檔沒有 price 這個欄位");
+
+        MergeEngine.validate(productLookup(), only(returns, products));
+    }
+
+    @Test
+    void validateNeedsADefinitionAndDispatchesOnOp() {
+        assertThatThrownBy(() -> MergeEngine.validate(null, only())).isInstanceOf(ApiException.class).hasMessage("請選擇合併方式");
+        assertThatThrownBy(() -> MergeEngine.validate(new Union(List.of(), List.of(), "來源"), only()))
+            .hasMessage("疊加要選 2 到 5 個來源");
     }
 }
