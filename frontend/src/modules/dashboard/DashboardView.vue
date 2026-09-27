@@ -12,7 +12,8 @@ const props = defineProps({
   // 預覽等 JEV 回應時：圖表區變淡、標 aria-busy、「✕」停用
   busy: { type: Boolean, default: false },
 })
-const emit = defineEmits(['remove'])
+// remove：預覽的「✕」交給製圖頁處理；updated：已存儀表板移除一張圖後，後端回傳的新設定
+const emit = defineEmits(['remove', 'updated'])
 
 // ponytail: 跟 motion.css 的 --tc-dur-1 同值，改一邊要一起改
 const EXIT_MS = 120
@@ -27,8 +28,23 @@ const loadError = ref('')
 const settled = ref(false)
 const leaving = ref(new Set())
 const entering = ref(new Set())
+// 已存儀表板按「✕」之後等確認的卡片：{ chartId, title }
+const confirmRemove = ref(null)
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
+// 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
+const multiSource = computed(() => new Set(props.config.layout.map((s) => s.datasourceId)).size > 1)
+
+// 多來源 spec 3.3：依據一組一行。多來源時寫出來源名稱，名稱從 /data 回傳的 source 來，
+// 每張卡片都有資料之前先不顯示；找不到名稱（例如來源載入失敗）就不加括號
+const basisLines = computed(() => {
+  const groups = props.preview ? [] : (props.config.basis ?? []).filter((b) => b.intents?.length)
+  if (!multiSource.value) return groups.map((b) => `依據：${b.intents.join(' → ')}`)
+  if (!props.config.layout.every((s) => dataById.value[s.chartId])) return []
+  const names = {}
+  for (const s of props.config.layout) names[s.datasourceId] ??= dataById.value[s.chartId].source
+  return groups.map((b) => `依據${names[b.datasourceId] ? `（${names[b.datasourceId]}）` : ''}：${b.intents.join(' → ')}`)
+})
 
 // spec 4.4：錯開的順序照畫面位置（先 y 再 x）。使用者拖過之後，layout 陣列的順序不一定等於畫面順序
 const screenOrder = computed(() =>
@@ -36,6 +52,8 @@ const screenOrder = computed(() =>
 )
 
 let loadSeq = 0
+// 上一次 load 顯示的是哪一份儀表板；換了一份就一定重抓資料
+let shownId
 // 預覽裡最近一次被拿掉的卡片：chartId → { spec, data }；按「復原」放回同一張圖時直接沿用資料
 let removed = {}
 const sameChart = (a, b) => a.type === b.type && JSON.stringify(a.mapping) === JSON.stringify(b.mapping)
@@ -71,11 +89,17 @@ async function load() {
     ...Object.fromEntries(Object.entries(dataById.value).filter(([id]) => ids.has(id))),
     ...restored,
   }
-  highlightById.value = {}
   error.value = ''
   loadError.value = ''
-  // 預覽裡只是少了卡片時，剩下的卡片都有資料了，不必再打 API（spec 3.2：「✕」不呼叫 API）
-  if (props.preview && next.every((s) => dataById.value[s.chartId])) return
+  // 只是少了卡片時，剩下的卡片都有資料了，不必再打 API：預覽的「✕」（spec 3.2：「✕」不呼叫 API），
+  // 以及已存儀表板移除單張圖（多來源 spec 3.4：異常標註也留著）
+  const sameDashboard = props.preview || props.config.id === shownId
+  shownId = props.config.id
+  if (sameDashboard && next.every((s) => dataById.value[s.chartId])) {
+    highlightById.value = Object.fromEntries(Object.entries(highlightById.value).filter(([id]) => ids.has(id)))
+    return
+  }
+  highlightById.value = {}
   try {
     const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id)
     if (seq !== loadSeq) return
@@ -106,22 +130,46 @@ function onLayoutReady() {
   requestAnimationFrame(() => requestAnimationFrame(() => (settled.value = true)))
 }
 
+// 格線上目前的位置套回每張圖；拖拉、縮放、移除都照這份存
+function currentLayout() {
+  const pos = Object.fromEntries(layout.value.map((l) => [l.i, { x: l.x, y: l.y, w: l.w, h: l.h }]))
+  return props.config.layout.map((s) => ({ ...s, gridPos: pos[s.chartId] }))
+}
+
 async function saveLayout() {
   if (props.preview) return
-  const pos = Object.fromEntries(layout.value.map((l) => [l.i, { x: l.x, y: l.y, w: l.w, h: l.h }]))
-  const next = { ...props.config, layout: props.config.layout.map((s) => ({ ...s, gridPos: pos[s.chartId] })) }
   error.value = ''
-  await api.updateDashboard(props.config.id, next).catch((e) => (error.value = e.message))
+  await api.updateDashboard(props.config.id, { ...props.config, layout: currentLayout() }).catch((e) => (error.value = e.message))
+}
+
+function askRemove(chartId) {
+  confirmRemove.value = { chartId, title: dataById.value[chartId]?.title ?? specById.value[chartId].title }
+}
+
+// 多來源 spec 3.4：用格線上目前的版面（使用者拖過的位置照樣保留）拿掉這張再存；成功後交給 App 換成回傳的設定
+async function removeCard() {
+  if (!confirmRemove.value) return // 對話框關閉前又按了一次「移除」
+  const { chartId } = confirmRemove.value
+  confirmRemove.value = null
+  error.value = ''
+  try {
+    const next = { ...props.config, layout: currentLayout().filter((s) => s.chartId !== chartId) }
+    emit('updated', await api.updateDashboard(props.config.id, next))
+  } catch (e) {
+    error.value = e.message
+  }
 }
 </script>
 
 <template>
   <v-alert v-if="loadError || error" type="error" class="mb-4">{{ loadError || error }}</v-alert>
-  <v-alert v-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
-  <!-- spec 3.3：已存的儀表板顯示這份設定是依據哪些需求做的 -->
-  <div v-if="!preview && config.intents?.length" class="text-caption text-medium-emphasis mb-2">
-    依據：{{ config.intents.join(' → ') }}
-  </div>
+  <!-- 多來源 spec 3.5：已存的儀表板連最後一張圖也拿掉了 -->
+  <v-alert v-if="!preview && !config.layout.length" type="info" class="mb-4">
+    這份儀表板沒有圖表了。到「製圖」分析後，用「加到既有儀表板」把圖加回來。
+  </v-alert>
+  <v-alert v-else-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
+  <!-- spec 3.3：已存的儀表板顯示這份設定是依據哪些需求做的，每次分析一行 -->
+  <div v-for="(line, n) in basisLines" :key="n" class="dash-basis text-caption text-medium-emphasis mb-2">{{ line }}</div>
   <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
       v-if="!loadError"
@@ -152,13 +200,27 @@ async function saveLayout() {
           :data-chart-id="item.i"
           :data="dataById[item.i]"
           :highlight="highlightById[item.i]"
-          :removable="preview"
+          :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
+          :removable="!preview || specById[item.i].type !== 'table'"
           :remove-disabled="busy"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
-          @remove="emit('remove', item.i)"
+          @remove="preview ? emit('remove', item.i) : askRemove(item.i)"
         />
       </GridItem>
     </GridLayout>
   </div>
+  <!-- 多來源 spec 3.4：已存儀表板移除單張圖前先確認，樣式跟 App 的「刪除儀表板」一樣 -->
+  <v-dialog :model-value="!!confirmRemove" max-width="420" @update:model-value="(v) => !v && (confirmRemove = null)">
+    <v-card v-if="confirmRemove">
+      <v-card-title class="pt-5 px-6">移除圖表</v-card-title>
+      <v-card-text class="px-6">確定從「{{ config.name }}」移除「{{ confirmRemove.title }}」？移除後無法復原，要加回來得重新分析。</v-card-text>
+      <v-card-actions class="px-6 pb-5">
+        <v-spacer />
+        <!-- v-card-actions 預設把按鈕變成 text，這裡明確用 flat，移除才看得出是按鈕 -->
+        <v-btn variant="flat" @click="confirmRemove = null">取消</v-btn>
+        <v-btn variant="flat" color="error" @click="removeCard">移除</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>

@@ -21,7 +21,7 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source'],
     emits: ['remove'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
@@ -68,6 +68,8 @@ const table = (chartId, y) => ({ chartId, type: 'table', title: '明細', gridPo
 const previewOf = (...layout) => ({ name: 'n', datasourceId: 'ds1', layout })
 const chartCard = (wrapper, chartId) =>
   wrapper.findAllComponents({ name: 'ChartCard' }).find((c) => c.props('spec').chartId === chartId)
+const dialogButton = (label) => [...document.body.querySelectorAll('button')].find((b) => b.textContent.trim() === label)
+const withSource = (spec, datasourceId) => ({ ...spec, datasourceId })
 
 describe('DashboardView', () => {
   beforeEach(() => {
@@ -77,6 +79,7 @@ describe('DashboardView', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    document.body.innerHTML = ''
   })
 
   it('preview mode: loads via previewData only, disables drag/resize, and never persists grid moves', async () => {
@@ -416,7 +419,7 @@ describe('DashboardView', () => {
     await flushPromises()
 
     const cards = wrapper.findAllComponents({ name: 'ChartCard' })
-    expect(cards.map((c) => [c.props('removable'), c.props('removeDisabled')])).toEqual([[true, true], [true, true]])
+    expect(cards.map((c) => [c.props('removable'), c.props('removeDisabled')])).toEqual([[true, true], [false, true]])
     expect(cards.map((c) => c.vm.$attrs['data-chart-id'])).toEqual(['c1', 'c2']) // 「復原」後找回這張卡片的「✕」
     expect(wrapper.get('.dash-grid').attributes('aria-busy')).toBe('true')
     expect(wrapper.get('.dash-grid').classes()).toContain('is-busy')
@@ -429,21 +432,17 @@ describe('DashboardView', () => {
     expect(wrapper.emitted('remove')).toEqual([['c1']])
   })
 
-  it('saved dashboards: no ✕, and the intents show as 依據 joined by →; previews and dashboards without intents show no 依據', async () => {
+  it('✕: every card of a saved dashboard has one, the table too; in a preview the table has none and no 依據 shows', async () => {
     api.dashboardData.mockResolvedValue([])
     api.highlights.mockResolvedValue([])
-    const saved = mountView({ config: { ...makeConfig(), intents: ['各區每月營收', '不要圓餅圖'] }, preview: false })
+    const saved = mountView({ config: makeConfig(), preview: false })
     await flushPromises()
-    expect(saved.text()).toContain('依據：各區每月營收 → 不要圓餅圖')
-    expect(saved.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([false, false])
-
-    const plain = mountView({ config: makeConfig(), preview: false })
-    await flushPromises()
-    expect(plain.text()).not.toContain('依據')
+    expect(saved.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([true, true])
 
     api.previewData.mockResolvedValue([])
-    const inPreview = mountView({ config: { ...makeConfig(), intents: ['各區每月營收'] }, preview: true })
+    const inPreview = mountView({ config: { ...makeConfig(), basis: [{ datasourceId: 'ds1', intents: ['各區每月營收'] }] }, preview: true })
     await flushPromises()
+    expect(inPreview.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([true, false])
     expect(inPreview.text()).not.toContain('依據')
   })
 
@@ -465,5 +464,132 @@ describe('DashboardView', () => {
     const wrapper = mountView({ config: makeConfig(), preview: true })
     await flushPromises()
     expect(wrapper.getComponent({ name: 'GridLayout' }).props('margin')).toEqual([14, 14])
+  })
+
+  it('saved: ✕ asks first; 取消 does nothing; 移除 PUTs the current grid without that card and emits updated with the reply', async () => {
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1', title: '金額 依 地區' }, { chartId: 'c2' }])
+    api.highlights.mockResolvedValue([])
+    const reply = { ...makeConfig(), layout: [makeConfig().layout[1]] }
+    api.updateDashboard.mockResolvedValue(reply)
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+    // 使用者拖過明細表、還沒重新整理：移除 c1 時要用格線上現在的位置
+    await wrapper.getComponent({ name: 'GridLayout' }).vm.$emit('update:layout', [
+      { i: 'c1', x: 0, y: 0, w: 6, h: 4 },
+      { i: 'c2', x: 0, y: 9, w: 12, h: 5 },
+    ])
+
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    expect(document.body.querySelector('.v-card-title').textContent.trim()).toBe('移除圖表')
+    expect(document.body.textContent).toContain('確定從「n」移除「金額 依 地區」？移除後無法復原，要加回來得重新分析。')
+    dialogButton('取消').click()
+    await flushPromises()
+    expect(api.updateDashboard).not.toHaveBeenCalled()
+    expect(document.body.textContent).not.toContain('確定從')
+    expect(wrapper.emitted('remove')).toBeUndefined()
+
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    expect(dialogButton('移除').classList.contains('bg-error')).toBe(true)
+    dialogButton('移除').click()
+    await flushPromises()
+    expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+    const [id, next] = api.updateDashboard.mock.calls[0]
+    expect(id).toBe('d1')
+    expect(next.layout).toEqual([{ ...makeConfig().layout[1], gridPos: { x: 0, y: 9, w: 12, h: 5 } }])
+    expect(wrapper.emitted('updated')).toEqual([[reply]])
+  })
+
+  it('saved: a failed remove shows the error, keeps the card and emits nothing', async () => {
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+    api.highlights.mockResolvedValue([])
+    api.updateDashboard.mockRejectedValue(new Error('找不到儀表板'))
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    dialogButton('移除').click()
+    await flushPromises()
+    expect(wrapper.text()).toContain('找不到儀表板')
+    expect(wrapper.find('[data-chart-id="c1"]').exists()).toBe(true)
+    expect(wrapper.emitted('updated')).toBeUndefined()
+  })
+
+  it('saved: when the new config only drops a card, the rest keep their data and highlight without fetching again', async () => {
+    prefersReducedMotion.mockReturnValue(true)
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])
+    api.highlights.mockResolvedValue([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+    const config = { ...makeConfig(), layout: [bar('c1', 0), bar('c2', 1), table('c3', 4)] }
+    const wrapper = mountView({ config, preview: false })
+    await flushPromises()
+
+    await wrapper.setProps({ config: { ...config, layout: [bar('c2', 1), table('c3', 4)] } })
+    await flushPromises()
+    expect(wrapper.find('[data-chart-id="c1"]').exists()).toBe(false)
+    expect(api.dashboardData).toHaveBeenCalledTimes(1)
+    expect(api.highlights).toHaveBeenCalledTimes(1)
+    expect(chartCardPayload(wrapper, 'c2')).toEqual({ data: { chartId: 'c2' }, highlight: { chartId: 'c2', severity: '需要關注', noul: 0.8 } })
+  })
+
+  it('a saved dashboard with no cards says how to add charts back, instead of 找不到適合的圖表', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    const wrapper = mountView({ config: { ...makeConfig(), layout: [] }, preview: false })
+    await flushPromises()
+    expect(wrapper.text()).toContain('這份儀表板沒有圖表了。到「製圖」分析後，用「加到既有儀表板」把圖加回來。')
+    expect(wrapper.text()).not.toContain('找不到適合的圖表')
+  })
+
+  it('依據: one line per group; one source reads 依據：a → b, several sources name each source once /data is back (no name, no brackets)', async () => {
+    api.highlights.mockResolvedValue([])
+    api.dashboardData.mockResolvedValue([])
+    const single = mountView({ config: { ...makeConfig(), basis: [{ datasourceId: 'ds1', intents: ['各區每月營收', '不要圓餅圖'] }] }, preview: false })
+    await flushPromises()
+    expect(single.findAll('.dash-basis').map((l) => l.text())).toEqual(['依據：各區每月營收 → 不要圓餅圖'])
+
+    let resolveData
+    api.dashboardData.mockImplementation(() => new Promise((resolve) => { resolveData = resolve }))
+    const multi = mountView({
+      config: {
+        id: 'd2',
+        name: 'n',
+        layout: [withSource(bar('c1', 0), 'ds1'), withSource(bar('c2', 1), 'ds2'), withSource(bar('c3', 2), 'ds3')],
+        basis: [
+          { datasourceId: 'ds1', intents: ['各區每月營收'] },
+          { datasourceId: 'ds2', intents: ['各區退貨', '不要圓餅圖'] },
+          { datasourceId: 'ds3', intents: ['庫存'] },
+        ],
+      },
+      preview: false,
+    })
+    await flushPromises()
+    expect(multi.findAll('.dash-basis')).toHaveLength(0)
+
+    resolveData([
+      { chartId: 'c1', source: '銷售 API' },
+      { chartId: 'c2', source: 'R7 Excel 退貨' },
+      { chartId: 'c3', error: 'SOURCE_FAILED' },
+    ])
+    await flushPromises()
+    expect(multi.findAll('.dash-basis').map((l) => l.text())).toEqual([
+      '依據（銷售 API）：各區每月營收',
+      '依據（R7 Excel 退貨）：各區退貨 → 不要圓餅圖',
+      '依據：庫存',
+    ])
+  })
+
+  it('names the source on each card only when the dashboard mixes sources', async () => {
+    api.highlights.mockResolvedValue([])
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1', source: '銷售' }, { chartId: 'c2', source: '退貨' }])
+    const mixed = mountView({ config: { id: 'd1', name: 'n', layout: [withSource(bar('c1', 0), 'ds1'), withSource(bar('c2', 1), 'ds2')] }, preview: false })
+    await flushPromises()
+    expect(['c1', 'c2'].map((id) => chartCard(mixed, id).props('source'))).toEqual(['銷售', '退貨'])
+
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1', source: '銷售' }, { chartId: 'c2', source: '銷售' }])
+    const single = mountView({ config: { id: 'd2', name: 'n', layout: [withSource(bar('c1', 0), 'ds1'), withSource(bar('c2', 1), 'ds1')] }, preview: false })
+    await flushPromises()
+    expect(['c1', 'c2'].map((id) => chartCard(single, id).props('source'))).toEqual([null, null])
   })
 })
