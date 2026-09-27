@@ -6,6 +6,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -84,7 +85,13 @@ public class DatasourceService {
     }
 
     public Datasource get(String userId, UUID id) {
-        return effective(stored(userId, id), i -> repo.find(i, userId).orElse(null));
+        return effective(stored(userId, id), cachedFinder(userId));
+    }
+
+    /** 同一次 effective 計算裡，每個來源 id 只查一次（找不到、不是自己的都快取成 null）。 */
+    private Function<UUID, Datasource> cachedFinder(String userId) {
+        Map<UUID, Datasource> seen = new HashMap<>();
+        return id -> seen.computeIfAbsent(id, i -> repo.find(i, userId).orElse(null));
     }
 
     /** 資料庫裡存的樣子；改 schema 一律從這裡拿。 */
@@ -135,7 +142,7 @@ public class DatasourceService {
     /** 不存檔。預覽只看定義，body 裡的名稱用不到。 */
     public MergePreview previewMerged(String userId, MergeDefinition def) {
         MergeEngine.Result r = build(userId, def);
-        List<FieldSchema> schema = inherit(def, MergeEngine.schema(r), i -> repo.find(i, userId).orElse(null));
+        List<FieldSchema> schema = inherit(def, MergeEngine.schema(r), cachedFinder(userId));
         return new MergePreview(schema, r.rows().subList(0, Math.min(PREVIEW_ROWS, r.rows().size())),
             r.rows().size(), r.warnings());
     }
@@ -153,18 +160,19 @@ public class DatasourceService {
     /** 檢查定義和層數、合併、檢查筆數；預覽和建立共用。 */
     private MergeEngine.Result build(String userId, MergeDefinition def) {
         MergeEngine.validate(def, id -> get(userId, id));
-        int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id)).max().orElse(0);
+        Map<UUID, Datasource> depthCache = new HashMap<>();
+        int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id, depthCache)).max().orElse(0);
         if (depth > MAX_DEPTH) throw new ApiException(BAD_REQUEST, "合併最多 3 層");
         MergeEngine.Result r = merge(userId, def);
         checkRows(r.rows().size());
         return r;
     }
 
-    /** spec 5.3：上傳和外部 API 是第 0 層，合併來源是輸入來源最大層數加 1。 */
-    private int depth(String userId, UUID id) {
-        Datasource ds = stored(userId, id);
+    /** spec 5.3：上傳和外部 API 是第 0 層，合併來源是輸入來源最大層數加 1。cache 讓同一個來源在巢狀結構裡只查一次。 */
+    private int depth(String userId, UUID id, Map<UUID, Datasource> cache) {
+        Datasource ds = cache.computeIfAbsent(id, i -> stored(userId, i));
         if (!"merged".equals(ds.kind())) return 0;
-        return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i)).max().orElse(0);
+        return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i, cache)).max().orElse(0);
     }
 
     // ponytail: 同一個輸入來源在巢狀結構裡出現兩次，就會載入兩次（spec 5.3）；巢狀合併常見、載入變慢時，再在同一次 load 裡加快取

@@ -27,6 +27,7 @@ class MergedDatasourceServiceTest {
     static class MemoryRepo extends DatasourceRepository {
         final Map<UUID, Datasource> sources = new LinkedHashMap<>();
         final Map<UUID, List<Map<String, Object>>> rows = new HashMap<>();
+        final Map<UUID, Integer> findCalls = new HashMap<>();
 
         MemoryRepo() {
             super(null, null, null);
@@ -39,6 +40,7 @@ class MergedDatasourceServiceTest {
 
         @Override
         public Optional<Datasource> find(UUID id, String userId) {
+            findCalls.merge(id, 1, Integer::sum);
             return Optional.ofNullable(sources.get(id)).filter(d -> d.createdBy().equals(userId));
         }
 
@@ -254,6 +256,39 @@ class MergedDatasourceServiceTest {
         assertThat(field(e, "來源").sensitive()).isFalse();
         assertThat(service.previewMerged("u1", enrich).schema()).filteredOn(FieldSchema::sensitive)
             .extracting(FieldSchema::name).containsExactly("memo", "負責人");
+    }
+
+    @Test
+    void getLooksUpEachNestedSourceAtMostOncePerCall() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,amount,memo", "北區,100,a");
+        UUID s = upload("南區", "region,amount,memo", "南區,50,b");
+        UUID m1 = service.createMerged("u1", "小計", union(List.of(n, s), "region", "amount", "memo")).id();
+        UUID p = upload("產品主檔", "region,owner", "北區,王小明");
+        Lookup enrich = new Lookup(m1, p, List.of(new Lookup.Key("region", "region")),
+            List.of(new Lookup.Bring("負責人", "owner")));
+        UUID m2 = service.createMerged("u1", "全區", enrich).id();
+        repo.findCalls.clear();
+
+        service.get("u1", m2);
+
+        assertThat(repo.findCalls.values()).allSatisfy(count -> assertThat(count).isLessThanOrEqualTo(1));
+    }
+
+    @Test
+    void anIntermediateMergedSourcesOwnSensitiveFlagShowsUpAtTheTopEvenWhenNoInputIsSensitive() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,amount", "北區,100");
+        UUID s = upload("南區", "region,amount", "南區,50");
+        UUID m1 = service.createMerged("u1", "小計", union(List.of(n, s), "region", "amount")).id();
+        // 中間層自己勾了敏感，兩個輸入來源的 amount 都沒勾
+        service.markSensitive("u1", m1, List.of("amount"));
+        UUID c = upload("東區", "region,amount", "東區,30");
+        UUID m2 = service.createMerged("u1", "全區", union(List.of(m1, c), "region", "amount")).id();
+
+        FieldSchema amount = field(service.get("u1", m2), "amount");
+        assertThat(amount.sensitive()).isTrue();
+        assertThat(amount.sensitiveFrom()).isEqualTo("小計");
     }
 
     @Test
