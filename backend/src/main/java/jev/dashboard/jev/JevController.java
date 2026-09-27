@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.dashboard.DashboardDataService;
 import jev.dashboard.dashboard.DashboardService;
+import jev.dashboard.datasource.Datasource;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.transform.ChartData;
@@ -74,16 +76,19 @@ public class JevController {
     public List<Highlight> highlight(@RequestHeader("X-User-Id") String userId, @PathVariable UUID dashboardId) {
         DashboardConfig c = dashboards.get(userId, dashboardId);
         List<ChartData> data = dashboardData.load(userId, c);
-        Set<String> sensitive = datasources.get(userId, c.datasourceId()).schema().stream()
-            .filter(FieldSchema::sensitive).map(FieldSchema::name).collect(Collectors.toSet());
+        // 每個來源各自的敏感欄位（多來源 spec 第 7 節）
+        Map<UUID, Set<String>> sensitive = datasources.list(userId).stream().collect(Collectors.toMap(Datasource::id,
+            ds -> ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name).collect(Collectors.toSet())));
 
-        // 卡片只要用到任何被標記敏感的欄位就整張跳過，不送進異常檢查
+        // 卡片只要用到它自己來源裡任何被標記敏感的欄位就整張跳過，不送進異常檢查；
+        // 清單裡找不到的來源查不到敏感設定，也不送
         List<ChartSpec> eligibleSpecs = new ArrayList<>();
         List<ChartData> eligibleData = new ArrayList<>();
         List<ChartSpec> layout = c.layout();
         for (int i = 0; i < layout.size(); i++) {
             ChartSpec spec = layout.get(i);
-            if (UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(sensitive::contains)) {
+            Set<String> fields = sensitive.get(spec.datasourceId());
+            if (fields != null && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains)) {
                 eligibleSpecs.add(spec);
                 eligibleData.add(data.get(i));
             }

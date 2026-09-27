@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -45,10 +46,11 @@ class JevControllerTest {
     @Autowired JdbcClient jdbc;
 
     static final String TABLE_CARD = """
-        {"chartId":"c2","type":"table","title":"明細","gridPos":{"x":0,"y":4,"w":12,"h":5},"mapping":{"columns":["region"]}}""";
+        {"chartId":"c2","datasourceId":"00000000-0000-0000-0000-000000000001","type":"table","title":"明細",
+         "gridPos":{"x":0,"y":4,"w":12,"h":5},"mapping":{"columns":["region"]}}""";
     static final String BAR_CARD = """
-        {"chartId":"c1","type":"bar","title":"amount 依 region","gridPos":{"x":0,"y":0,"w":6,"h":4},
-         "mapping":{"x":"region","value":"amount","aggregate":"sum"}}""";
+        {"chartId":"c1","datasourceId":"00000000-0000-0000-0000-000000000001","type":"bar","title":"amount 依 region",
+         "gridPos":{"x":0,"y":0,"w":6,"h":4},"mapping":{"x":"region","value":"amount","aggregate":"sum"}}""";
 
     void analyzeIsRejected(String body, String message) throws Exception {
         mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
@@ -115,10 +117,10 @@ class JevControllerTest {
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """
-            {"name":"分區銷售","datasourceId":"%s","layout":[
-              {"chartId":"c1","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
+            {"name":"分區銷售","layout":[
+              {"chartId":"c1","datasourceId":"%1$s","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}},
-              {"chartId":"c2","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
+              {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
             ]}""".formatted(ds);
         String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
@@ -187,5 +189,34 @@ class JevControllerTest {
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
         assertThat(JEV.bodies).isEmpty();
+    }
+
+    @Test
+    void highlightChecksSensitiveFieldsAgainstEachCardsOwnSource() throws Exception {
+        String plain = TestData.uploadSales(mvc, "u1");
+        String secret = TestData.uploadSales(mvc, "u1");
+        // 兩個來源都有 region，只有 secret 那邊標成敏感
+        mvc.perform(patch("/api/datasources/" + secret + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
+            .andExpect(status().isOk());
+        String card = """
+            {"chartId":"%s","datasourceId":"%s","type":"stacked_bar","title":"分區月銷售額",
+             "gridPos":{"x":%d,"y":0,"w":6,"h":4},
+             "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}}""";
+        String first = card.formatted("c1", plain, 0);
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"兩個來源\",\"layout\":[" + first + "]}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"兩個來源\",\"layout\":["
+                    + first + "," + card.formatted("c2", secret, 6) + "]}"))
+            .andExpect(status().isOk());
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("\"anomaly_c1\"").doesNotContain("anomaly_c2");
     }
 }

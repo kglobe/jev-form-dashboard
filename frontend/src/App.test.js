@@ -13,11 +13,11 @@ vi.mock('./modules/dashboard/index.js', () => ({
   },
   ChartBuilder: {
     name: 'ChartBuilder',
-    props: ['active', 'request'],
-    emits: ['saved'],
+    props: ['active', 'request', 'dashboards'],
+    emits: ['saved', 'dashboards-changed'],
     template: '<div class="chart-builder-stub" />',
   },
-  DashboardView: { name: 'DashboardView', props: ['config'], template: '<div class="dashboard-view-stub" />' },
+  DashboardView: { name: 'DashboardView', props: ['config'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
   DatasourcePanel: {
     name: 'DatasourcePanel',
     props: ['selectedId'],
@@ -336,5 +336,34 @@ describe('App', () => {
     const second = wrapper.findComponent({ name: 'DashboardView' })
     expect(second.props('config').id).toBe('d2')
     expect(second.vm).not.toBe(first)
+  })
+
+  it('passes the dashboard list to ChartBuilder and reloads it when ChartBuilder says it changed', async () => {
+    const wrapper = mountApp()
+    await flushPromises()
+    const builder = wrapper.findComponent({ name: 'ChartBuilder' })
+    expect(builder.props('dashboards')).toEqual(dashboards)
+
+    api.listDashboards.mockResolvedValue([])
+    builder.vm.$emit('dashboards-changed')
+    await flushPromises()
+    expect(api.listDashboards).toHaveBeenCalledTimes(2)
+    expect(builder.props('dashboards')).toEqual([])
+  })
+
+  it('DashboardView updated replaces the open config in place (same view, not re-created)', async () => {
+    api.getDashboard.mockResolvedValue({ id: 'd1', name: 'Dash One', layout: [{ chartId: 'c1' }, { chartId: 'c2' }] })
+    const wrapper = mountApp()
+    await flushPromises()
+    await findDashboardItem(wrapper).trigger('click')
+    await flushPromises()
+    const before = wrapper.findComponent({ name: 'DashboardView' })
+    const first = before.vm
+
+    before.vm.$emit('updated', { id: 'd1', name: 'Dash One', layout: [{ chartId: 'c2' }] })
+    await flushPromises()
+    const after = wrapper.findComponent({ name: 'DashboardView' })
+    expect(after.props('config').layout).toEqual([{ chartId: 'c2' }])
+    expect(after.vm).toBe(first)
   })
 })

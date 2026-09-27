@@ -10,8 +10,11 @@ const props = defineProps({
   request: { type: Object, default: null },
   // 製圖頁一直掛著（切頁不會丟掉預覽），切回來時重新抓資料來源，資料頁改過的顯示名稱才會跟上
   active: { type: Boolean, default: true },
+  // 自己的儀表板清單（App 左側那份，最近更新的在最上面），給「加到既有儀表板」選
+  dashboards: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['saved'])
+// saved：存好或加好了，帶儀表板 id；dashboards-changed：加圖時發現儀表板已經不在，請 App 重抓清單
+const emit = defineEmits(['saved', 'dashboards-changed'])
 
 const MAX_INTENTS = 10 // spec 3.2：需求紀錄最多 10 句
 const TOAST_MS = 6000 // spec 3.2：「復原」提示停留 6 秒
@@ -24,6 +27,7 @@ const intent = ref('')
 const preview = ref(null)
 const busy = ref(false)
 const saving = ref(false)
+const appending = ref(false)
 const error = ref('')
 const adjustText = ref('')
 const adjusting = ref(false)
@@ -95,7 +99,8 @@ async function adjust() {
   adjusting.value = true
   error.value = ''
   try {
-    const next = await api.analyze(preview.value.datasourceId, [...history.value, adjustText.value.trim()],
+    // 換來源時預覽會被捨棄，左邊選的來源一定就是這份預覽的來源
+    const next = await api.analyze(datasourceId.value, [...history.value, adjustText.value.trim()],
       preview.value.layout, ...(picked.value.length ? [picked.value] : []))
     if (seq !== pendingSeq) return
     // spec 3.2：使用者改過名稱就保留他改的，沒改過就用新結果的預設名稱
@@ -172,7 +177,7 @@ function holdToast(kind, on) {
 onBeforeUnmount(() => clearTimeout(toastTimer))
 
 async function save() {
-  if (saving.value || nameInvalid.value) return
+  if (saving.value || appending.value || nameInvalid.value) return
   saving.value = true
   try {
     const saved = await api.createDashboard(preview.value)
@@ -182,6 +187,24 @@ async function save() {
     error.value = e.message
   } finally {
     saving.value = false
+  }
+}
+
+// 多來源 spec 3.1：加到既有儀表板不用預覽的名稱，名稱空白也能加
+async function append(id) {
+  if (saving.value || appending.value || busy.value || adjusting.value) return
+  appending.value = true
+  error.value = ''
+  try {
+    await api.appendCharts(id, { layout: preview.value.layout, intents: preview.value.intents })
+    discard()
+    emit('saved', id)
+  } catch (e) {
+    error.value = e.message
+    // 儀表板在別的分頁被刪了：請 App 重抓清單，選單裡就不會再有它
+    if (e.status === 404) emit('dashboards-changed')
+  } finally {
+    appending.value = false
   }
 }
 </script>
@@ -306,9 +329,24 @@ async function save() {
             color="primary"
             prepend-icon="mdi-content-save-outline"
             :loading="saving"
-            :disabled="nameInvalid || saving || adjusting || busy"
+            :disabled="nameInvalid || saving || appending || adjusting || busy"
             @click="save"
-          >存為我的儀表板</v-btn>
+          >存成新儀表板</v-btn>
+          <!-- 多來源 spec 3.1：一份儀表板都沒有時不顯示；分析或調整進行中不能按 -->
+          <v-menu v-if="dashboards.length" location="bottom end">
+            <template #activator="{ props: activator }">
+              <v-btn
+                v-bind="activator"
+                variant="tonal"
+                append-icon="mdi-menu-down"
+                :loading="appending"
+                :disabled="saving || appending || adjusting || busy"
+              >加到既有儀表板</v-btn>
+            </template>
+            <v-list aria-label="加到既有儀表板">
+              <v-list-item v-for="d in dashboards" :key="d.id" :title="d.name" @click="append(d.id)" />
+            </v-list>
+          </v-menu>
         </div>
         <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
         <template v-if="preview">

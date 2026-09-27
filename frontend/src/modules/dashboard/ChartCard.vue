@@ -14,9 +14,11 @@ const props = defineProps({
   spec: { type: Object, required: true },
   data: { type: Object, default: null },
   highlight: { type: Object, default: null },
-  // 預覽裡才有「✕」；等 JEV 回應時停用
+  // 「✕」：哪些卡片有由 DashboardView 決定（預覽的明細表沒有）；等 JEV 回應時停用
   removable: { type: Boolean, default: false },
   removeDisabled: { type: Boolean, default: false },
+  // 多來源的儀表板才傳：這張圖的來源名稱
+  source: { type: String, default: null },
 })
 const emit = defineEmits(['remove'])
 
@@ -61,6 +63,8 @@ const option = computed(() =>
   <v-card class="fill-height d-flex flex-column">
     <v-card-title class="card-drag tc-card-title d-flex align-center">
       <span class="text-truncate">{{ data?.title ?? spec.title }}</span>
+      <!-- 多來源 spec 3.2：名稱太長就截斷，滑鼠移上去看得到全名 -->
+      <span v-if="source" class="tc-source text-truncate" :title="source">{{ source }}</span>
       <v-spacer />
       <span v-if="spec.options?.focus" class="tc-tag mr-1">符合需求</span>
       <span v-if="highlight" class="tc-badge tc-fade-in" :class="SEVERITY_CLASS[highlight.severity]">
@@ -68,7 +72,7 @@ const option = computed(() =>
       </span>
       <!-- grid-layout-plus 的 dragIgnoreFrom 預設是 'a, button'，按「✕」不會被當成拖拉 -->
       <v-btn
-        v-if="removable && spec.type !== 'table'"
+        v-if="removable"
         icon="mdi-close"
         size="small"
         density="default"
@@ -83,6 +87,9 @@ const option = computed(() =>
       <div v-if="!data" class="tc-skeleton card-skeleton" aria-hidden="true" />
       <v-alert v-else-if="data.error === 'FIELD_MISSING'" type="warning" density="compact" class="tc-fade-in">
         欄位遺失：{{ data.missingField }}
+      </v-alert>
+      <v-alert v-else-if="data.error === 'SOURCE_FAILED'" type="warning" density="compact" class="tc-fade-in">
+        {{ data.source ? `資料來源「${data.source}」載入失敗，請稍後重新整理` : '資料來源載入失敗，請稍後重新整理' }}
       </v-alert>
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
@@ -117,6 +124,15 @@ const option = computed(() =>
 }
 .card-drag { cursor: move; }
 .card-body { min-height: 0; padding: 8px 8px 0; }
+/* 多來源 spec 3.2：標題右邊的來源名稱，次要文字色的小字 */
+.tc-source {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tc-muted, rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity)));
+}
 /* spec 3.6：骨架撐滿內容區；淡入時機在 motion.css */
 .card-skeleton { height: 100%; min-height: 120px; border-radius: var(--tc-radius, 4px); }
 /* spec 3.8：數字寬度一致，上下好比對 */

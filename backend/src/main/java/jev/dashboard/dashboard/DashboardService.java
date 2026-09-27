@@ -3,17 +3,22 @@ package jev.dashboard.dashboard;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
+import jev.dashboard.dashboard.DashboardConfig.Basis;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
 import jev.dashboard.datasource.DatasourceService;
+import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
 import jev.dashboard.transform.UniversalTransformer;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DashboardService {
@@ -28,10 +33,13 @@ public class DashboardService {
         this.datasources = datasources;
     }
 
+    /** body 的 intents 變成第一組依據；body 帶了 basis 也不理。 */
     public DashboardConfig create(String userId, DashboardConfig c) {
         requireComplete(c);
-        datasources.get(userId, c.datasourceId());
-        return get(userId, repo.insert(c, userId));
+        UUID ds = requireBatch(c.layout());
+        datasources.get(userId, ds);
+        List<Basis> basis = c.intents() == null || c.intents().isEmpty() ? null : List.of(new Basis(ds, c.intents()));
+        return get(userId, repo.insert(new DashboardConfig(null, c.name(), null, c.layout(), null, basis), userId));
     }
 
     public DashboardConfig get(String userId, UUID id) {
@@ -42,9 +50,49 @@ public class DashboardService {
         return repo.list(userId);
     }
 
+    /** 拖拉版面、移除單張圖都走這裡：layout 可以是空的、可以混著不同來源；body 帶了 intents 也不理。 */
     public DashboardConfig update(String userId, UUID id, DashboardConfig c) {
         requireComplete(c);
-        if (!repo.update(id, userId, c)) throw notFound();
+        requireValidBasis(c.basis());
+        get(userId, id); // 別人的儀表板先回「找不到儀表板」，才輪到查來源
+        Set<UUID> used = c.layout().stream().map(ChartSpec::datasourceId).collect(Collectors.toSet());
+        for (UUID ds : used) datasources.get(userId, ds);
+        // 已經沒有任何圖的來源，它的依據分組跟著刪掉
+        List<Basis> basis = c.basis() == null ? List.of()
+            : c.basis().stream().filter(b -> used.contains(b.datasourceId())).toList();
+        if (!repo.update(id, userId, new DashboardConfig(id, c.name(), null, c.layout(), null, basis.isEmpty() ? null : basis))) {
+            throw notFound();
+        }
+        return get(userId, id);
+    }
+
+    /**
+     * 加到既有儀表板（多來源 spec 6.3）：這批圖的 chartId 接著既有的編號，整批往下移到既有圖的最下面，
+     * 彼此的相對位置不變；有需求紀錄就追加一組依據，名稱不變。
+     * 讀到寫在同一個 transaction，讀的時候鎖住那一列，兩次同時加入不會吃掉其中一批。
+     */
+    @Transactional
+    public DashboardConfig append(String userId, UUID id, DashboardConfig batch) {
+        DashboardConfig current = repo.findForUpdate(id, userId).orElseThrow(DashboardService::notFound);
+        List<ChartSpec> charts = batch == null || batch.layout() == null ? List.of() : batch.layout();
+        requireValidCards(charts);
+        UUID ds = requireBatch(charts);
+        List<String> intents = batch == null ? null : batch.intents();
+        requireValidIntents(intents);
+        datasources.get(userId, ds);
+
+        int n = ConfigAssembler.maxChartNumber(current.layout());
+        int offset = current.layout().stream().mapToInt(s -> s.gridPos().y() + s.gridPos().h()).max().orElse(0);
+        int top = charts.stream().mapToInt(s -> s.gridPos().y()).min().orElse(0);
+        List<ChartSpec> layout = new ArrayList<>(current.layout());
+        for (ChartSpec s : charts) {
+            GridPos g = s.gridPos();
+            layout.add(new ChartSpec("c" + (++n), s.type(), s.title(), new GridPos(g.x(), g.y() - top + offset, g.w(), g.h()),
+                s.mapping(), s.options(), s.datasourceId()));
+        }
+        List<Basis> basis = new ArrayList<>(current.basis() == null ? List.of() : current.basis());
+        if (intents != null && !intents.isEmpty()) basis.add(new Basis(ds, intents));
+        repo.update(id, userId, new DashboardConfig(id, current.name(), null, layout, null, basis.isEmpty() ? null : basis));
         return get(userId, id);
     }
 
@@ -54,12 +102,29 @@ public class DashboardService {
 
     /** 存檔和預覽前檢查每張卡片，免得存進去的配置之後每次載入 /data 都 500。 */
     public static void requireComplete(DashboardConfig c) {
-        if (c == null || c.name() == null || c.datasourceId() == null || c.layout() == null) {
-            throw new ApiException(BAD_REQUEST, "name、datasourceId、layout 都必填");
+        if (c == null || c.name() == null || c.layout() == null) {
+            throw new ApiException(BAD_REQUEST, "name、layout 都必填");
         }
         if (c.name().isBlank()) throw new ApiException(BAD_REQUEST, "儀表板名稱不能空白");
         requireValidCards(c.layout());
         requireValidIntents(c.intents());
+    }
+
+    /** 建立和加入時，一批圖就是一次分析的結果：至少一張，而且來自同一個來源。回傳那個來源。卡片要先驗證過。 */
+    static UUID requireBatch(List<ChartSpec> layout) {
+        if (layout.isEmpty()) throw new ApiException(BAD_REQUEST, "沒有要存入的圖表");
+        Set<UUID> sources = layout.stream().map(ChartSpec::datasourceId).collect(Collectors.toSet());
+        if (sources.size() > 1) throw new ApiException(BAD_REQUEST, "一次存入的圖表要來自同一個資料來源");
+        return sources.iterator().next();
+    }
+
+    /** 每一組依據都要有來源，需求紀錄照 requireValidIntents 的規則。 */
+    static void requireValidBasis(List<Basis> basis) {
+        if (basis == null) return;
+        for (Basis b : basis) {
+            if (b == null || b.datasourceId() == null) throw new ApiException(BAD_REQUEST, "依據缺少 datasourceId");
+            requireValidIntents(b.intents());
+        }
     }
 
     /** 每張卡片都要 transform() 處理得了；存檔、預覽和「調整」送來的 current 共用同一套訊息。 */
@@ -96,6 +161,8 @@ public class DashboardService {
         if (g.x() < 0 || g.y() < 0 || g.w() < 1 || g.h() < 1 || g.w() > 12 || g.x() > 12 - g.w()) {
             return "gridPos 要 x ≥ 0、y ≥ 0、w ≥ 1、h ≥ 1，而且 x + w ≤ 12";
         }
+        // 多來源 spec 4.1：來源記在每張圖上
+        if (s.datasourceId() == null) return "缺少 datasourceId";
         return null;
     }
 

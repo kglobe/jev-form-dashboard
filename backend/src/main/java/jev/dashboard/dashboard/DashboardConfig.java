@@ -5,12 +5,18 @@ import java.util.List;
 import java.util.UUID;
 import jev.dashboard.transform.ChartSpec;
 
-/** intents：需求紀錄（選填），依序是使用者說過的每一句。 */
+/**
+ * 來源記在每張圖上（ChartSpec.datasourceId），儀表板本身不綁來源。
+ * intents：一次分析的需求紀錄（選填），分析結果、建立和「加到既有儀表板」時帶；已存的儀表板不回傳。
+ * basis：已存儀表板的依據，每組是一次分析的來源和需求紀錄，照加入順序排；沒有時是 null。
+ */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record DashboardConfig(UUID id, String name, UUID datasourceId, String createdBy, List<ChartSpec> layout,
-                              List<String> intents) {
-    /** 沒有需求紀錄的設定：舊儀表板，或沒填需求的分析結果。 */
-    public DashboardConfig(UUID id, String name, UUID datasourceId, String createdBy, List<ChartSpec> layout) {
-        this(id, name, datasourceId, createdBy, layout, null);
+public record DashboardConfig(UUID id, String name, String createdBy, List<ChartSpec> layout,
+                              List<String> intents, List<Basis> basis) {
+    public record Basis(UUID datasourceId, List<String> intents) {}
+
+    /** 沒有需求紀錄、也沒有依據的設定。 */
+    public DashboardConfig(UUID id, String name, String createdBy, List<ChartSpec> layout) {
+        this(id, name, createdBy, layout, null, null);
     }
 }
