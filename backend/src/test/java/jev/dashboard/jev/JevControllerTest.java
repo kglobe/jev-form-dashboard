@@ -45,10 +45,11 @@ class JevControllerTest {
     @Autowired JdbcClient jdbc;
 
     static final String TABLE_CARD = """
-        {"chartId":"c2","type":"table","title":"明細","gridPos":{"x":0,"y":4,"w":12,"h":5},"mapping":{"columns":["region"]}}""";
+        {"chartId":"c2","datasourceId":"00000000-0000-0000-0000-000000000001","type":"table","title":"明細",
+         "gridPos":{"x":0,"y":4,"w":12,"h":5},"mapping":{"columns":["region"]}}""";
     static final String BAR_CARD = """
-        {"chartId":"c1","type":"bar","title":"amount 依 region","gridPos":{"x":0,"y":0,"w":6,"h":4},
-         "mapping":{"x":"region","value":"amount","aggregate":"sum"}}""";
+        {"chartId":"c1","datasourceId":"00000000-0000-0000-0000-000000000001","type":"bar","title":"amount 依 region",
+         "gridPos":{"x":0,"y":0,"w":6,"h":4},"mapping":{"x":"region","value":"amount","aggregate":"sum"}}""";
 
     void analyzeIsRejected(String body, String message) throws Exception {
         mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
@@ -115,10 +116,10 @@ class JevControllerTest {
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """
-            {"name":"分區銷售","datasourceId":"%s","layout":[
-              {"chartId":"c1","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
+            {"name":"分區銷售","datasourceId":"%1$s","layout":[
+              {"chartId":"c1","datasourceId":"%1$s","type":"stacked_bar","title":"分區月銷售額","gridPos":{"x":0,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}},
-              {"chartId":"c2","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
+              {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
             ]}""".formatted(ds);
         String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")

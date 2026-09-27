@@ -196,7 +196,7 @@ public final class ConfigAssembler {
     }
 
     private static ChartSpec at(ChartSpec s, GridPos pos) {
-        return new ChartSpec(s.chartId(), s.type(), s.title(), pos, s.mapping(), s.options());
+        return new ChartSpec(s.chartId(), s.type(), s.title(), pos, s.mapping(), s.options(), s.datasourceId());
     }
 
     /** spec 6.5 第 1 點：keep_<chartId> 答 drop 而且信心 ≥ 0.5 才移除，其他情況（包含沒回答）一律保留；明細表不問，一律保留。 */
@@ -258,7 +258,7 @@ public final class ConfigAssembler {
     private static ChartSpec withFocus(ChartSpec s) {
         Map<String, Object> options = s.options() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(s.options());
         options.put("focus", true);
-        return new ChartSpec(s.chartId(), s.type(), s.title(), s.gridPos(), s.mapping(), options);
+        return new ChartSpec(s.chartId(), s.type(), s.title(), s.gridPos(), s.mapping(), options, s.datasourceId());
     }
 
     private static List<ChartSpec> withoutTables(List<ChartSpec> specs) {

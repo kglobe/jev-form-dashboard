@@ -96,6 +96,8 @@ public class DashboardService {
         if (g.x() < 0 || g.y() < 0 || g.w() < 1 || g.h() < 1 || g.w() > 12 || g.x() > 12 - g.w()) {
             return "gridPos 要 x ≥ 0、y ≥ 0、w ≥ 1、h ≥ 1，而且 x + w ≤ 12";
         }
+        // 多來源 spec 4.1：來源記在每張圖上
+        if (s.datasourceId() == null) return "缺少 datasourceId";
         return null;
     }
 

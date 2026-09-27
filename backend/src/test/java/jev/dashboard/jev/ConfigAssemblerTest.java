@@ -196,8 +196,10 @@ class ConfigAssemblerTest {
 
         assertThat(layout).extracting(ChartSpec::type).containsExactly("line", "bar", "bar", "pie", "scatter", "radar",
             "stacked_bar", "stacked_bar", "heatmap", "heatmap", "table");
+        // 存檔前 AnalyzeService 會把這次分析的來源寫進每張圖
+        List<ChartSpec> saved = layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList();
         assertThatCode(() -> DashboardService.requireComplete(
-            new DashboardConfig(null, "銷售 總覽", UUID.randomUUID(), null, layout))).doesNotThrowAnyException();
+            new DashboardConfig(null, "銷售 總覽", UUID.randomUUID(), null, saved))).doesNotThrowAnyException();
     }
 
     @Test
@@ -407,5 +409,21 @@ class ConfigAssemblerTest {
                 tuple("c1", "line", Map.of()),
                 tuple("c3", "bar", Map.of("focus", true)), // 加在保留的圖後面，用第一個合法圖型
                 tuple("c2", "table", Map.of()));
+    }
+
+    @Test
+    void layOutAndFocusKeepTheChartsDatasourceId() {
+        UUID ds = UUID.randomUUID();
+        ChartSpec kept = new ChartSpec("c1", "bar", "amount 依 region", new GridPos(6, 4, 6, 4),
+            new Mapping("region", null, null, "amount", null, null, "sum", null), Map.of(), ds);
+
+        List<ChartSpec> out = ConfigAssembler.adjust(List.of(kept), List.of(kept), List.of(), Map.of(), Set.of("region"));
+
+        // withFocus() 加上 focus、layOut() 重新排位置，兩步都要把來源帶過去
+        assertThat(out).singleElement().satisfies(s -> {
+            assertThat(s.datasourceId()).isEqualTo(ds);
+            assertThat(s.options()).isEqualTo(Map.of("focus", true));
+            assertThat(s.gridPos()).isEqualTo(new GridPos(0, 0, 6, 4));
+        });
     }
 }

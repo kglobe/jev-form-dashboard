@@ -110,6 +110,8 @@ public class AnalyzeService {
             Set<String> focus = evals.stream().filter(FieldEval::focus).map(FieldEval::name).collect(Collectors.toSet());
             layout = ConfigAssembler.adjust(current, kept, combos, a2, focus);
         }
+        // 這次分析的圖都讀同一個來源，調整模式留下來的圖也一樣
+        layout = layout.stream().map(s -> s.withDatasourceId(datasourceId)).toList();
         return new DashboardConfig(null, name, datasourceId, null, layout, intents.isEmpty() ? null : intents);
     }
 
