@@ -14,6 +14,8 @@
 - P2 · 送給 JEV 的題目和選項改成英文：jevai.wiki 的 state 頁寫「英文是主要訓練語言；其他語言（包括中日韓文字）雖可使用，但準確度較低」，現在的 instructions 和 criteria 全是中文（`AnalyzeService`、`HighlightService`）。使用者的需求和欄位名照原樣送。改完之後挑圖結果會變，要重新實測。（JEV 官方文件對照，2026-09-27）
 - P3 · Score 的內插值不要拿來排序：jevai.wiki 的 primitives 頁說期望值只適合判斷門檻，`ConfigAssembler.candidates` 和組合排序卻直接比小數（2.75 排在 3.0 後面）。可以改成先比 `round(score)`，再比 confidence 或機率。（同上）
 
+- P3 · 編輯、刪除合併來源的定義：合併定義建立之後不能改也不能刪，定義錯了只能另建一個，清單會越積越多。刪除要跟「刪除資料來源」一起設計（其他來源目前也不能刪），包括用到它的合併來源和儀表板要怎麼處理。（B1 spec 第 2、11 節）
+
 ## 正式上線前
 
 - P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）
@@ -49,6 +51,8 @@
 - ~~P3 · 按「復原」把卡片放回去之後，焦點沒有回到那張卡片或任何有意義的地方，會落在 `document.body` 上。（frontend ledger）~~ 已修正：按「復原」之後，焦點會移到放回來那張卡片的「✕」。
 - P3 · 用「各區每月營收」跑 E2E 第 1 步時，第一張卡片是「amount 依 region」，region × month 的組合排在第二張；排序沒有優先挑最貼近那句需求的組合。（E2E，Task 9）
 - P3 · 輸入「加每月的數量趨勢」，JEV 給的是 amount 的折線圖，不是 qty；這是 JEV 判斷上的問題。（E2E，Task 9）
+
+- P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）
 
 ## 資料品質
 
