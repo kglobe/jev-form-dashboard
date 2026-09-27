@@ -3,6 +3,7 @@ package jev.dashboard.dashboard;
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -12,10 +13,12 @@ import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig.Basis;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
 import jev.dashboard.datasource.DatasourceService;
+import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
 import jev.dashboard.transform.UniversalTransformer;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class DashboardService {
@@ -60,6 +63,36 @@ public class DashboardService {
         if (!repo.update(id, userId, new DashboardConfig(id, c.name(), null, c.layout(), null, basis.isEmpty() ? null : basis))) {
             throw notFound();
         }
+        return get(userId, id);
+    }
+
+    /**
+     * 加到既有儀表板（多來源 spec 6.3）：這批圖的 chartId 接著既有的編號，整批往下移到既有圖的最下面，
+     * 彼此的相對位置不變；有需求紀錄就追加一組依據，名稱不變。
+     * 讀到寫在同一個 transaction，讀的時候鎖住那一列，兩次同時加入不會吃掉其中一批。
+     */
+    @Transactional
+    public DashboardConfig append(String userId, UUID id, DashboardConfig batch) {
+        DashboardConfig current = repo.findForUpdate(id, userId).orElseThrow(DashboardService::notFound);
+        List<ChartSpec> charts = batch == null || batch.layout() == null ? List.of() : batch.layout();
+        requireValidCards(charts);
+        UUID ds = requireBatch(charts);
+        List<String> intents = batch == null ? null : batch.intents();
+        requireValidIntents(intents);
+        datasources.get(userId, ds);
+
+        int n = ConfigAssembler.maxChartNumber(current.layout());
+        int offset = current.layout().stream().mapToInt(s -> s.gridPos().y() + s.gridPos().h()).max().orElse(0);
+        int top = charts.stream().mapToInt(s -> s.gridPos().y()).min().orElse(0);
+        List<ChartSpec> layout = new ArrayList<>(current.layout());
+        for (ChartSpec s : charts) {
+            GridPos g = s.gridPos();
+            layout.add(new ChartSpec("c" + (++n), s.type(), s.title(), new GridPos(g.x(), g.y() - top + offset, g.w(), g.h()),
+                s.mapping(), s.options(), s.datasourceId()));
+        }
+        List<Basis> basis = new ArrayList<>(current.basis() == null ? List.of() : current.basis());
+        if (intents != null && !intents.isEmpty()) basis.add(new Basis(ds, intents));
+        repo.update(id, userId, new DashboardConfig(id, current.name(), null, layout, null, basis.isEmpty() ? null : basis));
         return get(userId, id);
     }
 

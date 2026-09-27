@@ -50,6 +50,13 @@ public class DashboardRepository {
             .query(this::map).optional();
     }
 
+    /** 加到既有儀表板用：讀的時候鎖住那一列，同一個 transaction 寫回之前，另一次加入要等。 */
+    public Optional<DashboardConfig> findForUpdate(UUID id, String userId) {
+        return jdbc.sql("select * from dashboard where id = :id and created_by = :by for update")
+            .param("id", id).param("by", userId)
+            .query(this::map).optional();
+    }
+
     public List<DashboardSummary> list(String userId) {
         return jdbc.sql("select id, name, updated_at from dashboard where created_by = :by order by updated_at desc")
             .param("by", userId)

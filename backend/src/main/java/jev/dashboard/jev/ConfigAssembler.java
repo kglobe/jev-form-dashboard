@@ -270,7 +270,7 @@ public final class ConfigAssembler {
     }
 
     /** 形如 c<數字> 的 chartId 取最大的數字（明細表、這次移除的都算），新圖從下一號開始，保證不重複。 */
-    static int maxChartNumber(List<ChartSpec> specs) {
+    public static int maxChartNumber(List<ChartSpec> specs) {
         return specs.stream().map(ChartSpec::chartId)
             .filter(id -> id != null && id.matches("c\\d{1,9}"))
             .mapToInt(id -> Integer.parseInt(id.substring(1)))
