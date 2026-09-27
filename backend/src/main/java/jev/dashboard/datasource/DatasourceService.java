@@ -14,6 +14,8 @@ import java.util.Set;
 import java.util.UUID;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
+import jev.dashboard.datasource.MergeDefinition.Lookup;
+import jev.dashboard.datasource.MergeDefinition.Union;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +23,13 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class DatasourceService {
     public record Loaded(Datasource datasource, List<Map<String, Object>> rows) {}
+
+    /** spec 第 7 節：預覽的回傳，rows 只放前 20 列。 */
+    public record MergePreview(List<FieldSchema> schema, List<Map<String, Object>> rows, int rowCount,
+                               List<String> warnings) {}
+
+    static final int MAX_DEPTH = 3;
+    static final int PREVIEW_ROWS = 20;
 
     private final DatasourceRepository repo;
     private final List<DataSourceProvider> providers;
@@ -71,6 +80,11 @@ public class DatasourceService {
     }
 
     public Datasource get(String userId, UUID id) {
+        return stored(userId, id);
+    }
+
+    /** 資料庫裡存的樣子；改 schema 一律從這裡拿。 */
+    private Datasource stored(String userId, UUID id) {
         return repo.find(id, userId).orElseThrow(() -> new ApiException(NOT_FOUND, "找不到資料源"));
     }
 
@@ -101,8 +115,56 @@ public class DatasourceService {
 
     public Loaded load(String userId, UUID id) {
         Datasource ds = get(userId, id);
+        if ("merged".equals(ds.kind())) {
+            List<Map<String, Object>> rows = merge(userId, ds.merge()).rows();
+            // spec 5.4：載入時只擋超過上限；0 筆跟其他來源一樣照常回傳
+            if (rows.size() > maxRows) checkRows(rows.size());
+            return new Loaded(ds, rows);
+        }
         List<Map<String, Object>> raw = provider(ds.kind()).fetchRows(ds);
         return new Loaded(ds, "upload".equals(ds.kind()) ? raw : SchemaInference.normalize(raw, ds.schema()));
+    }
+
+    /** 不存檔。預覽只看定義，body 裡的名稱用不到。 */
+    public MergePreview previewMerged(String userId, MergeDefinition def) {
+        MergeEngine.Result r = build(userId, def);
+        return new MergePreview(MergeEngine.schema(r), r.rows().subList(0, Math.min(PREVIEW_ROWS, r.rows().size())),
+            r.rows().size(), r.warnings());
+    }
+
+    /** 建立時照同一套規則再驗證、再合併一次，因為輸入來源可能在預覽之後變了（spec 第 7 節）。 */
+    public Datasource createMerged(String userId, String name, MergeDefinition def) {
+        if (name == null || name.isBlank()) throw new ApiException(BAD_REQUEST, "請輸入名稱");
+        MergeEngine.Result r = build(userId, def);
+        Datasource ds = new Datasource(UUID.randomUUID(), name.strip(), "merged", MergeEngine.schema(r), null, Map.of(),
+            userId, null, def);
+        repo.insert(ds);
+        return get(userId, ds.id());
+    }
+
+    /** 檢查定義和層數、合併、檢查筆數；預覽和建立共用。 */
+    private MergeEngine.Result build(String userId, MergeDefinition def) {
+        MergeEngine.validate(def, id -> get(userId, id));
+        int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id)).max().orElse(0);
+        if (depth > MAX_DEPTH) throw new ApiException(BAD_REQUEST, "合併最多 3 層");
+        MergeEngine.Result r = merge(userId, def);
+        checkRows(r.rows().size());
+        return r;
+    }
+
+    /** spec 5.3：上傳和外部 API 是第 0 層，合併來源是輸入來源最大層數加 1。 */
+    private int depth(String userId, UUID id) {
+        Datasource ds = stored(userId, id);
+        if (!"merged".equals(ds.kind())) return 0;
+        return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i)).max().orElse(0);
+    }
+
+    // ponytail: 同一個輸入來源在巢狀結構裡出現兩次，就會載入兩次（spec 5.3）；巢狀合併常見、載入變慢時，再在同一次 load 裡加快取
+    private MergeEngine.Result merge(String userId, MergeDefinition def) {
+        return switch (def) {
+            case Union u -> MergeEngine.union(u, u.inputs().stream().map(id -> load(userId, id)).toList());
+            case Lookup l -> MergeEngine.lookup(l, load(userId, l.main()), load(userId, l.lookup()));
+        };
     }
 
     void checkRows(int count) {
