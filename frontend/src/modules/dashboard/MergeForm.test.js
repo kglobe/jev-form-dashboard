@@ -127,3 +127,71 @@ describe('MergeForm（疊加）', () => {
     expect(field(w, '名稱').props('modelValue')).toBe('全公司')
   })
 })
+
+const checkbox = (w, label) => w.findAllComponents({ name: 'VCheckboxBtn' }).find((c) => c.vm.$attrs['aria-label'] === label)
+const keySelects = (w) =>
+  w.findAllComponents({ name: 'VSelect' }).filter((c) => /^第 \d 組主來源欄位$/.test(c.vm.$attrs['aria-label'] ?? ''))
+
+async function lookupMode(w) {
+  await w.findComponent({ name: 'VRadioGroup' }).vm.$emit('update:modelValue', 'lookup')
+  await flushPromises()
+}
+
+describe('MergeForm（查表）', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('主檔 skips the 主來源; 補上的欄位 keep their names (「主檔名·欄位」 on a clash); a field picked as a key gets unchecked; 預覽 sends the lookup', async () => {
+    api.previewMerged.mockResolvedValue({ schema: [], rows: [], rowCount: 4, warnings: [] })
+    const w = mountForm()
+    await lookupMode(w)
+    await pick(w, '主來源', 'r')
+    expect(select(w, '主檔').props('items').map((d) => d.id)).toEqual(['n', 's', 'm'])
+    await pick(w, '主檔', 'm')
+    expect(field(w, '名稱').props('modelValue')).toBe('退貨（補產品主檔）')
+    expect(['code', 'category', 'owner'].map((f) => field(w, `${f} 的輸出名稱`).props('modelValue')))
+      .toEqual(['code', 'category', '產品主檔·owner'])
+    expect(checkbox(w, '補上 code').props('modelValue')).toBe(true)
+    expect(btn(w, '預覽').attributes('disabled')).toBeDefined()
+
+    await pick(w, '第 1 組主來源欄位', 'product')
+    await pick(w, '第 1 組主檔欄位', 'code')
+    expect(checkbox(w, '補上 code').props('modelValue')).toBe(false)
+
+    await btn(w, '預覽').trigger('click')
+    await flushPromises()
+    expect(api.previewMerged).toHaveBeenCalledWith({
+      name: '退貨（補產品主檔）',
+      merge: {
+        op: 'lookup',
+        main: 'r',
+        lookup: 'm',
+        keys: [{ main: 'product', lookup: 'code' }],
+        bring: [{ name: 'category', from: 'category' }, { name: '產品主檔·owner', from: 'owner' }],
+      },
+    })
+  })
+
+  it('查表 takes 1 to 3 key pairs, and picking the 主檔 as 主來源 clears the 主檔', async () => {
+    const w = mountForm()
+    await lookupMode(w)
+    expect(keySelects(w)).toHaveLength(1)
+    expect(btn(w, '刪除第 1 組對接欄位')).toBeUndefined()
+    await btn(w, '新增對接欄位').trigger('click')
+    await btn(w, '新增對接欄位').trigger('click')
+    expect(keySelects(w)).toHaveLength(3)
+    expect(btn(w, '新增對接欄位')).toBeUndefined()
+    await btn(w, '刪除第 2 組對接欄位').trigger('click')
+    expect(keySelects(w)).toHaveLength(2)
+
+    await pick(w, '主來源', 'r')
+    await pick(w, '主檔', 'm')
+    await pick(w, '主來源', 'm')
+    expect(select(w, '主檔').props('modelValue')).toBeNull()
+  })
+})

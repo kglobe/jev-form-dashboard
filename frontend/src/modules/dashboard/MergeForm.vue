@@ -16,6 +16,11 @@ const nameEdited = ref(false)
 const inputs = ref([])
 const columns = ref([]) // [{ key, name, from: { [來源 id]: 欄位名稱 | null } }]
 const sourceColumn = ref('來源')
+// 查表
+const main = ref(null)
+const lookup = ref(null)
+const keys = ref([{ main: null, lookup: null }])
+const bring = ref([]) // 主檔每個欄位一列：{ from, name, on }
 
 const preview = ref(null)
 const error = ref('')
@@ -44,18 +49,50 @@ function typeProblem(c) {
   return '型別不一致：' + used.map((u) => `${nameOf(u.id)}是${FIELD_TYPES[u.type]?.text ?? u.type}`).join('、')
 }
 
-const definition = computed(() => ({
-  op: 'union',
-  inputs: inputs.value,
-  columns: columns.value.map((c) => ({
-    name: c.name.trim(),
-    from: Object.fromEntries(Object.entries(c.from).filter(([, f]) => f)),
-  })),
-  sourceColumn: sourceColumn.value.trim(),
-}))
+const lookupItems = computed(() => props.sources.filter((ds) => ds.id !== main.value))
+
+watch(main, (id) => {
+  if (lookup.value === id) lookup.value = null
+})
+
+// 換主來源或主檔：對接欄位重選；補上的欄位預設用原本的名稱，跟主來源欄位同名時改成「主檔名·欄位」
+watch([main, lookup], () => {
+  keys.value = [{ main: null, lookup: null }]
+  const taken = new Set(fieldsOf(main.value).map((f) => f.name))
+  bring.value = fieldsOf(lookup.value).map((f) => ({
+    from: f.name,
+    name: taken.has(f.name) ? `${nameOf(lookup.value)}·${f.name}` : f.name,
+    on: true,
+  }))
+})
+
+// spec 8.1：對接欄位預設不勾。剛被選成對接欄位的主檔欄位取消勾選，之後使用者要勾回來也可以
+watch(() => keys.value.map((k) => k.lookup), (now, before) => {
+  for (const b of bring.value) if (now.includes(b.from) && !before.includes(b.from)) b.on = false
+})
+
+const definition = computed(() => op.value === 'union'
+  ? {
+      op: 'union',
+      inputs: inputs.value,
+      columns: columns.value.map((c) => ({
+        name: c.name.trim(),
+        from: Object.fromEntries(Object.entries(c.from).filter(([, f]) => f)),
+      })),
+      sourceColumn: sourceColumn.value.trim(),
+    }
+  : {
+      op: 'lookup',
+      main: main.value,
+      lookup: lookup.value,
+      keys: keys.value.map((k) => ({ main: k.main, lookup: k.lookup })),
+      bring: bring.value.filter((b) => b.on).map((b) => ({ name: b.name.trim(), from: b.from })),
+    })
 const definitionKey = computed(() => JSON.stringify(definition.value))
 
-const defaultName = computed(() => inputs.value.map(nameOf).join('＋'))
+const defaultName = computed(() => op.value === 'union'
+  ? inputs.value.map(nameOf).join('＋')
+  : main.value && lookup.value ? `${nameOf(main.value)}（補${nameOf(lookup.value)}）` : '')
 watch(defaultName, (n) => {
   if (!nameEdited.value) name.value = n
 }, { immediate: true })
@@ -66,7 +103,9 @@ watch(definitionKey, () => {
   error.value = ''
 })
 
-const canPreview = computed(() => !busy.value && inputs.value.length >= 2)
+const canPreview = computed(() => !busy.value && (op.value === 'union'
+  ? inputs.value.length >= 2
+  : !!main.value && !!lookup.value && keys.value.every((k) => k.main && k.lookup)))
 const canCreate = computed(() => !busy.value && !!preview.value && !!name.value.trim())
 
 async function runPreview() {
@@ -161,6 +200,51 @@ async function create() {
         </v-btn>
       </template>
       <v-text-field v-model="sourceColumn" label="來源欄名稱" class="mt-3" />
+    </template>
+
+    <template v-else>
+      <div class="d-flex ga-3">
+        <v-select v-model="main" :items="sources" item-title="name" item-value="id" label="主來源" />
+        <v-select v-model="lookup" :items="lookupItems" item-title="name" item-value="id" label="主檔" />
+      </div>
+      <div class="cc-label mb-1">對接欄位</div>
+      <div v-for="(k, i) in keys" :key="i" class="d-flex align-center ga-2 mb-2">
+        <v-select
+          v-model="k.main"
+          :items="fieldItems(main)"
+          item-props
+          :aria-label="`第 ${i + 1} 組主來源欄位`"
+          density="compact"
+          hide-details
+        />
+        <span aria-hidden="true">=</span>
+        <v-select
+          v-model="k.lookup"
+          :items="fieldItems(lookup)"
+          item-props
+          :aria-label="`第 ${i + 1} 組主檔欄位`"
+          density="compact"
+          hide-details
+        />
+        <v-btn
+          v-if="keys.length > 1"
+          icon="mdi-close"
+          variant="text"
+          size="small"
+          :aria-label="`刪除第 ${i + 1} 組對接欄位`"
+          @click="keys.splice(i, 1)"
+        />
+      </div>
+      <v-btn v-if="keys.length < 3" variant="text" size="small" prepend-icon="mdi-plus" @click="keys.push({ main: null, lookup: null })">
+        新增對接欄位
+      </v-btn>
+      <template v-if="bring.length">
+        <div class="cc-label mt-3 mb-1">補上的欄位</div>
+        <div v-for="b in bring" :key="b.from" class="d-flex align-center ga-2">
+          <v-checkbox-btn v-model="b.on" :aria-label="`補上 ${b.from}`" />
+          <v-text-field v-model="b.name" :aria-label="`${b.from} 的輸出名稱`" :disabled="!b.on" density="compact" hide-details />
+        </div>
+      </template>
     </template>
 
     <v-text-field v-model="name" label="名稱" class="mt-3" @update:model-value="nameEdited = true" />
