@@ -1,20 +1,43 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from './api.js'
+import { FIELD_TYPES } from './fields.js'
+import './motion.css'
 
 const props = defineProps({
   selectedId: { type: String, default: null },
-  // 勾選想看的欄位（只屬於 selectedId 那個資料源）
-  picked: { type: Array, default: () => [] },
 })
-const emit = defineEmits(['select', 'update:picked'])
-// 哪個資料源的隱私設定是展開的；預設都收起來，避免把敏感勾選當成選欄位
-const privacyOpen = ref(null)
+// build：按「用這個來源製圖」，交給 App 切到製圖頁
+const emit = defineEmits(['select', 'build'])
 
-const tab = ref('upload')
 const list = ref([])
 const error = ref('')
+// 顯示名稱、敏感設定送出中：整張表一起停用，連續兩次勾選才不會各自拿舊的清單算聯集
 const busy = ref(false)
+// 儲存失敗時 model 沒變，Vue 不會把原生 input 改回去（開關停在錯的位置、輸入框留著沒存的字）；換 key 重畫欄位表
+const rowsKey = ref(0)
+const filter = ref('')
+
+const filtered = computed(() => {
+  const q = filter.value?.trim().toLowerCase()
+  return q ? list.value.filter((ds) => ds.name.toLowerCase().includes(q)) : list.value
+})
+const selected = computed(() => list.value.find((ds) => ds.id === props.selectedId) ?? null)
+const sensitiveCount = computed(() => selected.value?.schema.filter((f) => f.sensitive).length ?? 0)
+
+async function refresh() {
+  list.value = await api.listDatasources()
+  // 還沒選來源就先選第一個，右邊的欄位表不會空著
+  if (!selected.value && list.value.length) emit('select', list.value[0].id)
+}
+
+onMounted(() => refresh().catch((e) => (error.value = e.message)))
+
+// ---------- 新增來源（對話框） ----------
+const addOpen = ref(false)
+const addTab = ref('upload')
+const addError = ref('')
+const adding = ref(false)
 
 const file = ref(null)
 const name = ref('')
@@ -24,23 +47,26 @@ const apiName = ref('')
 const apiUrl = ref('')
 const apiHeaders = ref('{}')
 
-async function refresh() {
-  list.value = await api.listDatasources()
+function openAdd() {
+  addError.value = ''
+  addOpen.value = true
 }
 
-onMounted(() => refresh().catch((e) => (error.value = e.message)))
-
 async function run(action) {
-  error.value = ''
-  busy.value = true
+  addError.value = ''
+  adding.value = true
   try {
     const ds = await action()
     await refresh()
     emit('select', ds.id)
+    addOpen.value = false
+    file.value = null
+    name.value = sheet.value = apiName.value = apiUrl.value = ''
+    apiHeaders.value = '{}'
   } catch (e) {
-    error.value = e.message
+    addError.value = e.message
   } finally {
-    busy.value = false
+    adding.value = false
   }
 }
 
@@ -50,11 +76,11 @@ function upload() {
   // v-file-input 在不同版本可能回傳 File 或 File[]
   const f = Array.isArray(file.value) ? file.value[0] : file.value
   if (!f) {
-    error.value = '請先選擇檔案'
+    addError.value = '請先選擇檔案'
     return
   }
   if (f.size > MAX_UPLOAD_BYTES) {
-    error.value = '檔案太大，上限 50MB'
+    addError.value = '檔案太大，上限 50MB'
     return
   }
   const form = new FormData()
@@ -69,16 +95,17 @@ function register() {
   try {
     headers = JSON.parse(apiHeaders.value || '{}')
   } catch {
-    error.value = 'headers 必須是 JSON 物件'
+    addError.value = 'headers 必須是 JSON 物件'
     return
   }
   if (typeof headers !== 'object' || headers === null || Array.isArray(headers)) {
-    error.value = 'headers 必須是 JSON 物件'
+    addError.value = 'headers 必須是 JSON 物件'
     return
   }
   return run(() => api.registerApi({ name: apiName.value, url: apiUrl.value, headers }))
 }
 
+// ---------- 欄位設定 ----------
 async function toggleSensitive(ds, field, on) {
   busy.value = true
   try {
@@ -88,19 +115,10 @@ async function toggleSensitive(ds, field, on) {
     error.value = ''
   } catch (e) {
     error.value = e.message
+    rowsKey.value++
   } finally {
     busy.value = false
   }
-}
-
-function togglePick(ds, field, on) {
-  // 勾別的資料源的欄位：先切換過去，勾選從這一欄重新開始
-  if (ds.id !== props.selectedId) {
-    emit('select', ds.id)
-    emit('update:picked', on ? [field] : [])
-    return
-  }
-  emit('update:picked', on ? [...props.picked, field] : props.picked.filter((n) => n !== field))
 }
 
 async function saveLabel(ds, field, value) {
@@ -109,12 +127,13 @@ async function saveLabel(ds, field, value) {
   busy.value = true
   try {
     const labels = Object.fromEntries(ds.schema.filter((f) => f.label).map((f) => [f.name, f.label]))
-    labels[field] = value
+    labels[field] = value.trim()
     await api.setLabels(ds.id, labels)
     await refresh()
     error.value = ''
   } catch (e) {
     error.value = e.message
+    rowsKey.value++
   } finally {
     busy.value = false
   }
@@ -122,97 +141,187 @@ async function saveLabel(ds, field, value) {
 </script>
 
 <template>
-  <div class="pa-4">
-    <v-tabs v-model="tab" density="compact" class="mb-2">
-      <v-tab value="upload">上傳檔案</v-tab>
-      <v-tab value="api">外部 API</v-tab>
-    </v-tabs>
-    <v-window v-model="tab">
-      <!-- spec 4.8：兩個分頁不是前後頁，切換時直接換內容，不左右滑 -->
-      <v-window-item value="upload" :transition="false" :reverse-transition="false">
-        <v-file-input v-model="file" label="CSV / Excel" accept=".csv,.xlsx,.xls" density="compact" />
-        <v-text-field v-model="name" label="名稱（預設用檔名）" density="compact" />
-        <v-text-field v-model="sheet" label="工作表（Excel 選填）" density="compact" />
-        <v-btn block :loading="busy" @click="upload">上傳</v-btn>
-      </v-window-item>
-      <v-window-item value="api" :transition="false" :reverse-transition="false">
-        <v-text-field v-model="apiName" label="名稱" density="compact" />
-        <v-text-field v-model="apiUrl" label="網址" density="compact" />
-        <v-textarea
-          v-model="apiHeaders"
-          label="headers（JSON，值只能寫 ${DS_環境變數名}）"
-          hint='範例：{"Authorization":"${DS_ERP_AUTH}"}'
-          persistent-hint
-          rows="2"
-          density="compact"
-        />
-        <v-btn block :loading="busy" @click="register">註冊</v-btn>
-      </v-window-item>
-    </v-window>
+  <section class="cc-view">
+    <header class="cc-head">
+      <div>
+        <div class="cc-eyebrow">01 · Data</div>
+        <h1 class="cc-title">資料</h1>
+        <p class="cc-desc">管理資料來源和欄位：顯示名稱會用在圖表上，標成敏感的欄位不會把內容送給 JEV。</p>
+      </div>
+      <v-btn color="primary" prepend-icon="mdi-plus" @click="openAdd">新增來源</v-btn>
+    </header>
 
-    <v-alert v-if="error" type="error" density="compact" class="mt-2">{{ error }}</v-alert>
+    <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
 
-    <v-list density="compact" class="mt-2">
-      <v-list-subheader>資料源</v-list-subheader>
-      <v-list-group v-for="ds in list" :key="ds.id" :value="ds.id">
-        <template #activator="{ props: activator }">
+    <div class="cc-split">
+      <aside class="cc-panel cc-sticky">
+        <div class="pa-3 pb-2">
+          <v-text-field
+            v-model="filter"
+            placeholder="搜尋來源"
+            aria-label="搜尋來源"
+            prepend-inner-icon="mdi-magnify"
+            hide-details
+            clearable
+          />
+        </div>
+        <div class="cc-label px-4 pb-1">來源 · {{ list.length }}</div>
+        <v-list nav class="ds-list px-2 pb-2" aria-label="資料來源">
           <v-list-item
-            v-bind="activator"
-            :title="ds.name"
-            :subtitle="ds.kind === 'api' ? ds.apiUrl : `${ds.schema.length} 個欄位`"
+            v-for="ds in filtered"
+            :key="ds.id"
             :active="ds.id === selectedId"
+            :prepend-icon="ds.kind === 'api' ? 'mdi-api' : 'mdi-file-table-outline'"
+            :title="ds.name"
+            :subtitle="`${ds.schema.length} 個欄位`"
             @click="emit('select', ds.id)"
           />
-        </template>
-        <v-list-item density="compact">
-          <p class="text-caption text-medium-emphasis">勾選想看的欄位，按「分析」時會優先用它們出圖，可以搭配下方「想看什麼」一起用；都不勾就由 JEV 自己挑。</p>
-          <p class="text-caption text-medium-emphasis">顯示名稱會用在圖表標題、座標軸和明細表頭，空白就顯示原始欄位名稱。</p>
-        </v-list-item>
-        <v-list-item v-for="f in ds.schema" :key="f.name" density="compact">
-          <v-checkbox
-            :model-value="ds.id === selectedId && picked.includes(f.name)"
-            :label="`${f.name}（${f.type}）`"
-            density="compact"
-            hide-details
-            @update:model-value="(on) => togglePick(ds, f.name, on)"
-          />
-          <v-text-field
-            :model-value="f.label ?? ''"
-            :label="`${f.name} 顯示名稱`"
-            :placeholder="f.name"
-            density="compact"
-            hide-details
-            class="mb-2"
-            :disabled="busy"
-            @change="(e) => saveLabel(ds, f.name, e.target.value)"
-          />
-        </v-list-item>
-        <v-list-item density="compact">
-          <v-btn
-            variant="text"
-            size="small"
-            :aria-expanded="privacyOpen === ds.id"
-            @click="privacyOpen = privacyOpen === ds.id ? null : ds.id"
-          >
-            隱私設定（{{ ds.schema.filter((f) => f.sensitive).length }} 個敏感欄位）
-          </v-btn>
-        </v-list-item>
-        <template v-if="privacyOpen === ds.id">
-          <v-list-item density="compact">
-            <p class="text-caption text-medium-emphasis">勾選為敏感的欄位：不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。</p>
-          </v-list-item>
-          <v-list-item v-for="f in ds.schema" :key="f.name" density="compact">
-            <v-checkbox
-              :model-value="f.sensitive"
-              :label="`${f.name}（${f.type}）敏感`"
-              density="compact"
-              hide-details
-              :disabled="busy"
-              @update:model-value="(on) => toggleSensitive(ds, f.name, on)"
-            />
-          </v-list-item>
-        </template>
-      </v-list-group>
-    </v-list>
-  </div>
+          <p v-if="!filtered.length" class="text-caption text-medium-emphasis pa-3">
+            {{ list.length ? '沒有符合的來源' : '還沒有資料來源' }}
+          </p>
+        </v-list>
+      </aside>
+
+      <section v-if="selected" class="cc-panel ds-detail">
+        <header class="cc-panel__head">
+          <div class="ds-title">
+            <div class="d-flex align-center ga-2">
+              <h2 class="ds-name text-truncate">{{ selected.name }}</h2>
+              <span class="tc-badge">{{ selected.kind === 'api' ? '外部 API' : '上傳檔案' }}</span>
+            </div>
+            <div class="ds-meta cc-mono text-truncate">
+              <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
+            </div>
+          </div>
+          <v-btn append-icon="mdi-arrow-right" @click="emit('build', selected.id)">用這個來源製圖</v-btn>
+        </header>
+        <v-table class="ds-fields">
+          <thead>
+            <tr>
+              <th>欄位</th>
+              <th>型別</th>
+              <th>樣本</th>
+              <th>顯示名稱</th>
+              <th class="text-center">敏感</th>
+            </tr>
+          </thead>
+          <tbody :key="rowsKey">
+            <tr v-for="f in selected.schema" :key="f.name">
+              <td class="cc-mono">{{ f.name }}</td>
+              <td>
+                <span class="ds-type"><v-icon :icon="FIELD_TYPES[f.type]?.icon" size="14" />{{ FIELD_TYPES[f.type]?.text ?? f.type }}</span>
+              </td>
+              <td class="ds-samples cc-mono">{{ f.samples?.slice(0, 3).join('、') }}</td>
+              <td class="ds-label">
+                <!-- 按 Enter 或離開輸入框才存（change 事件）；打字過程不送 API -->
+                <v-text-field
+                  :model-value="f.label ?? ''"
+                  :aria-label="`${f.name} 顯示名稱`"
+                  :placeholder="f.name"
+                  hide-details
+                  :disabled="busy"
+                  @change="(e) => saveLabel(selected, f.name, e.target.value)"
+                  @keydown.enter="(e) => e.target.blur()"
+                />
+              </td>
+              <td class="text-center">
+                <v-switch
+                  :model-value="f.sensitive"
+                  :aria-label="`${f.name} 敏感`"
+                  hide-details
+                  class="d-inline-flex"
+                  :disabled="busy"
+                  @update:model-value="(on) => toggleSensitive(selected, f.name, on)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+        <p class="ds-foot">
+          顯示名稱會用在圖表標題、座標軸和明細表頭，空白就顯示原始欄位名稱。
+          標成敏感的欄位不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。
+        </p>
+      </section>
+
+      <section v-else class="cc-panel cc-empty">
+        <div class="cc-empty__icon"><v-icon icon="mdi-database-plus-outline" size="30" /></div>
+        <h2>還沒有資料來源</h2>
+        <p>上傳 CSV / Excel，或註冊一個外部 API，欄位會自動判斷型別。</p>
+        <v-btn color="primary" prepend-icon="mdi-plus" @click="openAdd">新增來源</v-btn>
+      </section>
+    </div>
+
+    <v-dialog v-model="addOpen" max-width="520" transition="tc-sheet">
+      <v-card>
+        <v-card-title class="pt-5 px-6">新增資料來源</v-card-title>
+        <v-tabs v-model="addTab" class="px-4">
+          <v-tab value="upload" prepend-icon="mdi-file-upload-outline">上傳檔案</v-tab>
+          <v-tab value="api" prepend-icon="mdi-api">外部 API</v-tab>
+        </v-tabs>
+        <v-card-text class="px-6">
+          <v-window v-model="addTab">
+            <!-- spec 4.8：兩個分頁不是前後頁，切換時直接換內容，不左右滑 -->
+            <v-window-item value="upload" :transition="false" :reverse-transition="false">
+              <v-file-input v-model="file" label="CSV / Excel" accept=".csv,.xlsx,.xls" prepend-icon="" prepend-inner-icon="mdi-paperclip" />
+              <v-text-field v-model="name" label="名稱（預設用檔名）" />
+              <v-text-field v-model="sheet" label="工作表（Excel 選填）" />
+            </v-window-item>
+            <v-window-item value="api" :transition="false" :reverse-transition="false">
+              <v-text-field v-model="apiName" label="名稱" />
+              <v-text-field v-model="apiUrl" label="網址" />
+              <v-textarea
+                v-model="apiHeaders"
+                label="headers（JSON，值只能寫 ${DS_環境變數名}）"
+                hint='範例：{"Authorization":"${DS_ERP_AUTH}"}'
+                persistent-hint
+                rows="2"
+              />
+            </v-window-item>
+          </v-window>
+          <v-alert v-if="addError" type="error" density="compact" class="mt-3">{{ addError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="px-6 pb-5">
+          <v-spacer />
+          <!-- v-card-actions 預設把按鈕變成 text，這裡明確用 flat -->
+          <v-btn variant="flat" @click="addOpen = false">取消</v-btn>
+          <v-btn v-if="addTab === 'upload'" variant="flat" color="primary" :loading="adding" @click="upload">上傳</v-btn>
+          <v-btn v-else variant="flat" color="primary" :loading="adding" @click="register">註冊</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+  </section>
 </template>
+
+<style scoped>
+.ds-list { overflow-y: auto; }
+.ds-detail { overflow: hidden; }
+.ds-title { flex: 1; min-width: 0; }
+.ds-name { margin: 0; font-size: 17px; font-weight: 600; }
+.ds-meta { margin-top: 4px; font-size: 12px; color: var(--tc-muted); }
+.ds-fields td { height: 52px; }
+.ds-fields td.cc-mono { font-size: 13.5px; color: var(--tc-text); }
+.ds-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--tc-text-2);
+}
+.ds-samples {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--tc-muted);
+}
+.ds-label { min-width: 180px; }
+.ds-foot {
+  margin: 0;
+  padding: 14px 20px 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--tc-muted);
+  border-top: 1px solid var(--tc-border-subtle);
+}
+</style>

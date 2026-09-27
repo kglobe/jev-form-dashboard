@@ -1,0 +1,203 @@
+{
+  "color": [
+    "#3987e5",
+    "#d95926",
+    "#199e70",
+    "#c98500",
+    "#d55181",
+    "#008300",
+    "#9085e9",
+    "#e66767"
+  ],
+  "backgroundColor": "transparent",
+  "textStyle": {
+    "color": "#e6edf7",
+    "fontFamily": "\"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, BlinkMacSystemFont, Roboto, \"Noto Sans TC\", \"Microsoft JhengHei\", sans-serif"
+  },
+  "title": {
+    "textStyle": {
+      "color": "#e6edf7"
+    },
+    "subtextStyle": {
+      "color": "#8593aa"
+    }
+  },
+  "legend": {
+    "textStyle": {
+      "color": "#b3bfd1"
+    },
+    "pageTextStyle": {
+      "color": "#8593aa"
+    },
+    "pageIconColor": "#22d3ee",
+    "pageIconInactiveColor": "#3a4a63"
+  },
+  "tooltip": {
+    "backgroundColor": "#111a2c",
+    "borderColor": "#3a4a63",
+    "borderWidth": 1,
+    "textStyle": {
+      "color": "#e6edf7"
+    },
+    "axisPointer": {
+      "lineStyle": {
+        "color": "#5b6b85"
+      },
+      "crossStyle": {
+        "color": "#5b6b85"
+      }
+    }
+  },
+  "categoryAxis": {
+    "axisLine": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisTick": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisLabel": {
+      "show": true,
+      "color": "#8593aa"
+    },
+    "splitLine": {
+      "show": true,
+      "lineStyle": {
+        "color": [
+          "#1a2436"
+        ]
+      }
+    },
+    "splitArea": {
+      "show": false
+    }
+  },
+  "valueAxis": {
+    "axisLine": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisTick": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisLabel": {
+      "show": true,
+      "color": "#8593aa"
+    },
+    "splitLine": {
+      "show": true,
+      "lineStyle": {
+        "color": [
+          "#1a2436"
+        ]
+      }
+    },
+    "splitArea": {
+      "show": false
+    }
+  },
+  "logAxis": {
+    "axisLine": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisTick": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisLabel": {
+      "show": true,
+      "color": "#8593aa"
+    },
+    "splitLine": {
+      "show": true,
+      "lineStyle": {
+        "color": [
+          "#1a2436"
+        ]
+      }
+    },
+    "splitArea": {
+      "show": false
+    }
+  },
+  "timeAxis": {
+    "axisLine": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisTick": {
+      "show": true,
+      "lineStyle": {
+        "color": "#3a4a63"
+      }
+    },
+    "axisLabel": {
+      "show": true,
+      "color": "#8593aa"
+    },
+    "splitLine": {
+      "show": true,
+      "lineStyle": {
+        "color": [
+          "#1a2436"
+        ]
+      }
+    },
+    "splitArea": {
+      "show": false
+    }
+  },
+  "line": {
+    "lineStyle": {
+      "width": 2
+    },
+    "symbol": "circle",
+    "symbolSize": 6,
+    "smooth": false
+  },
+  "bar": {
+    "itemStyle": {
+      "barBorderRadius": [
+        3,
+        3,
+        0,
+        0
+      ],
+      "borderColor": "#0c1220",
+      "borderWidth": 1
+    }
+  },
+  "pie": {
+    "itemStyle": {
+      "borderColor": "#0c1220",
+      "borderWidth": 2
+    }
+  },
+  "visualMap": {
+    "color": [
+      "#b7d3f6",
+      "#3987e5",
+      "#184f95"
+    ],
+    "textStyle": {
+      "color": "#8593aa"
+    }
+  }
+}

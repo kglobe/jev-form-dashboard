@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createVuetify } from 'vuetify'
 import ChartCard from './ChartCard.vue'
 import { vuetify } from './test-vuetify.js'
-import tactileLight from './charts/themes/tactile-light.json'
+import commandDark from './charts/themes/command-dark.json'
+import commandLight from './charts/themes/command-light.json'
 
 vi.mock('echarts', () => ({}))
 vi.mock('vue-echarts', () => ({
@@ -184,13 +186,13 @@ describe('ChartCard', () => {
     expect(card.get('.v-alert').classes()).toContain('tc-fade-in')
   })
 
-  it('passes the tactile theme; every series, the hover state and the tooltip get the tuned animation, and the tooltip keeps its settings', () => {
+  it('passes the chart theme; every series, the hover state and the tooltip get the tuned animation, and the tooltip keeps its settings', () => {
     const card = mountCard({
       spec: { chartId: 'c1', type: 'stacked_bar', title: 'T', mapping: {} },
       data: { chartId: 'c1', type: 'stacked_bar', dimensions: ['month', 'region', 'amount'], rows: [['1月', '北區', 1], ['1月', '南區', 2]] },
       highlight: null,
     })
-    expect(chartOf(card).props('theme')).toBe(tactileLight)
+    expect(chartOf(card).props('theme')).toBe(commandLight) // test-vuetify 預設是淺色
     const option = chartOf(card).props('option')
     expect(option.series).toHaveLength(2)
     for (const s of option.series) {
@@ -200,6 +202,16 @@ describe('ChartCard', () => {
     expect(option.tooltip).toEqual({ trigger: 'axis', transitionDuration: 0 })
     expect(option.animation).toBeUndefined()
     expect(option.aria).toBeUndefined()
+  })
+
+  it('the chart theme follows the Vuetify theme: dark gets the dark theme, light the light one', async () => {
+    const themed = createVuetify({ theme: { defaultTheme: 'dark' } })
+    const card = mount(ChartCard, { props: { spec: barSpec, data: barData, highlight: null }, global: { plugins: [themed] } })
+    expect(chartOf(card).props('theme')).toBe(commandDark)
+
+    themed.theme.change('light')
+    await card.vm.$nextTick()
+    expect(chartOf(card).props('theme')).toBe(commandLight)
   })
 
   it('no chart type draws decal patterns; series are told apart by the 8-colour theme', () => {

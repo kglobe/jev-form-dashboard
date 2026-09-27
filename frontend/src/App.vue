@@ -1,19 +1,44 @@
 <script setup>
-import { onMounted, ref } from 'vue'
-import { AnalyzeButton, DashboardView, DatasourcePanel, api } from './modules/dashboard/index.js'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
+import { ChartBuilder, DashboardView, DatasourcePanel, api } from './modules/dashboard/index.js'
 
+const VIEWS = [
+  { id: 'data', label: '資料', icon: 'mdi-database-outline' },
+  { id: 'build', label: '製圖', icon: 'mdi-chart-box-plus-outline' },
+  { id: 'dashboards', label: '儀表板', icon: 'mdi-view-dashboard-outline' },
+]
+const view = ref('dashboards')
+// 資料頁選中的來源
 const datasourceId = ref(null)
-// 側欄勾選想看的欄位；只屬於目前選的資料源，換資料源就清空
-const pickedFields = ref([])
+// 資料頁按「用這個來源製圖」：每次給新物件，製圖頁才認得出是新的一次
+const buildRequest = ref(null)
 
-function selectDatasource(id) {
-  if (id !== datasourceId.value) pickedFields.value = []
-  datasourceId.value = id
-}
 const dashboards = ref([])
 const current = ref(null)
 const error = ref('')
 const confirmDelete = ref(null)
+
+// 深淺主題：Vuetify 換元件配色，<html data-theme> 換 command-center.css 的 token，localStorage 記住下次用哪套
+const THEME_KEY = 'jev-theme' // index.html 的 inline script 讀同一個 key
+const vuetifyTheme = useTheme()
+const isLight = computed(() => !vuetifyTheme.current.value.dark)
+
+function toggleTheme() {
+  vuetifyTheme.toggle()
+  const mode = vuetifyTheme.current.value.dark ? 'dark' : 'light'
+  document.documentElement.dataset.theme = mode
+  try {
+    localStorage.setItem(THEME_KEY, mode)
+  } catch {
+    // 私密視窗或封鎖網站資料時存不了，這次切換照樣有效
+  }
+}
+
+function startBuild(id) {
+  buildRequest.value = { id }
+  view.value = 'build'
+}
 
 async function refresh() {
   dashboards.value = await api.listDashboards()
@@ -28,7 +53,9 @@ async function open(id) {
   }
 }
 
+// 存檔後切到儀表板頁，直接打開剛存的那份
 async function onSaved(id) {
+  view.value = 'dashboards'
   try {
     await refresh()
   } catch (e) {
@@ -55,70 +82,124 @@ async function confirmRemove() {
   }
 }
 
-onMounted(() => refresh().catch((e) => (error.value = e.message)))
+// Alt+1／2／3 切換工作區
+function onKey(e) {
+  if (!e.altKey || e.ctrlKey || e.metaKey) return
+  const target = VIEWS[Number(e.key) - 1]
+  if (!target) return
+  e.preventDefault()
+  view.value = target.id
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKey)
+  refresh().catch((e) => (error.value = e.message))
+})
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
   <v-app>
-    <!-- spec 3.3：側欄跟主區同底色，只靠右框線分開 -->
-    <v-navigation-drawer permanent width="380" color="background">
-      <DatasourcePanel v-model:picked="pickedFields" :selected-id="datasourceId" @select="selectDatasource" />
-      <v-divider />
-      <v-list density="compact">
-        <v-list-subheader>我的儀表板</v-list-subheader>
-        <v-list-item
-          v-for="d in dashboards"
-          :key="d.id"
-          :title="d.name"
-          :active="current?.id === d.id"
-          @click="open(d.id)"
+    <v-navigation-drawer permanent width="76" color="transparent" class="cc-rail">
+      <div class="cc-logo" aria-hidden="true">JEV</div>
+      <nav class="cc-rail__nav" aria-label="主要導覽">
+        <button
+          v-for="(v, n) in VIEWS"
+          :key="v.id"
+          type="button"
+          class="cc-rail__item"
+          :class="{ 'is-active': view === v.id }"
+          :aria-current="view === v.id ? 'page' : undefined"
+          :aria-keyshortcuts="`Alt+${n + 1}`"
+          :title="`${v.label}（Alt+${n + 1}）`"
+          @click="view = v.id"
         >
-          <template #append>
-            <v-btn
-              icon="mdi-delete"
-              size="small"
-              density="default"
-              variant="text"
-              aria-label="刪除儀表板"
-              @click.stop="askDelete(d)"
-            />
-          </template>
-        </v-list-item>
-      </v-list>
-      <!-- 資料源一多，「分析」就被擠到畫面外；固定在側欄底部，勾完欄位不必往下捲 -->
-      <template #append>
-        <div class="analyze-dock pa-4">
-          <AnalyzeButton :datasource-id="datasourceId" :fields="pickedFields" @saved="onSaved" />
-        </div>
-      </template>
+          <v-icon :icon="v.icon" size="22" />
+          <span>{{ v.label }}</span>
+        </button>
+      </nav>
+      <button
+        type="button"
+        class="cc-rail__item cc-rail__theme"
+        :aria-label="isLight ? '切換成深色主題' : '切換成淺色主題'"
+        :title="isLight ? '切換成深色主題' : '切換成淺色主題'"
+        @click="toggleTheme"
+      >
+        <v-icon :icon="isLight ? 'mdi-weather-night' : 'mdi-white-balance-sunny'" size="22" />
+        <span>{{ isLight ? '深色' : '淺色' }}</span>
+      </button>
     </v-navigation-drawer>
+
     <v-main>
-      <v-container fluid>
-        <v-alert v-if="error" type="error" class="mb-4">{{ error }}</v-alert>
-        <template v-if="current">
-          <h1 class="tc-page-bar__title mb-1">{{ current.name }}</h1>
-          <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
-          <DashboardView :key="current.id" :config="current" />
-        </template>
-        <div v-else class="tc-empty empty-start">
-          <v-icon icon="mdi-view-dashboard-outline" size="40" class="mb-3" />
-          <h1 class="tc-page-bar__title mb-3">還沒有打開儀表板</h1>
-          <ol class="empty-steps">
-            <li>在左側上傳 CSV / Excel，或註冊外部 API。</li>
-            <li>點選資料源，想指定欄位就勾起來。</li>
-            <li>按左下角的「分析」，預覽滿意再存檔。</li>
-          </ol>
-          <p v-if="dashboards.length" class="mt-3">已經存過的儀表板在左側「我的儀表板」。</p>
+      <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" @select="(id) => (datasourceId = id)" @build="startBuild" />
+      <!-- 製圖頁用 v-show 一直掛著：去資料頁改個顯示名稱再回來，預覽和調整紀錄都還在 -->
+      <ChartBuilder v-show="view === 'build'" :active="view === 'build'" :request="buildRequest" @saved="onSaved" />
+      <section v-if="view === 'dashboards'" class="cc-view">
+        <header class="cc-head">
+          <div>
+            <div class="cc-eyebrow">03 · Dashboards</div>
+            <h1 class="cc-title">{{ current ? current.name : '儀表板' }}</h1>
+            <p class="cc-desc">卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。</p>
+          </div>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="view = 'build'">新增儀表板</v-btn>
+        </header>
+        <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
+        <div class="cc-split">
+          <aside class="cc-panel cc-sticky">
+            <div class="cc-label px-4 pt-4 pb-1">我的儀表板 · {{ dashboards.length }}</div>
+            <v-list nav class="dash-list px-2 pb-2" aria-label="我的儀表板">
+              <v-list-item
+                v-for="d in dashboards"
+                :key="d.id"
+                :title="d.name"
+                :active="current?.id === d.id"
+                prepend-icon="mdi-view-dashboard-outline"
+                @click="open(d.id)"
+              >
+                <template #append>
+                  <v-btn
+                    icon="mdi-delete-outline"
+                    size="small"
+                    density="default"
+                    variant="text"
+                    aria-label="刪除儀表板"
+                    @click.stop="askDelete(d)"
+                  />
+                </template>
+              </v-list-item>
+              <p v-if="!dashboards.length" class="text-caption text-medium-emphasis pa-3">還沒有存過儀表板</p>
+            </v-list>
+          </aside>
+          <div class="dash-main">
+            <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
+            <DashboardView v-if="current" :key="current.id" :config="current" />
+            <div v-else class="cc-panel cc-empty empty-start">
+              <div class="cc-empty__icon"><v-icon icon="mdi-view-dashboard-outline" size="30" /></div>
+              <h2>{{ dashboards.length ? '從左邊選一份儀表板' : '還沒有儀表板' }}</h2>
+              <ol class="empty-steps">
+                <li>到「資料」上傳 CSV / Excel，或註冊外部 API，順手設好欄位的顯示名稱。</li>
+                <li>到「製圖」選來源、挑欄位、寫一句需求，按「分析」。</li>
+                <li>預覽滿意就存成儀表板，會出現在這一頁。</li>
+              </ol>
+              <div class="d-flex ga-2">
+                <v-btn prepend-icon="mdi-database-outline" @click="view = 'data'">前往資料</v-btn>
+                <v-btn color="primary" prepend-icon="mdi-chart-box-plus-outline" @click="view = 'build'">開始製圖</v-btn>
+              </div>
+            </div>
+          </div>
         </div>
-      </v-container>
+      </section>
     </v-main>
-    <v-dialog :model-value="!!confirmDelete" max-width="400" @update:model-value="(v) => !v && (confirmDelete = null)">
+
+    <v-dialog :model-value="!!confirmDelete" max-width="420" @update:model-value="(v) => !v && (confirmDelete = null)">
       <v-card v-if="confirmDelete">
-        <v-card-text class="pt-4">確定刪除「{{ confirmDelete.name }}」？刪除後無法復原。</v-card-text>
-        <v-card-actions>
+        <v-card-title class="pt-5 px-6">刪除儀表板</v-card-title>
+        <v-card-text class="px-6">確定刪除「{{ confirmDelete.name }}」？刪除後無法復原。</v-card-text>
+        <v-card-actions class="px-6 pb-5">
           <v-spacer />
-          <v-btn @click="confirmDelete = null">取消</v-btn>
-          <v-btn color="error" @click="confirmRemove">刪除</v-btn>
+          <!-- v-card-actions 預設把按鈕變成 text，這裡明確用 flat，刪除才看得出是按鈕 -->
+          <v-btn variant="flat" @click="confirmDelete = null">取消</v-btn>
+          <v-btn variant="flat" color="error" @click="confirmRemove">刪除</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -126,18 +207,70 @@ onMounted(() => refresh().catch((e) => (error.value = e.message)))
 </template>
 
 <style scoped>
-/* 固定在底部的「分析」區塊跟上方捲動的清單用一條框線分開 */
-.analyze-dock {
-  border-top: 1px solid var(--tc-border-subtle);
+/* 左側導覽列：半透明底、右邊一條細線；選中的項目左邊一條發光的線 */
+.cc-rail {
+  border-right: 1px solid var(--tc-border-subtle) !important;
+  background: var(--tc-rail-bg) !important;
+  backdrop-filter: blur(12px);
 }
-.empty-start {
-  max-width: 36rem;
-  margin: 12vh auto 0;
+.cc-rail :deep(.v-navigation-drawer__content) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 0;
 }
+.cc-logo {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font: 700 12px/1 var(--tc-mono);
+  letter-spacing: 0.04em;
+  color: #031018; /* 標誌兩套主題都用亮色漸層，字固定深色 */
+  background: linear-gradient(135deg, #5ee6f7, #22d3ee 40%, #818cf8);
+  box-shadow: 0 0 28px -6px rgba(var(--tc-accent-rgb), 0.8);
+}
+.cc-rail__nav { display: flex; flex-direction: column; gap: 6px; }
+/* 主題切換放在導覽列最下面 */
+.cc-rail__theme { margin-top: auto; }
+.cc-rail__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 60px;
+  padding: 10px 0 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  color: var(--tc-muted);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.cc-rail__item:hover { color: var(--tc-text); background: var(--tc-hover); }
+.cc-rail__item:focus-visible { outline: 2px solid var(--tc-ring-color); outline-offset: 2px; }
+.cc-rail__item.is-active { color: var(--tc-primary); background: var(--tc-active); }
+.cc-rail__item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--tc-primary);
+  box-shadow: 0 0 12px var(--tc-primary);
+}
+
+.dash-list { overflow-y: auto; }
+.dash-main { min-width: 0; }
+.empty-start { min-height: 420px; }
 .empty-steps {
-  display: inline-block;
+  margin: 0;
+  padding-left: 20px;
   text-align: left;
-  line-height: 1.8;
+  line-height: 1.9;
   color: var(--tc-text-2);
 }
 </style>

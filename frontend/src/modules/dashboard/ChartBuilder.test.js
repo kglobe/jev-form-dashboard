@@ -2,12 +2,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import AnalyzeButton from './AnalyzeButton.vue'
+import ChartBuilder from './ChartBuilder.vue'
 import { api } from './api.js'
 import { vuetify } from './test-vuetify.js'
 
 vi.mock('./api.js', () => ({
   api: {
+    listDatasources: vi.fn(),
     analyze: vi.fn(),
     createDashboard: vi.fn(),
   },
@@ -29,8 +30,19 @@ function byText(root, selector, text) {
   return [...root.querySelectorAll(selector)].find((el) => el.textContent.trim() === text)
 }
 
-function mountButton(datasourceId) {
-  return mount(AnalyzeButton, { props: { datasourceId }, global: { plugins: [vuetify] } })
+const sources = () => [
+  { id: 'ds1', name: '銷售', schema: [{ name: 'region', type: 'string', label: '地區' }, { name: 'amount', type: 'number' }] },
+  { id: 'ds2', name: '退貨', schema: [{ name: 'product', type: 'string' }] },
+]
+
+const wrappers = []
+
+// 掛到 document.body：「復原」之後的焦點要在文件裡才看得到
+async function mountBuilder(props) {
+  const wrapper = mount(ChartBuilder, { props, attachTo: document.body, global: { plugins: [vuetify] } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  return wrapper
 }
 
 const pos = (n) => ({ x: (n % 2) * 6, y: Math.floor(n / 2) * 4, w: 6, h: 4 })
@@ -39,17 +51,28 @@ const bar = (chartId, title, n, options) => ({
 })
 const table = (chartId, y) => ({ chartId, type: 'table', title: '明細', gridPos: { x: 0, y, w: 12, h: 5 }, mapping: { columns: ['region'] } })
 const view = (wrapper) => wrapper.findComponent({ name: 'DashboardView' })
+const select = (wrapper) => wrapper.findComponent({ name: 'VSelect' })
 const field = (wrapper, label) => wrapper.findAllComponents({ name: 'VTextField' }).find((f) => f.props('label') === label)
+const errorAlert = (wrapper) => wrapper.findAllComponents({ name: 'VAlert' }).find((a) => a.props('type') === 'error')
 const button = (text) => byText(document.body, 'button', text)
+// 「分析」按鈕裡還有一個 aria-hidden 的 <kbd>，用它來找按鈕、比對文字時拿掉
+const analyzeButton = () => [...document.body.querySelectorAll('button')].find((b) => b.querySelector('kbd'))
+const analyzeLabel = () => analyzeButton().textContent.replace('Ctrl ⏎', '').trim()
+const chips = () => [...document.body.querySelectorAll('[role="checkbox"]')]
+const isEmpty = () => document.body.textContent.includes('圖表會出現在這裡')
 const historyItems = () => [...document.body.querySelectorAll('.tc-intents li')].map((li) => li.textContent.trim())
 const layout4 = () => [bar('c1', 'A', 0), bar('c2', 'B', 1), bar('c3', 'C', 2), table('c4', 8)]
 const region = () => document.body.querySelector('.undo-toast-region')
 const toastEl = () => document.body.querySelector('.undo-toast')
 
-async function openPreview() {
-  const wrapper = mountButton('ds1')
-  await wrapper.get('button').trigger('click')
+async function runAnalyze() {
+  analyzeButton().click()
   await flushPromises()
+}
+
+async function openPreview(props) {
+  const wrapper = await mountBuilder(props)
+  await runAnalyze()
   return wrapper
 }
 
@@ -59,99 +82,248 @@ async function adjustWith(wrapper, sentence) {
   await flushPromises()
 }
 
-describe('AnalyzeButton', () => {
+describe('ChartBuilder', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    api.listDatasources.mockResolvedValue(sources())
   })
 
   afterEach(() => {
+    wrappers.splice(0).forEach((w) => w.exists() && w.unmount())
     vi.useRealTimers()
     document.body.innerHTML = ''
   })
 
-  it('Tactile look: the preview comes in as a sheet on the canvas colour, the toolbar is a surface bar, and only 存為我的儀表板 is primary inside it', async () => {
-    api.analyze.mockResolvedValue({ name: 'n', datasourceId: 'ds1', layout: layout4() })
-    const wrapper = await openPreview()
+  it('loads the datasource list, picks the first one and shows its fields as chips (label, else name)', async () => {
+    const wrapper = await mountBuilder()
 
-    expect(wrapper.findComponent({ name: 'VDialog' }).props('transition')).toBe('tc-sheet')
-    expect(document.body.querySelector('.v-dialog .v-card').classList.contains('bg-background')).toBe(true)
-    expect(document.body.querySelector('.v-dialog .v-toolbar').classList.contains('bg-surface')).toBe(true)
-    // 「分析」在元件本身裡，wrapper 沒掛到 document.body，要從 wrapper 找；對話框的內容才會被 teleport 到 body
-    expect(wrapper.get('button').classes()).toContain('bg-primary')
-    expect(button('存為我的儀表板').classList.contains('bg-primary')).toBe(true)
-    expect(button('調整').classList.contains('bg-primary')).toBe(false)
+    expect(api.listDatasources).toHaveBeenCalledTimes(1)
+    expect(select(wrapper).props('modelValue')).toBe('ds1')
+    expect(select(wrapper).props('items')).toEqual(sources())
+    expect(chips().map((c) => c.textContent.trim())).toEqual(['地區', 'amount'])
+    expect(chips().map((c) => c.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+    expect(isEmpty()).toBe(true)
+    expect(analyzeLabel()).toBe('分析')
+    expect(analyzeButton().disabled).toBe(false)
   })
 
-  it('disables 分析 when there is no datasource, enables it once one is selected', () => {
-    const w1 = mountButton(null)
-    expect(w1.get('button').element.disabled).toBe(true)
+  it('disables 分析 when there is no datasource', async () => {
+    api.listDatasources.mockResolvedValue([])
+    await mountBuilder()
 
-    const w2 = mountButton('ds1')
-    expect(w2.get('button').element.disabled).toBe(false)
+    expect(analyzeButton().disabled).toBe(true)
+    expect(document.body.textContent).toContain('先選資料來源。')
+    expect(chips()).toEqual([])
   })
 
-  it('sends the picked fields with the analysis even without an intent', async () => {
-    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: [] })
-    const wrapper = mount(AnalyzeButton, { props: { datasourceId: 'ds1', fields: ['region'] }, global: { plugins: [vuetify] } })
-    await wrapper.get('button').trigger('click')
+  it('shows the error when the datasource list fails to load', async () => {
+    api.listDatasources.mockRejectedValue(new Error('HTTP 500'))
+    const wrapper = await mountBuilder()
+
+    expect(errorAlert(wrapper).text()).toContain('HTTP 500')
+  })
+
+  it('reloads the list each time active turns back on; keeps the chosen datasource while it is still listed', async () => {
+    const wrapper = await mountBuilder({ active: false })
+    expect(api.listDatasources).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ active: true })
     await flushPromises()
-    expect(api.analyze).toHaveBeenLastCalledWith('ds1', undefined, undefined, ['region'])
+    expect(api.listDatasources).toHaveBeenCalledTimes(1)
+    expect(select(wrapper).props('modelValue')).toBe('ds1')
+
+    select(wrapper).vm.$emit('update:modelValue', 'ds2')
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+    expect(select(wrapper).props('modelValue')).toBe('ds2')
+
+    api.listDatasources.mockResolvedValue([sources()[0]]) // ds2 已經刪掉
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(select(wrapper).props('modelValue')).toBe('ds1')
   })
 
-  it('analyzes, previews in a dialog, and saves the previewed config', async () => {
+  it('switching the datasource clears the picked fields and discards the preview; picking the same one does nothing', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await mountBuilder()
+    chips()[0].click()
+    await flushPromises()
+    await runAnalyze()
+    expect(view(wrapper).exists()).toBe(true)
+
+    select(wrapper).vm.$emit('update:modelValue', 'ds1')
+    await flushPromises()
+    expect(view(wrapper).exists()).toBe(true)
+    expect(chips()[0].getAttribute('aria-checked')).toBe('true')
+
+    select(wrapper).vm.$emit('update:modelValue', 'ds2')
+    await flushPromises()
+    expect(select(wrapper).props('modelValue')).toBe('ds2')
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+    expect(chips().map((c) => c.textContent.trim())).toEqual(['product'])
+    expect(document.body.textContent).toContain('不選就由 JEV 挑')
+
+    await runAnalyze()
+    expect(api.analyze).toHaveBeenLastCalledWith('ds2')
+  })
+
+  it('a new request switches to that datasource, clears the picked fields and discards the preview', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+    const wrapper = await mountBuilder()
+    chips()[1].click()
+    await flushPromises()
+    await runAnalyze()
+
+    await wrapper.setProps({ request: { id: 'ds1' } }) // 已經是這個來源，什麼都不變
+    await flushPromises()
+    expect(view(wrapper).exists()).toBe(true)
+    expect(chips()[1].getAttribute('aria-checked')).toBe('true')
+
+    await wrapper.setProps({ request: { id: 'ds2' } })
+    await flushPromises()
+    expect(select(wrapper).props('modelValue')).toBe('ds2')
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+    expect(chips().map((c) => c.getAttribute('aria-checked'))).toEqual(['false'])
+  })
+
+  it('chips toggle the picked fields (aria-checked, 已選 n, 清除); 分析 and 調整 send them', async () => {
+    const first = { name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] }
+    api.analyze
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce({ ...first, intents: ['一', '二'] })
+    const wrapper = await mountBuilder()
+    expect(button('清除')).toBeUndefined()
+
+    chips()[0].click()
+    await flushPromises()
+    expect(chips()[0].getAttribute('aria-checked')).toBe('true')
+    expect(document.body.textContent).toContain('已選 1')
+    chips()[1].click()
+    await flushPromises()
+    expect(document.body.textContent).toContain('已選 2')
+    chips()[1].click()
+    await flushPromises()
+    expect(chips().map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+
+    await runAnalyze()
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', undefined, undefined, ['region'])
+    await adjustWith(wrapper, '二')
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', ['一', '二'], first.layout, ['region'])
+
+    button('清除').click()
+    await flushPromises()
+    expect(chips().map((c) => c.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+    expect(document.body.textContent).not.toContain('已選')
+    expect(button('清除')).toBeUndefined()
+  })
+
+  it('Ctrl+Enter or ⌘+Enter in the box runs 分析; plain Enter does not', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: [] })
+    const wrapper = await mountBuilder()
+    const box = wrapper.find('textarea')
+    await box.setValue('各區每月營收')
+
+    await box.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(api.analyze).not.toHaveBeenCalled()
+
+    await box.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await flushPromises()
+    expect(api.analyze).toHaveBeenCalledTimes(1)
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', ['各區每月營收'])
+
+    await box.trigger('keydown', { key: 'Enter', metaKey: true })
+    await flushPromises()
+    expect(api.analyze).toHaveBeenCalledTimes(2)
+  })
+
+  it('while analyzing with no preview the canvas shows the scan with the source name', async () => {
+    api.analyze.mockImplementation(() => new Promise(() => {}))
+    await mountBuilder()
+    await runAnalyze()
+
+    const scan = document.body.querySelector('.cb-scan')
+    expect(scan.getAttribute('aria-busy')).toBe('true')
+    expect(scan.textContent).toContain('JEV 正在分析「銷售」…')
+    expect(isEmpty()).toBe(false)
+    expect(analyzeButton().disabled).toBe(true)
+  })
+
+  it('analyzes, previews in the canvas, saves the previewed config, emits saved and goes back to the empty state', async () => {
     const previewConfig = { name: 'preview', layout: [] }
     api.analyze.mockResolvedValue(previewConfig)
     api.createDashboard.mockResolvedValue({ id: 'd9' })
 
-    const wrapper = mountButton('ds1')
-    await wrapper.get('button').trigger('click')
-    await flushPromises()
-
+    const wrapper = await openPreview()
     expect(api.analyze).toHaveBeenCalledWith('ds1')
-    expect(wrapper.findComponent({ name: 'VDialog' }).props('modelValue')).toBe(true)
-    const dashboardView = wrapper.findComponent({ name: 'DashboardView' })
-    expect(dashboardView.props('preview')).toBe(true)
-    expect(dashboardView.props('config')).toEqual(previewConfig)
+    expect(isEmpty()).toBe(false)
+    expect(view(wrapper).props('preview')).toBe(true)
+    expect(view(wrapper).props('config')).toEqual(previewConfig)
 
-    const saveBtn = byText(document.body, 'button', '存為我的儀表板')
-    saveBtn.click()
+    button('存為我的儀表板').click()
     await flushPromises()
 
     expect(api.createDashboard).toHaveBeenCalledWith(previewConfig)
     expect(wrapper.emitted('saved')).toEqual([['d9']])
-    expect(wrapper.findComponent({ name: 'VDialog' }).props('modelValue')).toBe(false)
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+    expect(analyzeLabel()).toBe('分析')
+  })
+
+  it('a failed save keeps the preview and shows the error in the canvas', async () => {
+    api.analyze.mockResolvedValue({ name: 'preview', layout: [] })
+    api.createDashboard.mockRejectedValue(new Error('儲存失敗'))
+
+    const wrapper = await openPreview()
+    button('存為我的儀表板').click()
+    await flushPromises()
+
+    expect(errorAlert(wrapper).text()).toContain('儲存失敗')
+    expect(view(wrapper).exists()).toBe(true)
+    expect(wrapper.emitted('saved')).toBeUndefined()
+  })
+
+  it('捨棄 drops the preview and goes back to the empty state', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: layout4() })
+    const wrapper = await openPreview()
+    expect(analyzeLabel()).toBe('重新分析')
+
+    button('捨棄').click()
+    await flushPromises()
+
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+    expect(field(wrapper, '儀表板名稱')).toBeUndefined()
+    expect(field(wrapper, '想怎麼調整？')).toBeUndefined()
+    expect(analyzeLabel()).toBe('分析')
   })
 
   it('requires a dashboard name: labels the field, shows an error for blank/whitespace, and disables 存為我的儀表板', async () => {
-    const previewConfig = { name: 'preview', layout: [] }
-    api.analyze.mockResolvedValue(previewConfig)
+    api.analyze.mockResolvedValue({ name: 'preview', layout: [] })
+    const wrapper = await openPreview()
 
-    const wrapper = mountButton('ds1')
-    await wrapper.get('button').trigger('click')
-    await flushPromises()
-
-    const nameField = wrapper.findComponent({ name: 'VTextField' })
-    expect(nameField.props('label')).toBe('儀表板名稱')
+    const nameField = field(wrapper, '儀表板名稱')
+    expect(nameField.exists()).toBe(true)
 
     await nameField.find('input').setValue('   ')
     await flushPromises()
 
     expect(document.body.textContent).toContain('請輸入儀表板名稱')
-    const saveBtn = byText(document.body, 'button', '存為我的儀表板')
-    expect(saveBtn.disabled).toBe(true)
+    expect(button('存為我的儀表板').disabled).toBe(true)
   })
 
   it('存為我的儀表板 guards against double submission: only one createDashboard call goes out', async () => {
-    const previewConfig = { name: 'preview', layout: [] }
-    api.analyze.mockResolvedValue(previewConfig)
+    api.analyze.mockResolvedValue({ name: 'preview', layout: [] })
     let resolveCreate
     api.createDashboard.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
 
-    const wrapper = mountButton('ds1')
-    await wrapper.get('button').trigger('click')
-    await flushPromises()
-
-    const saveBtn = byText(document.body, 'button', '存為我的儀表板')
+    const wrapper = await openPreview()
+    const saveBtn = button('存為我的儀表板')
     saveBtn.click()
     saveBtn.click()
     await flushPromises()
@@ -164,33 +336,31 @@ describe('AnalyzeButton', () => {
     expect(wrapper.emitted('saved')).toEqual([['d9']])
   })
 
-  it('shows the error message and keeps the dialog closed when analyze rejects', async () => {
+  it('shows the error message and no preview when analyze rejects', async () => {
     api.analyze.mockRejectedValue(new Error('未設定 TYPESAFE_API_KEY'))
 
-    const wrapper = mountButton('ds1')
-    await wrapper.get('button').trigger('click')
-    await flushPromises()
+    const wrapper = await openPreview()
 
-    expect(wrapper.text()).toContain('未設定 TYPESAFE_API_KEY')
-    expect(wrapper.findComponent({ name: 'VDialog' }).props('modelValue')).toBe(false)
+    expect(errorAlert(wrapper).text()).toContain('未設定 TYPESAFE_API_KEY')
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
   })
 
-  it('left panel: an optional box above 分析 with label, hint and a 200-character counter; 分析 sends the trimmed sentence as the first intent', async () => {
+  it('an optional box above 分析 with label, hint and a 200-character counter; 分析 sends the trimmed sentence as the first intent', async () => {
     api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: [] })
 
-    const blank = mountButton('ds1')
-    await blank.findComponent({ name: 'VTextarea' }).find('textarea').setValue('   ')
-    await blank.get('button').trigger('click')
-    await flushPromises()
+    const blank = await mountBuilder()
+    await blank.find('textarea').setValue('   ')
+    await runAnalyze()
     expect(api.analyze).toHaveBeenLastCalledWith('ds1')
     expect(document.body.querySelector('.tc-history').style.display).toBe('none') // 沒有需求紀錄就不顯示
     expect(document.body.textContent).not.toContain('找不到跟需求直接相關的欄位')
     blank.unmount()
     document.body.innerHTML = ''
 
-    const wrapper = mountButton('ds1')
+    const wrapper = await mountBuilder()
     const box = wrapper.findComponent({ name: 'VTextarea' })
-    expect(box.props('label')).toBe('想看什麼？（選填）')
+    expect(box.find('textarea').attributes('aria-label')).toBe('想看什麼？（選填）')
     expect(box.props('placeholder')).toBe('例如：各區每月營收、哪個產品退貨最多')
     expect(wrapper.text()).toContain('這段文字會送給 JEV 做分析')
     expect(wrapper.text()).toContain('0 / 200')
@@ -198,9 +368,26 @@ describe('AnalyzeButton', () => {
 
     await box.find('textarea').setValue('  各區每月營收  ')
     expect(wrapper.text()).toContain('10 / 200')
-    await wrapper.get('button').trigger('click')
-    await flushPromises()
+    await runAnalyze()
     expect(api.analyze).toHaveBeenLastCalledWith('ds1', ['各區每月營收'])
+  })
+
+  it('重新分析 replaces the preview, takes the new default name and clears the adjust box', async () => {
+    const layout = [bar('c1', 'A', 0, { focus: true }), table('c2', 4)]
+    api.analyze
+      .mockResolvedValueOnce({ name: 'A 總覽', datasourceId: 'ds1', intents: ['一'], layout })
+      .mockResolvedValueOnce({ name: 'B 總覽', datasourceId: 'ds1', intents: ['一'], layout })
+      .mockResolvedValueOnce({ name: 'C 總覽', datasourceId: 'ds1', intents: ['一', '二'], layout })
+    const wrapper = await openPreview()
+
+    await field(wrapper, '儀表板名稱').find('input').setValue('我的版本')
+    await field(wrapper, '想怎麼調整？').find('input').setValue('還沒送出')
+    await runAnalyze()
+    expect(view(wrapper).props('config').name).toBe('B 總覽')
+    expect(field(wrapper, '想怎麼調整？').props('modelValue')).toBe('')
+
+    await adjustWith(wrapper, '二') // 重新分析之後名稱算沒改過
+    expect(view(wrapper).props('config').name).toBe('C 總覽')
   })
 
   it('調整: disabled while empty or busy; sends the history plus the new sentence with the current charts; on success shows the new result, appends the sentence and clears the box', async () => {
@@ -242,7 +429,21 @@ describe('AnalyzeButton', () => {
     expect(historyItems()).toEqual(['各區每月營收', '不要圓餅圖'])
   })
 
-  it('調整 failure keeps the preview as it was and shows the error inside the preview', async () => {
+  it('Enter in the adjust box runs 調整', async () => {
+    const first = { name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] }
+    api.analyze.mockResolvedValueOnce(first).mockResolvedValueOnce({ ...first, intents: ['一', '二'] })
+    const wrapper = await openPreview()
+
+    const input = field(wrapper, '想怎麼調整？').find('input')
+    await input.setValue('二')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', ['一', '二'], first.layout)
+    expect(historyItems()).toEqual(['一', '二'])
+  })
+
+  it('調整 failure keeps the preview as it was and shows the error in the canvas', async () => {
     const first = { name: 'A 總覽', datasourceId: 'ds1', intents: ['各區每月營收'], layout: [bar('c1', 'A', 0), table('c2', 4)] }
     api.analyze.mockResolvedValueOnce(first).mockRejectedValueOnce(new Error('JEV 呼叫失敗（HTTP 500）'))
 
@@ -250,7 +451,7 @@ describe('AnalyzeButton', () => {
     await adjustWith(wrapper, '不要圓餅圖')
 
     expect(view(wrapper).props('config')).toEqual(first)
-    expect(document.body.textContent).toContain('JEV 呼叫失敗（HTTP 500）')
+    expect(errorAlert(wrapper).text()).toContain('JEV 呼叫失敗（HTTP 500）')
     expect(field(wrapper, '想怎麼調整？').props('modelValue')).toBe('不要圓餅圖')
     expect(button('調整').disabled).toBe(false)
   })
@@ -275,9 +476,26 @@ describe('AnalyzeButton', () => {
 
     await adjustWith(wrapper, '二')
     expect(button('存為我的儀表板').disabled).toBe(true)
+    expect(analyzeButton().disabled).toBe(true)
   })
 
-  it('closing the preview clears the adjust error (no alert on the left panel) and drops a late adjust result', async () => {
+  it('while 重新分析 is pending the preview stays but 調整 and 存為我的儀表板 are disabled', async () => {
+    api.analyze
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
+      .mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = await openPreview()
+    await field(wrapper, '想怎麼調整？').find('input').setValue('二')
+    expect(button('調整').disabled).toBe(false)
+
+    await runAnalyze()
+    expect(view(wrapper).exists()).toBe(true)
+    expect(view(wrapper).props('busy')).toBe(true)
+    expect(document.body.querySelector('.cb-scan')).toBeNull()
+    expect(button('調整').disabled).toBe(true)
+    expect(button('存為我的儀表板').disabled).toBe(true)
+  })
+
+  it('捨棄 clears the adjust error and drops a late adjust result', async () => {
     const first = { name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] }
     let resolveAdjust
     api.analyze
@@ -288,21 +506,67 @@ describe('AnalyzeButton', () => {
     const wrapper = await openPreview()
 
     await adjustWith(wrapper, '二')
-    expect(document.body.textContent).toContain('JEV 呼叫失敗（HTTP 500）')
-    button('取消').click()
+    expect(errorAlert(wrapper).text()).toContain('JEV 呼叫失敗（HTTP 500）')
+    button('捨棄').click()
     await flushPromises()
-    expect(wrapper.findComponent({ name: 'VAlert' }).exists()).toBe(false) // 左側面板沒有錯誤訊息
+    expect(errorAlert(wrapper)).toBeUndefined()
 
-    await wrapper.get('button').trigger('click') // 重新分析，打開預覽
-    await flushPromises()
+    await runAnalyze()
     await adjustWith(wrapper, '三')
-    button('取消').click()
+    button('捨棄').click()
     await flushPromises()
     resolveAdjust({ name: 'late', datasourceId: 'ds1', intents: ['一', '三'], layout: [] })
     await flushPromises()
-    expect(view(wrapper).props('config')).toEqual(first)
-    expect(field(wrapper, '想怎麼調整？').props('modelValue')).toBe('三')
-    expect(wrapper.findComponent({ name: 'VAlert' }).exists()).toBe(false)
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+    expect(errorAlert(wrapper)).toBeUndefined()
+    expect(analyzeButton().disabled).toBe(false)
+  })
+
+  it('a late 分析 result is dropped after 捨棄 or after switching the datasource', async () => {
+    const resolvers = []
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
+      .mockImplementation(() => new Promise((resolve) => resolvers.push(resolve)))
+    const wrapper = await openPreview()
+
+    await runAnalyze() // 重新分析還沒回來就按「捨棄」
+    button('捨棄').click()
+    await flushPromises()
+    expect(analyzeButton().disabled).toBe(false)
+    resolvers[0]({ name: 'late', datasourceId: 'ds1', layout: layout4() })
+    await flushPromises()
+    expect(view(wrapper).exists()).toBe(false)
+    expect(isEmpty()).toBe(true)
+
+    await runAnalyze() // 分析還沒回來就換來源
+    select(wrapper).vm.$emit('update:modelValue', 'ds2')
+    await flushPromises()
+    resolvers[1]({ name: 'late', datasourceId: 'ds1', layout: layout4() })
+    await flushPromises()
+    expect(select(wrapper).props('modelValue')).toBe('ds2')
+    expect(view(wrapper).exists()).toBe(false)
+    expect(analyzeButton().disabled).toBe(false)
+  })
+
+  it('when the chosen datasource disappears from the list, its picked fields and preview go with it', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds2', layout: layout4() })
+    const wrapper = await mountBuilder()
+    select(wrapper).vm.$emit('update:modelValue', 'ds2')
+    await flushPromises()
+    chips()[0].click()
+    await flushPromises()
+    await runAnalyze()
+    expect(view(wrapper).exists()).toBe(true)
+
+    api.listDatasources.mockResolvedValue([sources()[0]]) // ds2 已經刪掉
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    expect(select(wrapper).props('modelValue')).toBe('ds1')
+    expect(view(wrapper).exists()).toBe(false)
+    expect(chips().map((c) => c.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+    await runAnalyze()
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1') // 不會帶著 ds2 的欄位送出
   })
 
   it('keeps a name the user typed; otherwise takes the new default name', async () => {
@@ -463,8 +727,9 @@ describe('AnalyzeButton', () => {
     expect(view(wrapper).props('config').layout.map((s) => s.chartId)).toEqual(['c2', 'c3', 'c4'])
   })
 
-  it('closing the preview or pressing 調整 closes the notice for good', async () => {
+  it('捨棄, 重新分析 or 調整 closes the notice for good', async () => {
     api.analyze
+      .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
       .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
       .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
       .mockImplementationOnce(() => new Promise(() => {}))
@@ -472,15 +737,19 @@ describe('AnalyzeButton', () => {
 
     view(wrapper).vm.$emit('remove', 'c1')
     await flushPromises()
-    button('取消').click()
+    button('捨棄').click()
     await flushPromises()
     expect(toastEl()).toBeNull()
 
-    await wrapper.get('button').trigger('click') // 再分析一次，重新打開預覽
-    await flushPromises()
+    await runAnalyze() // 再分析一次，預覽回來
     expect(toastEl()).toBeNull()
-
     view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(toastEl()).not.toBeNull()
+    await runAnalyze() // 重新分析
+    expect(toastEl()).toBeNull()
+
+    view(wrapper).vm.$emit('remove', 'c3')
     await flushPromises()
     expect(toastEl()).not.toBeNull()
     await field(wrapper, '想怎麼調整？').find('input').setValue('不要圓餅圖')
