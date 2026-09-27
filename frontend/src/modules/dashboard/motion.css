@@ -38,8 +38,8 @@
 }
 
 /* Tactile spec 4.2：骨架先等 150ms 才淡入，資料很快回來時骨架根本不會出現；接著 shimmer 每 1.4s 一輪。
-   tc-shimmer 定義在 tactile-clean.css，沒有 App 層樣式時就只剩淡入。
-   選擇器要寫兩個 class：tactile-clean.css 比這個檔案晚載入，只寫一個 class 的話會被它的 .tc-skeleton 蓋掉 */
+   tc-shimmer 定義在 App 層的 command-center.css，沒有 App 層樣式時就只剩淡入。
+   選擇器要寫兩個 class：command-center.css 比這個檔案晚載入，只寫一個 class 的話會被它的 .tc-skeleton 蓋掉 */
 .tc-skeleton.card-skeleton {
   animation: tc-fade-in var(--tc-dur-1) var(--tc-ease-out) 150ms both, tc-shimmer 1.4s ease-in-out 150ms infinite;
 }
@@ -81,7 +81,7 @@
 /* 佔位框用主色：套件預設的紅色在這套系統代表錯誤。縮放時不變淡，看得清楚自己在縮什麼。
    套件把這些變數定義在 .vgl-layout 上，要多一層 .dash-grid 才蓋得過 */
 .dash-grid .vgl-layout {
-  --vgl-placeholder-bg: color-mix(in srgb, var(--tc-primary, #005caf) 10%, transparent);
+  --vgl-placeholder-bg: color-mix(in srgb, var(--tc-primary, #005caf) 12%, transparent);
   --vgl-placeholder-opacity: 100%;
   --vgl-item-resizing-opacity: 100%;
   --vgl-resizer-border-color: var(--tc-border-strong, #737980);
@@ -92,7 +92,7 @@
   border-radius: var(--tc-radius-lg, 8px);
 }
 
-/* Tactile spec 4.6：預覽對話框往上浮入 200ms、往下淡出 120ms，不縮放 */
+/* Tactile spec 4.6：對話框往上浮入 200ms、往下淡出 120ms，不縮放 */
 .tc-sheet-enter-active {
   transition: opacity var(--tc-dur-3) var(--tc-ease-out), transform var(--tc-dur-3) var(--tc-ease-out);
 }
@@ -109,7 +109,6 @@
 }
 
 /* 10.6：等 JEV 回應時圖表區變淡 */
-/* 不沿用 tactile-clean.css 裡同名的 grid class：那個 class 是兩欄的 display: grid */
 .dash-grid { transition: opacity var(--tc-dur-2) var(--tc-ease-out); }
 .dash-grid.is-busy { opacity: 0.6; }
 

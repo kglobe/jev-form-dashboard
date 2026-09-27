@@ -8,8 +8,8 @@
 
 - ~~P3 · 分析前先讓使用者用一段文字講想看什麼（一個輸入框／對話框），JEV 再照這個提示挑欄位、選圖表。（human 提出的構想）~~ 已完成：分析前可以輸入需求，預覽裡也能「調整」，見 spec `docs/superpowers/specs/2026-09-25-jev-dashboard-intent-analysis-design.md`。
 - P3 · 已存儀表板的對話式修改：存檔後用一句話說「幫我加一張圖」。預覽裡的「調整」已經把需求轉成 JEV 的結構化題目（`rel_i`、`keep_<chartId>`，加上 `current`），這裡可以沿用同一套機制，入口和存檔流程另立 spec 設計。（human 提出的構想）
-- P3 · 深色模式與主題切換：這次只做淺色一套。`tactile-clean.css` 已經有六套色盤，但 Vuetify 的 theme 每一套都要各寫一個條目，也要另外設計切換入口，理由見 skill 的 `references/color-cognition.md` 第一節。（spec `docs/superpowers/specs/2026-09-25-jev-dashboard-tactile-clean-design.md` 第 2 節）
-- P3 · 刪除確認對話框改成 Tactile 的 header／body／footer 結構，按鈕文案改成「保留」／「刪除儀表板」。（同上，第 2 節）
+- ~~P3 · 淺色主題與切換：介面改成深色指揮中心風格後，只有深色一套（`frontend/src/styles/command-center.css`、圖表的 `command-dark.json`）。要加淺色，得另外定色盤、用 dataviz 的 `validate_palette.js` 驗圖表配色，再設計切換入口。（UI 改版，2026-09-27）~~ 已完成：導覽列最下面有深色／淺色切換鈕，選過的主題存在 localStorage。淺色圖表色盤驗證時，有三個顏色對白底的對比不到 3:1，改靠圖例和明細表辨識（dataviz 的 relief rule）。
+- ~~P3 · 刪除確認對話框改成 Tactile 的 header／body／footer 結構，按鈕文案改成「保留」／「刪除儀表板」。（同上，第 2 節）~~ 已調整：確認框加上標題「刪除儀表板」，兩顆按鈕改成實心，刪除鈕用錯誤色；文案還是「取消」／「刪除」。（UI 改版）
 
 ## 正式上線前
 
@@ -33,7 +33,7 @@
 - P3 · 拖拉或縮放卡片後，`saveLayout` 在 grid-layout-plus 套用最終位置前就先讀了 `layout`；存檔後也沒把新版面同步回父層的 `config`。（frontend ledger，Task 3）
 - P3 · `/data` 或 `/highlight` 哪天真的回了 204（目前的 `api.js` 對 204 一律回傳 `null`），`DashboardView.vue` 的 `found.map(...)` 會直接丟例外，打斷原本「查不到就安靜不標註」的設計。（frontend ledger，Task 3）
 - P3 · `ChartCard` 只認得 `FIELD_MISSING` 這個錯誤代碼；卡片如果帶著其他 `error` 值回來，畫面上什麼提示都不會顯示，直接變成空白圖表。（frontend ledger，Task 3）
-- P3 · `DatasourcePanel` 用同一個 `busy` 旗標擋上傳／註冊和逐欄位的敏感勾選，操作其中一個時其他都會被鎖住。（frontend ledger，Task 4）
+- ~~P3 · `DatasourcePanel` 用同一個 `busy` 旗標擋上傳／註冊和逐欄位的敏感勾選，操作其中一個時其他都會被鎖住。（frontend ledger，Task 4）~~ 已修正：新增來源移到對話框，改用自己的 `adding` 狀態，上傳或註冊時不會再鎖住欄位表。（UI 改版）
 - ~~P3 · 分析預覽存檔失敗的錯誤訊息，取消對話框後不會清掉，下次打開還會看到舊的錯誤。（frontend ledger，Task 4）~~ 已修正：關掉預覽時會清掉錯誤訊息（依需求分析與調整）。
 - P3 · 切換儀表板（`App.vue` 的 `open()`）沒有防過期回應的機制，快速切換時舊的回應可能蓋掉新畫面。（frontend ledger，Task 4）
 - P3 · PUT 更新儀表板時，body 裡的 `datasourceId` 會被完全忽略，換成別的資料源也不會報錯。（backend ledger，Task 10）

@@ -3,8 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 深淺主題：樣式載入前先依上次的選擇設好 data-theme 和底色，重新整理時不會閃一下另一套。
+         localStorage 的 key 跟 App.vue 的 THEME_KEY 一樣；私密視窗讀不到就用預設的深色 -->
+    <meta name="color-scheme" content="dark light" />
+    <script>try { if (localStorage.getItem('jev-theme') === 'light') document.documentElement.dataset.theme = 'light' } catch {}</script>
+    <style>html, body { background: #060a13; } html[data-theme="light"], html[data-theme="light"] body { background: #f2f5fa; }</style>
     <meta name="description" content="上傳 CSV / Excel 或串接外部 API，交給 JEV 分析後產生可拖拉的個人儀表板。" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23005caf'/%3E%3Cpath d='M4 12V8m4 4V4m4 8V7' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2322d3ee'/%3E%3Cpath d='M4 12V8m4 4V4m4 8V7' stroke='%23031018' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
     <title>JEV 儀表板</title>
   </head>
   <body>

@@ -1,10 +1,13 @@
 <script setup>
 import { computed } from 'vue'
+import { useTheme } from 'vuetify'
 import 'echarts'
 import VChart from 'vue-echarts'
 import { toOption } from './charts/index.js'
-// 從 .claude/skills/modern-erp-ui/assets/echarts-theme-default.json 複製；放在模組裡，模組才不必依賴外面的檔案
-import tactileLight from './charts/themes/tactile-light.json'
+// 深淺兩套圖表主題，跟著 Vuetify 目前的主題換。色盤是 dataviz 預設色盤的深色欄／淺色欄，各自對卡片底色驗證過；
+// 放在模組裡，模組才不必依賴外面的檔案
+import commandDark from './charts/themes/command-dark.json'
+import commandLight from './charts/themes/command-light.json'
 import { prefersReducedMotion } from './motion.js'
 
 const props = defineProps({
@@ -17,7 +20,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['remove'])
 
-// spec 3.5：正常波動用中性灰、不加修飾子；Tactile 的規則是好消息不染綠
+// spec 3.5：正常波動用中性灰、不加修飾子；好消息不染綠
 const SEVERITY_CLASS = { 正常波動: '', 值得注意: 'tc-badge--info', 需要關注: 'tc-badge--warn', 嚴重警示: 'tc-badge--err' }
 
 // spec 4.3：一定要寫在 series 層。ECharts 6 的圓餅、折線在 series 預設裡有自己的時長和 easing，只寫在最外層蓋不掉
@@ -27,7 +30,7 @@ const compactValueAxis = (axis) =>
   axis?.type === 'value' ? { ...axis, axisLabel: { ...axis.axisLabel, formatter: (v) => compact.format(v) } } : axis
 
 // 包在 toOption 結果的外層，charts/*.js 不動，快照不變；每次算 option 都重新問一次減少動態效果
-function tactileOption(base) {
+function tunedOption(base) {
   const reduced = prefersReducedMotion()
   return {
     ...base,
@@ -40,12 +43,16 @@ function tactileOption(base) {
   }
 }
 
+const vuetifyTheme = useTheme()
+// 換主題時 vue-echarts 會用新主題重畫圖表
+const chartTheme = computed(() => (vuetifyTheme.current.value.dark ? commandDark : commandLight))
+
 const ready = computed(() => props.data && !props.data.error)
 const unsupportedType = computed(() => ready.value && !Object.hasOwn(toOption, props.spec.type))
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
   ready.value && props.spec.type !== 'table' && Object.hasOwn(toOption, props.spec.type)
-    ? tactileOption(toOption[props.spec.type](props.data))
+    ? tunedOption(toOption[props.spec.type](props.data))
     : null,
 )
 </script>
@@ -93,21 +100,24 @@ const option = computed(() =>
           </tbody>
         </v-table>
       </template>
-      <VChart v-else :option="option" :theme="tactileLight" autoresize />
+      <VChart v-else :option="option" :theme="chartTheme" autoresize />
     </v-card-text>
   </v-card>
 </template>
 
 <style scoped>
-/* spec 3.3：標題列比照 tactile-clean.css 卡片標題列的字級、字重和下框線 */
+/* 標題列：字級、字重和下框線；拖拉把手在這一列 */
 .tc-card-title {
-  font-size: 15px;
+  gap: 6px;
+  min-height: 48px;
+  font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   border-bottom: 1px solid var(--tc-border-subtle, rgba(var(--v-border-color), var(--v-border-opacity)));
 }
 .card-drag { cursor: move; }
 .card-body { min-height: 0; padding: 8px 8px 0; }
-/* spec 3.6：tactile 的 .tc-skeleton 預設只有 12px 高，這裡撐滿內容區；淡入時機在 motion.css */
+/* spec 3.6：骨架撐滿內容區；淡入時機在 motion.css */
 .card-skeleton { height: 100%; min-height: 120px; border-radius: var(--tc-radius, 4px); }
 /* spec 3.8：數字寬度一致，上下好比對 */
 .tc-num { font-variant-numeric: tabular-nums; text-align: right; }
