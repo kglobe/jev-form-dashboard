@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import DatasourcePanel from './DatasourcePanel.vue'
+import MergeForm from './MergeForm.vue'
 import { api } from './api.js'
 import { vuetify } from './test-vuetify.js'
 
@@ -12,6 +13,8 @@ vi.mock('./api.js', () => ({
     registerApi: vi.fn(),
     setSensitive: vi.fn(),
     setLabels: vi.fn(),
+    previewMerged: vi.fn(),
+    createMerged: vi.fn(),
   },
 }))
 
@@ -26,6 +29,24 @@ const ds1 = {
   ],
 }
 const ds2 = { id: 'ds2', name: 'ERP 訂單', kind: 'api', apiUrl: 'https://erp.example.com', schema: [{ name: 'day', type: 'date', sensitive: false }] }
+const merged = {
+  id: 'mg',
+  name: '全區',
+  kind: 'merged',
+  merge: { op: 'union', inputs: ['ds1', 'gone'], columns: [], sourceColumn: '來源' },
+  schema: [
+    { name: 'region', type: 'string', sensitive: false },
+    { name: 'memo', type: 'string', sensitive: true, sensitiveFrom: 'sales.csv' },
+    { name: 'qty', type: 'number', sensitive: false },
+  ],
+}
+const enriched = {
+  id: 'lk',
+  name: '退貨（補產品主檔）',
+  kind: 'merged',
+  merge: { op: 'lookup', main: 'ds1', lookup: 'ds2', keys: [{ main: 'product', lookup: 'code' }], bring: [] },
+  schema: [{ name: 'product', type: 'string', sensitive: false }],
+}
 
 function mountPanel(selectedId = 'ds1') {
   return mount(DatasourcePanel, { props: { selectedId }, global: { plugins: [vuetify] } })
@@ -420,6 +441,46 @@ describe('DatasourcePanel', () => {
     await openAdd(wrapper)
 
     const items = wrapper.findAllComponents({ name: 'VWindowItem' })
-    expect(items.map((w) => [w.props('transition'), w.props('reverseTransition')])).toEqual([[false, false], [false, false]])
+    expect(items.map((w) => [w.props('transition'), w.props('reverseTransition')])).toEqual([[false, false], [false, false], [false, false]])
+  })
+
+  it('a merged source shows the 合併 badge and icon, what it merges (missing inputs as （已不存在）), and locks inherited sensitive switches', async () => {
+    api.listDatasources.mockResolvedValue([ds1, ds2, merged, enriched])
+    const wrapper = mountPanel('mg')
+    await flushPromises()
+
+    expect(wrapper.find('.tc-badge').text()).toBe('合併')
+    expect(wrapper.findAllComponents({ name: 'VListItem' }).find((i) => i.props('title') === '全區').props('prependIcon')).toBe('mdi-set-merge')
+    expect(wrapper.find('.ds-meta').text()).toBe('疊加：sales.csv、（已不存在） · 3 個欄位 · 1 個敏感')
+    const [region, memo] = switches(wrapper)
+    expect(memo.element.disabled).toBe(true)
+    expect(region.element.disabled).toBe(false)
+    expect(memo.element.closest('td').getAttribute('title')).toBe('在『sales.csv』標為敏感，要改請到那個來源')
+    expect(region.element.closest('td').hasAttribute('title')).toBe(false)
+
+    await wrapper.setProps({ selectedId: 'lk' })
+    expect(wrapper.find('.ds-meta').text()).toBe('查表：sales.csv ← ERP 訂單（product = code） · 1 個欄位 · 0 個敏感')
+  })
+
+  it('合併 tab widens the dialog and shows the merge form; a created source is selected and the dialog closes', async () => {
+    api.listDatasources.mockResolvedValue([ds1, ds2])
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openAdd(wrapper)
+    await wrapper.findAllComponents({ name: 'VTab' }).find((t) => t.text() === '合併').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findComponent({ name: 'VDialog' }).props('maxWidth')).toBe(760)
+    const form = wrapper.findComponent(MergeForm)
+    expect(form.props('sources')).toEqual([ds1, ds2])
+    expect(button('上傳')).toBeUndefined()
+    expect(button('註冊')).toBeUndefined()
+
+    api.listDatasources.mockResolvedValue([ds1, ds2, merged])
+    form.vm.$emit('created', { id: 'mg' })
+    await flushPromises()
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('select').at(-1)).toEqual(['mg'])
+    expect(dialogOpen(wrapper)).toBe(false)
   })
 })

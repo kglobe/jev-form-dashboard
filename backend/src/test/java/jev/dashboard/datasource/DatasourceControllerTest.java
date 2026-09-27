@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.jayway.jsonpath.JsonPath;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -125,5 +126,67 @@ class DatasourceControllerTest {
                 .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{\"Authorization\":\"Bearer x\"}}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error", containsString("${DS_環境變數名}")));
+    }
+
+    static final String NORTH_SOUTH = """
+        {"op":"union","inputs":["%1$s","%2$s"],"columns":[
+          {"name":"region","from":{"%1$s":"region","%2$s":"area"}},
+          {"name":"amount","from":{"%1$s":"amount","%2$s":"amount"}},
+          {"name":"memo","from":{"%1$s":"memo"}}],"sourceColumn":"來源"}""";
+
+    void mergeIsRejected(String body, int status, String message) throws Exception {
+        mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().is(status))
+            .andExpect(jsonPath("$.error").value(message));
+    }
+
+    @Test
+    void mergedSourcesArePreviewedThenCreatedAndListedWithTheirDefinition() throws Exception {
+        String n = TestData.uploadCsv(mvc, "u1", "北區", "region,amount,memo\n北區,100,首購\n北區,200,\n");
+        String s = TestData.uploadCsv(mvc, "u1", "南區", "area,amount\n南區,50\n");
+        String body = "{\"name\":\"全區\",\"merge\":" + NORTH_SOUTH.formatted(n, s) + "}";
+
+        mvc.perform(post("/api/datasources/merged/preview").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.rowCount").value(3))
+            .andExpect(jsonPath("$.rows.length()").value(3))
+            .andExpect(jsonPath("$.rows[2].region").value("南區"))
+            .andExpect(jsonPath("$.rows[2]['來源']").value("南區"))
+            .andExpect(jsonPath("$.warnings[0]").value("「memo」只有北區有，其他來源的列這欄是空的"))
+            .andExpect(jsonPath("$.schema[3].name").value("來源"));
+        assertThat(jdbc.sql("select count(*) from datasource").query(Long.class).single()).isEqualTo(2L);
+
+        mvc.perform(patch("/api/datasources/" + n + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
+            .andExpect(status().isOk());
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.kind").value("merged"))
+            .andExpect(jsonPath("$.merge.op").value("union"))
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(created, "$.id");
+
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+            .andExpect(jsonPath("$[0].id").value(id))
+            .andExpect(jsonPath("$[0].merge.inputs[1]").value(s))
+            .andExpect(jsonPath("$[0].schema[2].sensitive").value(true))
+            .andExpect(jsonPath("$[0].schema[2].sensitiveFrom").value("北區"))
+            .andExpect(jsonPath("$[0].schema[0].sensitiveFrom").doesNotExist())
+            .andExpect(jsonPath("$[1].merge").doesNotExist());
+    }
+
+    @Test
+    void badMergeRequestsAreRejected() throws Exception {
+        String n = TestData.uploadCsv(mvc, "u1", "北區", "region,amount,memo\n北區,100,首購\n");
+        String others = TestData.uploadCsv(mvc, "u2", "別人的", "area,amount\n南區,50\n");
+        mergeIsRejected("{\"name\":\"x\",\"merge\":{\"op\":\"join\"}}", 400, "請求內容不是正確的 JSON");
+        mergeIsRejected("{\"name\":\"x\"}", 400, "請選擇合併方式");
+        mergeIsRejected("{\"name\":\" \",\"merge\":" + NORTH_SOUTH.formatted(n, others) + "}", 400, "請輸入名稱");
+        mergeIsRejected("{\"name\":\"x\",\"merge\":{\"op\":\"union\",\"inputs\":[\"" + n + "\"],\"columns\":[],\"sourceColumn\":\"來源\"}}",
+            400, "疊加要選 2 到 5 個來源");
+        mergeIsRejected("{\"name\":\"x\",\"merge\":" + NORTH_SOUTH.formatted(n, others) + "}", 404, "找不到資料源");
     }
 }

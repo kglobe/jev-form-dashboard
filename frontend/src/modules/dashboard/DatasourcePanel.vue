@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from './api.js'
 import { FIELD_TYPES } from './fields.js'
+import MergeForm from './MergeForm.vue'
 import './motion.css'
 
 const props = defineProps({
@@ -17,6 +18,11 @@ const busy = ref(false)
 // 儲存失敗時 model 沒變，Vue 不會把原生 input 改回去（開關停在錯的位置、輸入框留著沒存的字）；換 key 重畫欄位表
 const rowsKey = ref(0)
 const filter = ref('')
+const KINDS = {
+  upload: { icon: 'mdi-file-table-outline', text: '上傳檔案' },
+  api: { icon: 'mdi-api', text: '外部 API' },
+  merged: { icon: 'mdi-set-merge', text: '合併' },
+}
 
 const filtered = computed(() => {
   const q = filter.value?.trim().toLowerCase()
@@ -46,6 +52,8 @@ const sheet = ref('')
 const apiName = ref('')
 const apiUrl = ref('')
 const apiHeaders = ref('{}')
+// 建立成功後換 key，下次打開是乾淨的表單
+const mergeKey = ref(0)
 
 function openAdd() {
   addError.value = ''
@@ -103,6 +111,26 @@ function register() {
     return
   }
   return run(() => api.registerApi({ name: apiName.value, url: apiUrl.value, headers }))
+}
+
+async function onMerged(ds) {
+  try {
+    await refresh()
+    emit('select', ds.id)
+    addOpen.value = false
+    mergeKey.value++
+  } catch (e) {
+    addError.value = e.message
+  }
+}
+
+// spec 8.2：合併來源的說明列；輸入來源查不到就寫「（已不存在）」
+function mergeSummary(ds) {
+  const nameOf = (id) => list.value.find((d) => d.id === id)?.name ?? '（已不存在）'
+  const m = ds.merge
+  return m.op === 'union'
+    ? `疊加：${m.inputs.map(nameOf).join('、')}`
+    : `查表：${nameOf(m.main)} ← ${nameOf(m.lookup)}（${m.keys.map((k) => `${k.main} = ${k.lookup}`).join('、')}）`
 }
 
 // ---------- 欄位設定 ----------
@@ -171,7 +199,7 @@ async function saveLabel(ds, field, value) {
             v-for="ds in filtered"
             :key="ds.id"
             :active="ds.id === selectedId"
-            :prepend-icon="ds.kind === 'api' ? 'mdi-api' : 'mdi-file-table-outline'"
+            :prepend-icon="KINDS[ds.kind]?.icon"
             :title="ds.name"
             :subtitle="`${ds.schema.length} 個欄位`"
             @click="emit('select', ds.id)"
@@ -187,10 +215,10 @@ async function saveLabel(ds, field, value) {
           <div class="ds-title">
             <div class="d-flex align-center ga-2">
               <h2 class="ds-name text-truncate">{{ selected.name }}</h2>
-              <span class="tc-badge">{{ selected.kind === 'api' ? '外部 API' : '上傳檔案' }}</span>
+              <span class="tc-badge">{{ KINDS[selected.kind]?.text ?? selected.kind }}</span>
             </div>
             <div class="ds-meta cc-mono text-truncate">
-              <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
+              <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template><template v-else-if="selected.merge">{{ mergeSummary(selected) }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
             </div>
           </div>
           <v-btn append-icon="mdi-arrow-right" @click="emit('build', selected.id)">用這個來源製圖</v-btn>
@@ -224,13 +252,14 @@ async function saveLabel(ds, field, value) {
                   @keydown.enter="(e) => e.target.blur()"
                 />
               </td>
-              <td class="text-center">
+              <!-- spec 6.3：繼承來的敏感設定在這裡關不掉，提示要回到哪個來源改 -->
+              <td class="text-center" :title="f.sensitiveFrom ? `在『${f.sensitiveFrom}』標為敏感，要改請到那個來源` : undefined">
                 <v-switch
                   :model-value="f.sensitive"
                   :aria-label="`${f.name} 敏感`"
                   hide-details
                   class="d-inline-flex"
-                  :disabled="busy"
+                  :disabled="busy || !!f.sensitiveFrom"
                   @update:model-value="(on) => toggleSensitive(selected, f.name, on)"
                 />
               </td>
@@ -251,12 +280,13 @@ async function saveLabel(ds, field, value) {
       </section>
     </div>
 
-    <v-dialog v-model="addOpen" max-width="520" transition="tc-sheet">
+    <v-dialog v-model="addOpen" :max-width="addTab === 'merge' ? 760 : 520" transition="tc-sheet">
       <v-card>
         <v-card-title class="pt-5 px-6">新增資料來源</v-card-title>
         <v-tabs v-model="addTab" class="px-4">
           <v-tab value="upload" prepend-icon="mdi-file-upload-outline">上傳檔案</v-tab>
           <v-tab value="api" prepend-icon="mdi-api">外部 API</v-tab>
+          <v-tab value="merge" prepend-icon="mdi-set-merge">合併</v-tab>
         </v-tabs>
         <v-card-text class="px-6">
           <v-window v-model="addTab">
@@ -277,6 +307,9 @@ async function saveLabel(ds, field, value) {
                 rows="2"
               />
             </v-window-item>
+            <v-window-item value="merge" :transition="false" :reverse-transition="false">
+              <MergeForm :key="mergeKey" :sources="list" @created="onMerged" />
+            </v-window-item>
           </v-window>
           <v-alert v-if="addError" type="error" density="compact" class="mt-3">{{ addError }}</v-alert>
         </v-card-text>
@@ -285,7 +318,7 @@ async function saveLabel(ds, field, value) {
           <!-- v-card-actions 預設把按鈕變成 text，這裡明確用 flat -->
           <v-btn variant="flat" @click="addOpen = false">取消</v-btn>
           <v-btn v-if="addTab === 'upload'" variant="flat" color="primary" :loading="adding" @click="upload">上傳</v-btn>
-          <v-btn v-else variant="flat" color="primary" :loading="adding" @click="register">註冊</v-btn>
+          <v-btn v-else-if="addTab === 'api'" variant="flat" color="primary" :loading="adding" @click="register">註冊</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

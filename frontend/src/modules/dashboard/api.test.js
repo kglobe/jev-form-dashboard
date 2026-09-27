@@ -83,6 +83,18 @@ describe('api', () => {
     expect(fetch.mock.calls[1][1].body).toBe('{"datasourceId":"ds1","intents":["各區每月營收"]}')
   })
 
+  it('previewMerged / createMerged POST {name, merge} to the merged endpoints', async () => {
+    const body = { name: '全區', merge: { op: 'union', inputs: ['a', 'b'], columns: [], sourceColumn: '來源' } }
+    fetch.mockResolvedValueOnce(jsonResponse({ rowCount: 0 }))
+    await api.previewMerged(body)
+    fetch.mockResolvedValueOnce(jsonResponse({ id: 'm1' }))
+    await api.createMerged(body)
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
+      ['/api/datasources/merged/preview', 'POST', JSON.stringify(body)],
+      ['/api/datasources/merged', 'POST', JSON.stringify(body)],
+    ])
+  })
+
   it('appendCharts POSTs the batch to /api/dashboards/{id}/charts', async () => {
     fetch.mockResolvedValueOnce(jsonResponse({ id: 'd1' }))
     await api.appendCharts('d1', { layout: [{ chartId: 'c1' }], intents: ['各區退貨'] })
