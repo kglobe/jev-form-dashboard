@@ -15,6 +15,7 @@
 - P3 · Score 的內插值不要拿來排序：jevai.wiki 的 primitives 頁說期望值只適合判斷門檻，`ConfigAssembler.candidates` 和組合排序卻直接比小數（2.75 排在 3.0 後面）。可以改成先比 `round(score)`，再比 confidence 或機率。（同上）
 
 - P3 · 編輯、刪除合併來源的定義：合併定義建立之後不能改也不能刪，定義錯了只能另建一個，清單會越積越多。刪除要跟「刪除資料來源」一起設計（其他來源目前也不能刪），包括用到它的合併來源和儀表板要怎麼處理。（B1 spec 第 2、11 節）
+- P2 · 承上，刪除資料來源要設計時一起處理：合併來源的 `sensitiveFrom` 現在找不到某個輸入來源就直接跳過（`DatasourceService.java` 的 `sensitiveFrom`，`if (input == null) continue`），沒有 fail closed。來源被刪掉之後，還在引用它的欄位應該變成敏感，不能悄悄當作不敏感。（B1 final review）
 
 ## 正式上線前
 
@@ -53,6 +54,7 @@
 - P3 · 輸入「加每月的數量趨勢」，JEV 給的是 amount 的折線圖，不是 qty；這是 JEV 判斷上的問題。（E2E，Task 9）
 
 - P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）
+- P2 · 一張卡用某個 API 來源、另一張卡用到同一個 API 來源的合併來源，兩張卡都會讓這個 API 來源被重複抓一次（`/data` 抓兩次、`highlight` 又各再抓一次）；同一個合併來源裡有多個外部 API 輸入時，也是一個一個依序抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）
 
 ## 資料品質
 
