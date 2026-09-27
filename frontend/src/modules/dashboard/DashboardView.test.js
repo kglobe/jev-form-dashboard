@@ -517,20 +517,94 @@ describe('DashboardView', () => {
     expect(wrapper.emitted('updated')).toBeUndefined()
   })
 
-  it('saved: when the new config only drops a card, the rest keep their data and highlight without fetching again', async () => {
+  it('saved: when removing a card leaves the config from this view’s own PUT, the rest keep their data and highlight without fetching again', async () => {
     prefersReducedMotion.mockReturnValue(true)
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])
     api.highlights.mockResolvedValue([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
     const config = { ...makeConfig(), layout: [bar('c1', 0), bar('c2', 1), table('c3', 4)] }
+    const reply = { ...config, layout: [bar('c2', 1), table('c3', 4)] }
+    api.updateDashboard.mockResolvedValue(reply)
     const wrapper = mountView({ config, preview: false })
     await flushPromises()
 
-    await wrapper.setProps({ config: { ...config, layout: [bar('c2', 1), table('c3', 4)] } })
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    dialogButton('移除').click()
+    await flushPromises()
+    expect(wrapper.emitted('updated')).toEqual([[reply]])
+
+    // App 把回傳的物件原封不動塞回 config（同一個參考），才算「自己這次的 PUT」
+    await wrapper.setProps({ config: reply })
     await flushPromises()
     expect(wrapper.find('[data-chart-id="c1"]').exists()).toBe(false)
     expect(api.dashboardData).toHaveBeenCalledTimes(1)
     expect(api.highlights).toHaveBeenCalledTimes(1)
     expect(chartCardPayload(wrapper, 'c2')).toEqual({ data: { chartId: 'c2' }, highlight: { chartId: 'c2', severity: '需要關注', noul: 0.8 } })
+  })
+
+  it('saved: re-opening the same dashboard (a new object, same id) refetches data and highlights instead of taking the drop-a-card shortcut', async () => {
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+    api.highlights.mockResolvedValue([])
+    const config = makeConfig()
+    const wrapper = mountView({ config, preview: false })
+    await flushPromises()
+    expect(api.dashboardData).toHaveBeenCalledTimes(1)
+    expect(api.highlights).toHaveBeenCalledTimes(1)
+
+    // App 重新 GET 同一份儀表板：id 一樣，但不是這個元件自己 PUT 回來的那個物件
+    await wrapper.setProps({ config: { ...config } })
+    await flushPromises()
+    expect(api.dashboardData).toHaveBeenCalledTimes(2)
+    expect(api.highlights).toHaveBeenCalledTimes(2)
+  })
+
+  it('saved: removing a card while the previous highlights request is still pending asks again, so the badge still shows up', async () => {
+    prefersReducedMotion.mockReturnValue(true)
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+    api.highlights
+      .mockImplementationOnce(() => new Promise(() => {})) // 一直不回應，模擬還在等 JEV
+      .mockResolvedValueOnce([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+    const config = makeConfig()
+    const wrapper = mountView({ config, preview: false })
+    await flushPromises()
+    expect(api.highlights).toHaveBeenCalledTimes(1)
+
+    const reply = { ...config, layout: [config.layout[1]] }
+    api.updateDashboard.mockResolvedValue(reply)
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    dialogButton('移除').click()
+    await flushPromises()
+    await wrapper.setProps({ config: reply }) // App 把 PUT 的回覆塞回 config，跟 removeCard 那次 emit 對應
+    await flushPromises()
+
+    expect(api.highlights).toHaveBeenCalledTimes(2)
+    expect(chartCardPayload(wrapper, 'c2').highlight).toEqual({ chartId: 'c2', severity: '需要關注', noul: 0.8 })
+  })
+
+  it('saved: while a remove PUT is in flight, ✕ is disabled and a grid move in the meantime is not persisted', async () => {
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+    api.highlights.mockResolvedValue([])
+    let resolvePut
+    api.updateDashboard.mockImplementation(() => new Promise((resolve) => { resolvePut = resolve }))
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    dialogButton('移除').click()
+    await flushPromises()
+
+    expect(chartCard(wrapper, 'c2').props('removeDisabled')).toBe(true)
+
+    const [firstItem] = wrapper.findAllComponents({ name: 'GridItem' })
+    await firstItem.vm.$emit('moved')
+    await flushPromises()
+    expect(api.updateDashboard).toHaveBeenCalledTimes(1) // 只有移除那次 PUT，拖拉沒有多存一次
+
+    resolvePut({ ...makeConfig(), layout: [makeConfig().layout[1]] })
+    await flushPromises()
+    expect(chartCard(wrapper, 'c2').props('removeDisabled')).toBe(false)
   })
 
   it('a saved dashboard with no cards says how to add charts back, instead of 找不到適合的圖表', async () => {

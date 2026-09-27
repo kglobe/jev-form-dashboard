@@ -30,6 +30,8 @@ const leaving = ref(new Set())
 const entering = ref(new Set())
 // 已存儀表板按「✕」之後等確認的卡片：{ chartId, title }
 const confirmRemove = ref(null)
+// 移除卡片的 PUT 還沒回來：「✕」停用、拖拉/縮放先不存版面，避免跟這次的移除互相蓋過去
+const removing = ref(false)
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 // 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
@@ -52,8 +54,12 @@ const screenOrder = computed(() =>
 )
 
 let loadSeq = 0
-// 上一次 load 顯示的是哪一份儀表板；換了一份就一定重抓資料
-let shownId
+// removeCard 剛 emit('updated', ...) 之後，config 一定會馬上換成那份新設定；
+// 這個旗標讓下一次 load() 知道「這次的變化是自己的 PUT 造成的」，才能用「只少了卡片」的捷徑。
+// App 重新打開同一份儀表板不會經過這裡，旗標是 false，就一定重抓
+let ownUpdatePending = false
+// 上一次的 highlights 還在等 JEV 回應
+let highlightsInFlight = false
 // 預覽裡最近一次被拿掉的卡片：chartId → { spec, data }；按「復原」放回同一張圖時直接沿用資料
 let removed = {}
 const sameChart = (a, b) => a.type === b.type && JSON.stringify(a.mapping) === JSON.stringify(b.mapping)
@@ -92,11 +98,15 @@ async function load() {
   error.value = ''
   loadError.value = ''
   // 只是少了卡片時，剩下的卡片都有資料了，不必再打 API：預覽的「✕」（spec 3.2：「✕」不呼叫 API），
-  // 以及已存儀表板移除單張圖（多來源 spec 3.4：異常標註也留著）
-  const sameDashboard = props.preview || props.config.id === shownId
-  shownId = props.config.id
-  if (sameDashboard && next.every((s) => dataById.value[s.chartId])) {
+  // 以及已存儀表板移除單張圖（多來源 spec 3.4：異常標註也留著）。App 重新打開同一份儀表板會換一個新物件，
+  // 不能套這個捷徑，一定要重抓
+  const ownRemoval = props.preview || ownUpdatePending
+  ownUpdatePending = false
+  if (ownRemoval && next.every((s) => dataById.value[s.chartId])) {
     highlightById.value = Object.fromEntries(Object.entries(highlightById.value).filter(([id]) => ids.has(id)))
+    // 上一次的 highlights 還沒回來：那個回應會因為 loadSeq 換了被丟掉，這裡要重問一次才看得到標註
+    if (props.preview || !highlightsInFlight) return
+    await fetchHighlights(seq)
     return
   }
   highlightById.value = {}
@@ -111,8 +121,14 @@ async function load() {
     return
   }
   if (props.preview) return
-  // 異常檢查失敗就不標註，不顯示錯誤
+  await fetchHighlights(seq)
+}
+
+// 異常檢查失敗就不標註，不顯示錯誤
+async function fetchHighlights(seq) {
+  highlightsInFlight = true
   const found = await api.highlights(props.config.id).catch(() => [])
+  highlightsInFlight = false
   if (seq !== loadSeq) return
   highlightById.value = Object.fromEntries(found.map((h) => [h.chartId, h]))
 }
@@ -137,7 +153,7 @@ function currentLayout() {
 }
 
 async function saveLayout() {
-  if (props.preview) return
+  if (props.preview || removing.value) return
   error.value = ''
   await api.updateDashboard(props.config.id, { ...props.config, layout: currentLayout() }).catch((e) => (error.value = e.message))
 }
@@ -152,11 +168,16 @@ async function removeCard() {
   const { chartId } = confirmRemove.value
   confirmRemove.value = null
   error.value = ''
+  removing.value = true
   try {
     const next = { ...props.config, layout: currentLayout().filter((s) => s.chartId !== chartId) }
-    emit('updated', await api.updateDashboard(props.config.id, next))
+    const reply = await api.updateDashboard(props.config.id, next)
+    ownUpdatePending = true
+    emit('updated', reply)
   } catch (e) {
     error.value = e.message
+  } finally {
+    removing.value = false
   }
 }
 </script>
@@ -202,7 +223,7 @@ async function removeCard() {
           :highlight="highlightById[item.i]"
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
           :removable="!preview || specById[item.i].type !== 'table'"
-          :remove-disabled="busy"
+          :remove-disabled="busy || removing"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
           @remove="preview ? emit('remove', item.i) : askRemove(item.i)"
