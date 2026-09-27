@@ -216,6 +216,26 @@ class MergedDatasourceServiceTest {
     }
 
     @Test
+    void ownFlagOnAFieldThatIsAlsoInheritedSurvivesUnrelatedToggles() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,memo", "北區,首購");
+        UUID s = upload("南區", "region,memo", "南區,備註");
+        UUID m = service.createMerged("u1", "全區", union(List.of(n, s), "region", "memo")).id();
+
+        // (a) 使用者自己在合併來源把 memo 勾成敏感
+        service.markSensitive("u1", m, List.of("memo"));
+        // (b) 之後輸入來源 s 也把 memo 標成敏感，畫面上 memo 現在是繼承來的
+        service.markSensitive("u1", s, List.of("memo"));
+        // (c) 使用者在 m 上切換其他開關；畫面會把目前看到的敏感欄位（含繼承來的 memo）一起送回來
+        service.markSensitive("u1", m, List.of("region", "memo"));
+        // (d) s 把 memo 取消敏感，m 應該還記得自己當初勾過 memo，不會因為 (c) 被清空
+        service.markSensitive("u1", s, List.of());
+
+        assertThat(field(service.get("u1", m), "memo").sensitive()).isTrue();
+        assertThat(field(repo.sources.get(m), "memo").sensitive()).isTrue();
+    }
+
+    @Test
     void nestedAndLookupSourcesPointAtTheSourceWhoseSwitchIsOn() {
         DatasourceService service = service(100);
         UUID n = upload("北區", "product,memo", "A,首購");

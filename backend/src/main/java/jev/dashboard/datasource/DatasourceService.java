@@ -97,7 +97,7 @@ public class DatasourceService {
         Set<String> inherited = get(userId, id).schema().stream().filter(f -> f.sensitiveFrom() != null)
             .map(FieldSchema::name).collect(Collectors.toSet());
         List<FieldSchema> schema = stored(userId, id).schema().stream()
-            .map(f -> f.withSensitive(fields.contains(f.name()) && !inherited.contains(f.name()))).toList();
+            .map(f -> f.withSensitive(inherited.contains(f.name()) ? f.sensitive() : fields.contains(f.name()))).toList();
         repo.updateSchema(id, schema);
         return get(userId, id);
     }
@@ -187,16 +187,17 @@ public class DatasourceService {
         }).toList();
     }
 
-    /** 讓這欄變敏感的來源名稱：巢狀時一路往下，找到真正打開開關的那個來源；都不敏感就是 null。 */
+    /**
+     * 讓這欄變敏感的來源名稱：巢狀時只往下追同一個欄位（不重算整份 schema），
+     * 找到真正打開開關的那個來源；都不敏感就是 null。
+     */
     private String sensitiveFrom(MergeDefinition def, String field, Function<UUID, Datasource> find) {
         for (Map.Entry<UUID, String> e : MergeEngine.sources(def, field).entrySet()) {
             Datasource input = find.apply(e.getKey());
             if (input == null) continue;
-            for (FieldSchema f : effective(input, find).schema()) {
-                if (f.name().equals(e.getValue()) && f.sensitive()) {
-                    return f.sensitiveFrom() != null ? f.sensitiveFrom() : input.name();
-                }
-            }
+            String deeper = "merged".equals(input.kind()) ? sensitiveFrom(input.merge(), e.getValue(), find) : null;
+            if (deeper != null) return deeper;
+            if (input.schema().stream().anyMatch(f -> f.name().equals(e.getValue()) && f.sensitive())) return input.name();
         }
         return null;
     }
