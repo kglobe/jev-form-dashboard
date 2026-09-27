@@ -11,6 +11,7 @@ vi.mock('./api.js', () => ({
     listDatasources: vi.fn(),
     analyze: vi.fn(),
     createDashboard: vi.fn(),
+    appendCharts: vi.fn(),
   },
 }))
 
@@ -64,6 +65,13 @@ const historyItems = () => [...document.body.querySelectorAll('.tc-intents li')]
 const layout4 = () => [bar('c1', 'A', 0), bar('c2', 'B', 1), bar('c3', 'C', 2), table('c4', 8)]
 const region = () => document.body.querySelector('.undo-toast-region')
 const toastEl = () => document.body.querySelector('.undo-toast')
+const menuItems = () => [...document.body.querySelectorAll('.v-overlay-container .v-list-item')].map((el) => el.textContent.trim())
+async function pickDashboard(name) {
+  button('加到既有儀表板').click()
+  await flushPromises()
+  byText(document.body, '.v-list-item', name).click()
+  await flushPromises()
+}
 
 async function runAnalyze() {
   analyzeButton().click()
@@ -265,7 +273,7 @@ describe('ChartBuilder', () => {
     expect(view(wrapper).props('preview')).toBe(true)
     expect(view(wrapper).props('config')).toEqual(previewConfig)
 
-    button('存為我的儀表板').click()
+    button('存成新儀表板').click()
     await flushPromises()
 
     expect(api.createDashboard).toHaveBeenCalledWith(previewConfig)
@@ -280,7 +288,7 @@ describe('ChartBuilder', () => {
     api.createDashboard.mockRejectedValue(new Error('儲存失敗'))
 
     const wrapper = await openPreview()
-    button('存為我的儀表板').click()
+    button('存成新儀表板').click()
     await flushPromises()
 
     expect(errorAlert(wrapper).text()).toContain('儲存失敗')
@@ -303,7 +311,7 @@ describe('ChartBuilder', () => {
     expect(analyzeLabel()).toBe('分析')
   })
 
-  it('requires a dashboard name: labels the field, shows an error for blank/whitespace, and disables 存為我的儀表板', async () => {
+  it('requires a dashboard name: labels the field, shows an error for blank/whitespace, and disables 存成新儀表板', async () => {
     api.analyze.mockResolvedValue({ name: 'preview', layout: [] })
     const wrapper = await openPreview()
 
@@ -314,16 +322,16 @@ describe('ChartBuilder', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('請輸入儀表板名稱')
-    expect(button('存為我的儀表板').disabled).toBe(true)
+    expect(button('存成新儀表板').disabled).toBe(true)
   })
 
-  it('存為我的儀表板 guards against double submission: only one createDashboard call goes out', async () => {
+  it('存成新儀表板 guards against double submission: only one createDashboard call goes out', async () => {
     api.analyze.mockResolvedValue({ name: 'preview', layout: [] })
     let resolveCreate
     api.createDashboard.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
 
     const wrapper = await openPreview()
-    const saveBtn = button('存為我的儀表板')
+    const saveBtn = button('存成新儀表板')
     saveBtn.click()
     saveBtn.click()
     await flushPromises()
@@ -467,19 +475,19 @@ describe('ChartBuilder', () => {
     expect(button('調整').disabled).toBe(true)
   })
 
-  it('存為我的儀表板 is disabled while an adjust is pending', async () => {
+  it('存成新儀表板 is disabled while an adjust is pending', async () => {
     api.analyze
       .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
       .mockImplementationOnce(() => new Promise(() => {}))
     const wrapper = await openPreview()
-    expect(button('存為我的儀表板').disabled).toBe(false)
+    expect(button('存成新儀表板').disabled).toBe(false)
 
     await adjustWith(wrapper, '二')
-    expect(button('存為我的儀表板').disabled).toBe(true)
+    expect(button('存成新儀表板').disabled).toBe(true)
     expect(analyzeButton().disabled).toBe(true)
   })
 
-  it('while 重新分析 is pending the preview stays but 調整 and 存為我的儀表板 are disabled', async () => {
+  it('while 重新分析 is pending the preview stays but 調整 and 存成新儀表板 are disabled', async () => {
     api.analyze
       .mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
       .mockImplementationOnce(() => new Promise(() => {}))
@@ -492,7 +500,7 @@ describe('ChartBuilder', () => {
     expect(view(wrapper).props('busy')).toBe(true)
     expect(document.body.querySelector('.cb-scan')).toBeNull()
     expect(button('調整').disabled).toBe(true)
-    expect(button('存為我的儀表板').disabled).toBe(true)
+    expect(button('存成新儀表板').disabled).toBe(true)
   })
 
   it('捨棄 clears the adjust error and drops a late adjust result', async () => {
@@ -770,5 +778,75 @@ describe('ChartBuilder', () => {
 
     wrapper.unmount()
     expect(vi.getTimerCount()).toBe(pending - 1)
+  })
+
+  it('加到既有儀表板 shows only when there are dashboards, and lists them in the order given', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', layout: layout4() })
+    const wrapper = await openPreview()
+    expect(button('存成新儀表板')).toBeDefined()
+    expect(button('加到既有儀表板')).toBeUndefined()
+
+    await wrapper.setProps({ dashboards: [{ id: 'd2', name: '營運月報' }, { id: 'd1', name: '高階主管週報' }] })
+    button('加到既有儀表板').click()
+    await flushPromises()
+    expect(menuItems()).toEqual(['營運月報', '高階主管週報'])
+  })
+
+  it('picking a dashboard sends the previewed charts and intents to appendCharts (a blank name is fine), emits saved with its id and empties the canvas', async () => {
+    const preview = { name: 'p', intents: ['各區退貨'], layout: layout4() }
+    api.analyze.mockResolvedValue(preview)
+    api.appendCharts.mockResolvedValue({ id: 'd1' })
+    const wrapper = await openPreview({ dashboards: [{ id: 'd1', name: '高階主管週報' }] })
+    await field(wrapper, '儀表板名稱').find('input').setValue('  ')
+    await flushPromises()
+    expect(button('存成新儀表板').disabled).toBe(true)
+    expect(button('加到既有儀表板').disabled).toBe(false)
+
+    await pickDashboard('高階主管週報')
+    expect(api.appendCharts).toHaveBeenCalledWith('d1', { layout: layout4(), intents: ['各區退貨'] })
+    expect(api.createDashboard).not.toHaveBeenCalled()
+    expect(wrapper.emitted('saved')).toEqual([['d1']])
+    expect(isEmpty()).toBe(true)
+  })
+
+  it('a failed append keeps the preview and shows the error; a 404 (deleted in another tab) also asks for a fresh list', async () => {
+    api.analyze.mockResolvedValue({ name: 'p', layout: layout4() })
+    api.appendCharts
+      .mockRejectedValueOnce(new Error('無法連線到伺服器'))
+      .mockRejectedValueOnce(Object.assign(new Error('找不到儀表板'), { status: 404 }))
+    const wrapper = await openPreview({ dashboards: [{ id: 'd1', name: '高階主管週報' }] })
+
+    await pickDashboard('高階主管週報')
+    expect(errorAlert(wrapper).text()).toContain('無法連線到伺服器')
+    expect(view(wrapper).exists()).toBe(true)
+    expect(wrapper.emitted('dashboards-changed')).toBeUndefined()
+
+    await pickDashboard('高階主管週報')
+    expect(errorAlert(wrapper).text()).toContain('找不到儀表板')
+    expect(wrapper.emitted('dashboards-changed')).toHaveLength(1)
+    expect(wrapper.emitted('saved')).toBeUndefined()
+  })
+
+  it('加到既有儀表板 is disabled while an adjust is pending', async () => {
+    api.analyze
+      .mockResolvedValueOnce({ name: 'p', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] })
+      .mockImplementationOnce(() => new Promise(() => {}))
+    const wrapper = await openPreview({ dashboards: [{ id: 'd1', name: '高階主管週報' }] })
+    expect(button('加到既有儀表板').disabled).toBe(false)
+
+    await adjustWith(wrapper, '二')
+    expect(button('加到既有儀表板').disabled).toBe(true)
+  })
+
+  it('調整 sends the datasource chosen on the left (the preview itself has no datasourceId)', async () => {
+    const first = { name: 'p', intents: ['一'], layout: [bar('c1', 'A', 0, { focus: true }), table('c2', 4)] }
+    api.analyze.mockResolvedValueOnce(first).mockResolvedValueOnce({ ...first, intents: ['一', '二'] })
+    const wrapper = await mountBuilder()
+    select(wrapper).vm.$emit('update:modelValue', 'ds2')
+    await flushPromises()
+
+    await runAnalyze()
+    await adjustWith(wrapper, '二')
+    expect(api.analyze).toHaveBeenLastCalledWith('ds2', ['一', '二'], first.layout)
   })
 })

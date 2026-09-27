@@ -44,6 +44,11 @@ async function refresh() {
   dashboards.value = await api.listDashboards()
 }
 
+// 製圖頁加圖時發現儀表板已經不在（在別的分頁刪了）：重抓清單，選單裡就不會再有它
+function reloadDashboards() {
+  refresh().catch((e) => (error.value = e.message))
+}
+
 async function open(id) {
   try {
     current.value = await api.getDashboard(id)
@@ -133,7 +138,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
     <v-main>
       <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" @select="(id) => (datasourceId = id)" @build="startBuild" />
       <!-- 製圖頁用 v-show 一直掛著：去資料頁改個顯示名稱再回來，預覽和調整紀錄都還在 -->
-      <ChartBuilder v-show="view === 'build'" :active="view === 'build'" :request="buildRequest" @saved="onSaved" />
+      <ChartBuilder
+        v-show="view === 'build'"
+        :active="view === 'build'"
+        :request="buildRequest"
+        :dashboards="dashboards"
+        @saved="onSaved"
+        @dashboards-changed="reloadDashboards"
+      />
       <section v-if="view === 'dashboards'" class="cc-view">
         <header class="cc-head">
           <div>
@@ -172,7 +184,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           </aside>
           <div class="dash-main">
             <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
-            <DashboardView v-if="current" :key="current.id" :config="current" />
+            <!-- 移除單張圖存檔後，換成後端回傳的設定；同一份儀表板，key 不變、不重建 -->
+            <DashboardView v-if="current" :key="current.id" :config="current" @updated="(c) => (current = c)" />
             <div v-else class="cc-panel cc-empty empty-start">
               <div class="cc-empty__icon"><v-icon icon="mdi-view-dashboard-outline" size="30" /></div>
               <h2>{{ dashboards.length ? '從左邊選一份儀表板' : '還沒有儀表板' }}</h2>
