@@ -28,8 +28,11 @@ const SEVERITY_CLASS = { 正常波動: '', 值得注意: 'tc-badge--info', 需�
 // spec 4.3：一定要寫在 series 層。ECharts 6 的圓餅、折線在 series 預設裡有自己的時長和 easing，只寫在最外層蓋不掉
 const SERIES_ANIMATION = { animationDuration: 300, animationEasing: 'cubicOut', animationDurationUpdate: 250, animationEasingUpdate: 'cubicOut' }
 const compact = new Intl.NumberFormat('zh-TW', { notation: 'compact' })
+// B3 spec 6.3：軸已經有自己的格式（比率的百分比）就不套數字縮寫
 const compactValueAxis = (axis) =>
-  axis?.type === 'value' ? { ...axis, axisLabel: { ...axis.axisLabel, formatter: (v) => compact.format(v) } } : axis
+  axis?.type === 'value' && !axis.axisLabel?.formatter
+    ? { ...axis, axisLabel: { ...axis.axisLabel, formatter: (v) => compact.format(v) } }
+    : axis
 
 // 包在 toOption 結果的外層，charts/*.js 不動，快照不變；每次算 option 都重新問一次減少動態效果
 function tunedOption(base) {

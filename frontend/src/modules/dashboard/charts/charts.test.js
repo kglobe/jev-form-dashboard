@@ -104,3 +104,28 @@ describe('toOption with two measures (B2 spec 6.2)', () => {
     expect(o.dataset.source).toEqual(rows)
   })
 })
+
+describe('toOption with a ratio (B3 spec 6.3)', () => {
+  const ratio = (type) => ({
+    chartId: 'c9', type, dimensions: ['date', '退貨率'], rows: [['2026-06', null], ['2026-07', 0.052]], percent: true,
+  })
+
+  it('line and bar show the Y axis and the tooltip in percent with at most one decimal, and keep null groups empty', () => {
+    for (const type of ['line', 'bar']) {
+      const o = toOption[type](ratio(type))
+      expect(o.yAxis.axisLabel.formatter(0.052)).toBe('5.2%')
+      expect(o.yAxis.axisLabel.formatter(0.05)).toBe('5%')
+      expect(o.tooltip.valueFormatter(0.052)).toBe('5.2%')
+      expect(o.tooltip.valueFormatter(null)).toBe('-')
+      expect(o.dataset.source).toEqual([['2026-06', null], ['2026-07', 0.052]])
+    }
+  })
+
+  it('without percent the Y axis and the tooltip stay as they were', () => {
+    for (const [type, data] of [['line', byMonth], ['bar', byRegion]]) {
+      const o = toOption[type](data)
+      expect(o.yAxis).toEqual({ type: 'value' })
+      expect(o.tooltip).toEqual({ trigger: 'axis' })
+    }
+  })
+})

@@ -261,4 +261,11 @@ describe('ChartCard', () => {
     expect(named.find('.v-chart-stub').exists()).toBe(false)
     expect(failed().text()).toContain('資料來源載入失敗，請稍後重新整理')
   })
+
+  it('a percent Y axis keeps its percent labels instead of the compact number form', () => {
+    const data = { chartId: 'c1', type: 'line', dimensions: ['date', '退貨率'], rows: [['2026-07', 0.052]], percent: true }
+    const option = chartOf(mountCard({ spec: { ...barSpec, type: 'line' }, data, highlight: null })).props('option')
+    expect(option.yAxis.axisLabel.formatter(0.052)).toBe('5.2%')
+    expect(option.tooltip.valueFormatter(0.052)).toBe('5.2%')
+  })
 })
