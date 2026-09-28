@@ -34,10 +34,11 @@ public final class MergeEngine {
     public record Output(String name, FieldType type, String label) {}
 
     /**
-     * B2 spec 4.2、5.5：pairs 是對照組（來自不同來源的兩個數字欄位，名稱組成的 Set）→ 可以當 x 軸的欄位，
-     * 也就是兩個數值的來源都有提供的欄位；sourceColumn 是來源欄名稱。
+     * B2 spec 4.2、5.5：provides 是對照來源每個數字欄位 → 它的來源有提供的輸出欄位（含它自己）。每個數值只有自己來源的列有值，
+     * 組合裡的時間、分類欄位要在它的 provides 裡才畫得出來；provides(a) 不含 b 的兩個數字欄位來自不同來源，就是對照組。
+     * sourceColumn 是來源欄名稱。
      */
-    public record Comparison(Map<Set<String>, Set<String>> pairs, String sourceColumn) {}
+    public record Comparison(Map<String, Set<String>> provides, String sourceColumn) {}
 
     private MergeEngine() {}
 
@@ -229,22 +230,14 @@ public final class MergeEngine {
         if (!(ds.merge() instanceof Union u) || !u.compare()) return null;
         Set<String> numbers = ds.schema().stream().filter(f -> f.type() == FieldType.NUMBER)
             .map(FieldSchema::name).collect(Collectors.toSet());
-        List<Union.Column> measured = u.columns().stream()
-            .filter(c -> numbers.contains(c.name()) && c.from().size() == 1).toList();
-        Map<Set<String>, Set<String>> pairs = new HashMap<>();
-        for (int i = 0; i < measured.size(); i++) {
-            for (int j = i + 1; j < measured.size(); j++) {
-                Set<UUID> a = measured.get(i).from().keySet();
-                Set<UUID> b = measured.get(j).from().keySet();
-                if (a.equals(b)) continue;
-                // 只有一邊有的欄位當 x 軸，另一個數值整條都是空的
-                Set<String> axes = u.columns().stream()
-                    .filter(c -> c.from().keySet().containsAll(a) && c.from().keySet().containsAll(b))
-                    .map(Union.Column::name).collect(Collectors.toSet());
-                pairs.put(Set.of(measured.get(i).name(), measured.get(j).name()), axes);
-            }
+        Map<String, Set<String>> provides = new HashMap<>();
+        for (Union.Column m : u.columns()) {
+            if (!numbers.contains(m.name()) || m.from().size() != 1) continue;
+            UUID source = m.from().keySet().iterator().next();
+            provides.put(m.name(), u.columns().stream().filter(c -> c.from().containsKey(source))
+                .map(Union.Column::name).collect(Collectors.toSet()));
         }
-        return new Comparison(pairs, u.sourceColumn());
+        return new Comparison(provides, u.sourceColumn());
     }
 
     /** spec 6.3：提供這個輸出欄位的輸入欄位，輸入來源 id → 欄位名稱；來源欄沒有輸入欄位。 */

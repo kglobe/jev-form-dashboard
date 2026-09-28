@@ -427,10 +427,13 @@ class ConfigAssemblerTest {
         });
     }
 
-    /** 對照組 sales、refund，兩個來源都有 date 和 region。 */
-    static final Map<Set<String>, Set<String>> SALES_VS_REFUNDS = Map.of(Set.of("sales", "refund"), Set.of("date", "region"));
+    /** 對照來源：sales 來自銷售，refund、qty 來自退貨；兩個來源都有 date 和 region。 */
+    static final Map<String, Set<String>> SALES_VS_REFUNDS = Map.of(
+        "sales", Set.of("date", "region", "sales"),
+        "refund", Set.of("date", "region", "refund", "qty"),
+        "qty", Set.of("date", "region", "refund", "qty"));
 
-    /** 對照來源的候選欄位：sales、refund 是對照組；qty 跟 refund 同一個來源，不是。 */
+    /** 對照來源的候選欄位：date、region 是時間和分類，sales、refund、qty 是數值。 */
     static List<FieldEval> compareCandidates() {
         FieldEval time = new FieldEval(new FieldSchema("date", DATE, 9, List.of(), false, "2026-01-05", "2026-09-20"), 3, "time");
         return List.of(time, eval("sales", NUMBER, 9, 2.75, "measure"), eval("region", STRING, 3, 2, "dimension"),
@@ -441,12 +444,14 @@ class ConfigAssemblerTest {
     void comparePairsGetTimeAndCategoryCombosRankedFirst() {
         List<Combo> ranked = ConfigAssembler.ranked(compareCandidates(), SALES_VS_REFUNDS);
 
-        assertThat(ranked.subList(0, 2)).extracting(ConfigAssemblerTest::names, Combo::chartTypes).containsExactly(
+        // 跨來源的兩組（sales 配 refund、sales 配 qty）各配 date 和 region；refund 和 qty 同一個來源，不配
+        assertThat(ranked).filteredOn(Combo::compare).extracting(ConfigAssemblerTest::names, Combo::chartTypes).containsExactly(
             tuple(List.of("date", "sales", "refund"), List.of("line", "bar")),
-            tuple(List.of("region", "sales", "refund"), List.of("bar")));
-        // 不是對照組的兩個數值（sales 和 qty、refund 和 qty）不配
-        assertThat(ranked).filteredOn(Combo::compare).hasSize(2);
-        // 沒有對照組就跟以前一樣
+            tuple(List.of("date", "sales", "qty"), List.of("line", "bar")),
+            tuple(List.of("region", "sales", "refund"), List.of("bar")),
+            tuple(List.of("region", "sales", "qty"), List.of("bar")));
+        assertThat(ranked.subList(0, 4)).allMatch(Combo::compare);
+        // 沒有對照資訊就跟以前一樣
         assertThat(ConfigAssembler.ranked(compareCandidates(), Map.of())).noneMatch(Combo::compare);
     }
 
@@ -466,7 +471,7 @@ class ConfigAssemblerTest {
     @Test
     void compareCombosBecomeTwoMeasureChartsThatPassValidation() {
         List<Combo> combos = ConfigAssembler.combos(compareCandidates(), 2, SALES_VS_REFUNDS);
-        Map<String, Answer> round2 = Map.of("combo_0", choice("line", 0.9), "combo_1", choice("bar", 0.9));
+        Map<String, Answer> round2 = Map.of("combo_0", choice("line", 0.9), "combo_2", choice("bar", 0.9));
 
         List<ChartSpec> layout = ConfigAssembler.assemble(combos, round2, 2, List.of("date", "sales", "region", "refund"));
 
@@ -480,11 +485,25 @@ class ConfigAssemblerTest {
     }
 
     @Test
-    void compareCombosOnlyUseAxesBothSourcesProvide() {
-        // region 只有其中一個來源有：配上它，另一個數值整條是空的，所以不配
-        List<Combo> ranked = ConfigAssembler.ranked(compareCandidates(), Map.of(Set.of("sales", "refund"), Set.of("date")));
+    void onACompareSourceNoComboUsesAFieldAMeasuresSourceLacks() {
+        // region 只有銷售有；sales 來自銷售，refund、qty 來自退貨
+        Map<String, Set<String>> regionOnlyInSales = Map.of(
+            "sales", Set.of("date", "region", "sales"),
+            "refund", Set.of("date", "refund", "qty"),
+            "qty", Set.of("date", "refund", "qty"));
 
+        List<Combo> ranked = ConfigAssembler.ranked(compareCandidates(), regionOnlyInSales);
+
+        // 對照組合只配兩邊都有的 date
         assertThat(ranked).filteredOn(Combo::compare).extracting(ConfigAssemblerTest::names)
-            .containsExactly(List.of("date", "sales", "refund"));
+            .containsExactly(List.of("date", "sales", "refund"), List.of("date", "sales", "qty"));
+        // 退貨的數值不跟 region 配（長條、圓餅、堆疊、熱力、雷達都一樣）：退貨的列沒有 region，畫出來是空的
+        assertThat(ranked).extracting(ConfigAssemblerTest::names)
+            .noneMatch(f -> f.contains("region") && (f.contains("refund") || f.contains("qty")));
+        // 跨來源的兩個數值不畫散佈圖（同一列不會兩個都有），同一個來源的照舊
+        assertThat(ranked).filteredOn(co -> co.chartTypes().contains("scatter")).extracting(ConfigAssemblerTest::names)
+            .containsExactly(List.of("refund", "qty"));
+        // 銷售的數值照舊可以依 region 畫
+        assertThat(ranked).extracting(ConfigAssemblerTest::names).contains(List.of("sales", "region"));
     }
 }

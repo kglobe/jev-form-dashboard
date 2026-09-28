@@ -95,13 +95,13 @@ public class AnalyzeService {
             .map(e -> compare != null && e.name().equals(compare.sourceColumn())
                 ? new FieldEval(e.field(), e.importance(), "ignore", e.focus()) : e)
             .toList();
-        Map<Set<String>, Set<String>> pairs = compare == null ? Map.of() : compare.pairs();
+        Map<String, Set<String>> provides = compare == null ? Map.of() : compare.provides();
         List<FieldEval> candidates = ConfigAssembler.candidates(evals);
         int k = ConfigAssembler.chartCount(a1.get("chart_count"));
         List<ChartSpec> kept = current == null ? null : ConfigAssembler.kept(current, a1);
         List<Combo> combos = current == null
-            ? ConfigAssembler.combos(candidates, k, pairs)
-            : ConfigAssembler.adjustCombos(ConfigAssembler.ranked(candidates, pairs), kept);
+            ? ConfigAssembler.combos(candidates, k, provides)
+            : ConfigAssembler.adjustCombos(ConfigAssembler.ranked(candidates, provides), kept);
 
         Map<String, Answer> a2 = Map.of();
         if (!combos.isEmpty()) {
@@ -116,7 +116,8 @@ public class AnalyzeService {
         List<ChartSpec> layout;
         if (current == null) {
             List<String> tableColumns = (candidates.isEmpty()
-                ? schema.stream().map(FieldSchema::name)
+                // B2 spec 5.5：對照來源的來源欄不進明細表
+                ? schema.stream().map(FieldSchema::name).filter(n -> compare == null || !n.equals(compare.sourceColumn()))
                 : candidates.stream().map(FieldEval::name)).toList();
             layout = ConfigAssembler.assemble(combos, a2, k, tableColumns);
         } else {

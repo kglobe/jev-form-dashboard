@@ -267,7 +267,7 @@ class MergeEngineTest {
     }
 
     @Test
-    void comparisonPairsNumberColumnsFromDifferentSourcesWithTheAxesBothProvide() {
+    void comparisonMapsEachNumberColumnToTheFieldsItsSourceProvides() {
         Union u = compare(date(), new Union.Column("region", from(sales, "region")),
             new Union.Column("銷售·amount", from(sales, "amount")),
             new Union.Column("退貨·amount", from(refunds, "amount")), new Union.Column("退貨·qty", from(refunds, "qty")));
@@ -275,10 +275,11 @@ class MergeEngineTest {
         MergeEngine.Comparison c = MergeEngine.comparison(mergedSource(u, sales, refunds));
 
         assertThat(c.sourceColumn()).isEqualTo("來源");
-        // 退貨·amount 和 退貨·qty 來自同一個來源，不配對；region 只有銷售有，不能當 x 軸
-        assertThat(c.pairs()).isEqualTo(Map.of(
-            Set.of("銷售·amount", "退貨·amount"), Set.of("date"),
-            Set.of("銷售·amount", "退貨·qty"), Set.of("date")));
+        // region 只有銷售有；退貨·amount 和 退貨·qty 來自同一個來源，看得到彼此
+        assertThat(c.provides()).isEqualTo(Map.of(
+            "銷售·amount", Set.of("date", "region", "銷售·amount"),
+            "退貨·amount", Set.of("date", "退貨·amount", "退貨·qty"),
+            "退貨·qty", Set.of("date", "退貨·amount", "退貨·qty")));
         // 一般疊加、上傳來源都不是對照
         Union plain = new Union(u.inputs(), u.columns(), "來源");
         assertThat(MergeEngine.comparison(mergedSource(plain, sales, refunds))).isNull();

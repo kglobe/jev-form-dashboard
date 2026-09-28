@@ -116,10 +116,10 @@ public final class ConfigAssembler {
 
     /**
      * 全部合法組合，照 spec 6.3 排序：含焦點欄位的排前面，再比平均重要性，同分照產生順序（穩定排序）。
-     * pairs 是對照組 → 可以當 x 軸的欄位（B2 spec 4.2），只有對照來源才有：每一組配上時間欄位出折線、長條，
-     * 配上分類欄位出長條，排在焦點之後、其他組合之前。x 軸欄位要兩個數值的來源都有，不然其中一邊整條是空的。
+     * provides 只有對照來源才有（B2 spec 4.2）：來自不同來源的兩個數值是對照組，配上時間欄位出折線、長條，
+     * 配上分類欄位出長條，排在焦點之後、其他組合之前；畫不出東西的組合（drawable）一律不要。
      */
-    public static List<Combo> ranked(List<FieldEval> c, Map<Set<String>, Set<String>> pairs) {
+    public static List<Combo> ranked(List<FieldEval> c, Map<String, Set<String>> provides) {
         List<Combo> all = new ArrayList<>();
         int n = c.size();
         for (int i = 0; i < n; i++) {
@@ -147,15 +147,16 @@ public final class ConfigAssembler {
                 FieldEval a = c.get(i);
                 FieldEval b = c.get(j);
                 if (!a.role().equals("measure") || !b.role().equals("measure")) continue;
-                Set<String> axes = pairs.get(Set.of(a.name(), b.name()));
-                if (axes == null) continue;
+                Set<String> seenByA = provides.get(a.name());
+                // 對照組：兩個數值都是對照來源的數字欄位，而且來自不同來源
+                if (seenByA == null || !provides.containsKey(b.name()) || seenByA.contains(b.name())) continue;
                 for (FieldEval d : c) {
-                    if (!axes.contains(d.name())) continue;
                     if (d.role().equals("time")) add(all, List.of(d, a, b), List.of("line", "bar"));
                     if (d.role().equals("dimension")) add(all, List.of(d, a, b), List.of("bar"));
                 }
             }
         }
+        all.removeIf(combo -> !drawable(combo, provides));
         all.sort(Comparator.comparing(Combo::hasFocus).reversed()
             .thenComparing(Comparator.comparing(Combo::compare).reversed())
             .thenComparing(Comparator.comparingDouble(Combo::score).reversed()));
@@ -167,9 +168,27 @@ public final class ConfigAssembler {
         return combos(c, k, Map.of());
     }
 
-    public static List<Combo> combos(List<FieldEval> c, int k, Map<Set<String>, Set<String>> pairs) {
-        List<Combo> all = ranked(c, pairs);
+    public static List<Combo> combos(List<FieldEval> c, int k, Map<String, Set<String>> provides) {
+        List<Combo> all = ranked(c, provides);
         return List.copyOf(all.subList(0, Math.min(all.size(), 2 * k)));
+    }
+
+    /**
+     * B2 spec 5.5：對照來源裡，每個數值只有自己來源的列有值。組合裡的時間、分類欄位要每個數值的來源都有，
+     * 散佈圖逐列畫，兩個數值要來自同一個來源；不然畫出來是空的。一般來源的 provides 是空的，一律可以畫。
+     */
+    private static boolean drawable(Combo combo, Map<String, Set<String>> provides) {
+        List<FieldEval> measures = combo.byRole("measure");
+        for (FieldEval m : measures) {
+            Set<String> seen = provides.get(m.name());
+            if (seen == null) continue;
+            for (FieldEval f : combo.fields()) {
+                if (!f.role().equals("measure") && !seen.contains(f.name())) return false;
+            }
+        }
+        if (!combo.chartTypes().contains("scatter")) return true;
+        Set<String> seen = provides.get(measures.get(0).name());
+        return seen == null || seen.contains(measures.get(1).name());
     }
 
     /**

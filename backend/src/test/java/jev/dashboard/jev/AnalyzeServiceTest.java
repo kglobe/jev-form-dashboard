@@ -194,8 +194,9 @@ class AnalyzeServiceTest {
             new FieldSchema("來源", FieldType.STRING, 2, List.of("銷售", "退貨"), false, null, null),
             new FieldSchema("退貨·amount", FieldType.NUMBER, 3, List.of("50"), false, null, null),
             new FieldSchema("memo", FieldType.STRING, 9, List.of(), false, null, null));
-        MergeEngine.Comparison compare = new MergeEngine.Comparison(
-            Map.of(Set.of("銷售·amount", "退貨·amount"), Set.of("date", "region")), "來源");
+        MergeEngine.Comparison compare = new MergeEngine.Comparison(Map.of(
+            "銷售·amount", Set.of("date", "region", "銷售·amount"),
+            "退貨·amount", Set.of("date", "region", "退貨·amount")), "來源");
 
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
             DashboardConfig c = service(server).analyze("對照 總覽", UUID.randomUUID(), schema, 12,
@@ -210,6 +211,27 @@ class AnalyzeServiceTest {
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
             assertThat(server.bodies.get(1)).contains("兩個數值來自不同來源，要放在同一張圖上對照。")
                 .doesNotContain("來源（分類）");
+        }
+    }
+
+    @Test
+    void theSourceColumnStaysOutOfTheTableEvenWhenNoFieldIsACandidate() throws Exception {
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("銷售·amount", FieldType.NUMBER, 9, List.of("1000"), false, null, null),
+            new FieldSchema("來源", FieldType.STRING, 2, List.of("銷售", "退貨"), false, null, null));
+        // 每個欄位都被判成 ignore：沒有候選欄位，明細表退回全部 schema 欄位
+        String allIgnored = """
+            {"model":"jev-1.13.0","answers":{
+              "imp_0":{"type":"score","score":0.0,"confidence":0.9},"role_0":{"type":"choice","choice":"ignore","confidence":0.9},
+              "imp_1":{"type":"score","score":0.0,"confidence":0.9},"role_1":{"type":"choice","choice":"ignore","confidence":0.9},
+              "chart_count":{"type":"score","score":1.0,"confidence":0.9}}}""";
+
+        try (FakeJevServer server = FakeJevServer.start(body -> allIgnored)) {
+            DashboardConfig c = service(server).analyze("對照 總覽", UUID.randomUUID(), schema, 2, List.of(), null, Set.of(),
+                new MergeEngine.Comparison(Map.of("銷售·amount", Set.of("銷售·amount")), "來源"));
+
+            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("table");
+            assertThat(c.layout().get(0).mapping().columns()).containsExactly("銷售·amount");
         }
     }
 }
