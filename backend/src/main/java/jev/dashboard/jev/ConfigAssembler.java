@@ -211,10 +211,6 @@ public final class ConfigAssembler {
     }
 
     /**
-     * B2 spec 5.5：對照來源裡，每個數值只有自己來源的列有值。組合裡的時間、分類欄位要每個數值的來源都有，
-     * 散佈圖逐列畫，兩個數值要來自同一個來源；不然畫出來是空的。一般來源的 provides 是空的，一律可以畫。
-     */
-    /**
      * B3 spec 5.3：對照來源上，分子、分母都有 provides 時，比率只看得到兩者的交集；
      * 在 provides 裡補上「比率名稱 → 交集」，drawable 就照同一套規則擋掉交集外的時間、分類欄位。
      */
@@ -232,6 +228,10 @@ public final class ConfigAssembler {
         return out;
     }
 
+    /**
+     * B2 spec 5.5：對照來源裡，每個數值只有自己來源的列有值。組合裡的時間、分類欄位要每個數值的來源都有，
+     * 散佈圖逐列畫，兩個數值要來自同一個來源；不然畫出來是空的。一般來源的 provides 是空的，一律可以畫。
+     */
     private static boolean drawable(Combo combo, Map<String, Set<String>> provides) {
         List<FieldEval> measures = combo.byRole("measure");
         for (FieldEval m : measures) {
