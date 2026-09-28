@@ -129,7 +129,7 @@ function mergeSummary(ds) {
   const nameOf = (id) => list.value.find((d) => d.id === id)?.name ?? '（已不存在）'
   const m = ds.merge
   return m.op === 'union'
-    ? `疊加：${m.inputs.map(nameOf).join('、')}`
+    ? `${m.compare ? '對照' : '疊加'}：${m.inputs.map(nameOf).join('、')}`
     : `查表：${nameOf(m.main)} ← ${nameOf(m.lookup)}（${m.keys.map((k) => `${k.main} = ${k.lookup}`).join('、')}）`
 }
 

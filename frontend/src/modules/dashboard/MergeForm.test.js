@@ -207,3 +207,93 @@ describe('MergeForm（查表）', () => {
     expect(select(w, '主檔').props('modelValue')).toBeNull()
   })
 })
+
+describe('MergeForm（對照）', () => {
+  const sales = {
+    id: 'sa',
+    name: '銷售',
+    kind: 'upload',
+    schema: [{ name: 'order_date', type: 'date' }, { name: 'region', type: 'string' }, { name: 'amount', type: 'number' }],
+  }
+  const refunds = {
+    id: 'rf',
+    name: '退貨',
+    kind: 'upload',
+    schema: [
+      { name: 'order_date', type: 'date' },
+      { name: 'region', type: 'string' },
+      { name: 'amount', type: 'number' },
+      { name: 'qty', type: 'number' },
+    ],
+  }
+  const mountCompare = (sources = [sales, refunds]) => mount(MergeForm, { props: { sources }, global: { plugins: [vuetify] } })
+  const way = async (w, value) => {
+    await w.findComponent({ name: 'VRadioGroup' }).vm.$emit('update:modelValue', value)
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('對照 matches dates and text by name, splits every number field per source as 「來源名·欄位」, and is named 銷售／退貨 對照', async () => {
+    const w = mountCompare()
+    await way(w, 'compare')
+    await pick(w, '來源', ['sa', 'rf'])
+
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toEqual(['order_date', 'region', '銷售·amount', '退貨·amount', '退貨·qty'])
+    expect(select(w, '第 1 欄在退貨的欄位').props('modelValue')).toBe('order_date')
+    expect(select(w, '第 3 欄在銷售的欄位').props('modelValue')).toBe('amount')
+    expect(select(w, '第 3 欄在退貨的欄位').props('modelValue')).toBeNull()
+    expect(select(w, '第 4 欄在銷售的欄位').props('modelValue')).toBeNull()
+    expect(field(w, '名稱').props('modelValue')).toBe('銷售／退貨 對照')
+  })
+
+  it('a number column mapped to two sources is marked red; 預覽 sends op union with compare: true', async () => {
+    api.previewMerged.mockResolvedValue({ schema: [], rows: [], rowCount: 1, warnings: [] })
+    const w = mountCompare()
+    await way(w, 'compare')
+    await pick(w, '來源', ['sa', 'rf'])
+
+    await pick(w, '第 3 欄在退貨的欄位', 'amount')
+    expect(columnNames(w)[2].props('errorMessages')).toBe('對照時數字欄位只能對應一個來源')
+    await pick(w, '第 3 欄在退貨的欄位', null)
+    expect(columnNames(w)[2].props('errorMessages')).toEqual([])
+
+    await btn(w, '預覽').trigger('click')
+    await flushPromises()
+    const { name, merge } = api.previewMerged.mock.calls[0][0]
+    expect(name).toBe('銷售／退貨 對照')
+    expect(merge).toMatchObject({ op: 'union', compare: true, inputs: ['sa', 'rf'], sourceColumn: '來源' })
+    expect(merge.columns[2]).toEqual({ name: '銷售·amount', from: { sa: 'amount' } })
+  })
+
+  it('switching from 對照 to 疊加 rebuilds the columns by name, and 疊加 sends no compare flag', async () => {
+    api.previewMerged.mockResolvedValue({ schema: [], rows: [], rowCount: 1, warnings: [] })
+    const w = mountCompare()
+    await way(w, 'compare')
+    await pick(w, '來源', ['sa', 'rf'])
+    await way(w, 'union')
+
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toEqual(['order_date', 'region', 'amount', 'qty'])
+    expect(field(w, '名稱').props('modelValue')).toBe('銷售＋退貨')
+    await btn(w, '預覽').trigger('click')
+    await flushPromises()
+    expect(api.previewMerged.mock.calls[0][0].merge).not.toHaveProperty('compare')
+  })
+
+  it('the 來源 menu stops at 5: once 5 are picked the others are disabled', async () => {
+    const six = Array.from({ length: 6 }, (_, i) => ({ id: `d${i}`, name: `來源${i}`, kind: 'upload', schema: [] }))
+    const w = mountCompare(six)
+    await pick(w, '來源', ['d0', 'd1', 'd2', 'd3'])
+    expect(select(w, '來源').props('itemProps')(six[5])).toEqual({ disabled: false })
+    await pick(w, '來源', ['d0', 'd1', 'd2', 'd3', 'd4'])
+    const itemProps = select(w, '來源').props('itemProps')
+    expect(itemProps(six[5])).toEqual({ disabled: true })
+    expect(itemProps(six[0])).toEqual({ disabled: false })
+  })
+})

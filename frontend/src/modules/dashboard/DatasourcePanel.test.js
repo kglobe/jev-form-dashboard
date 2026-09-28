@@ -462,6 +462,15 @@ describe('DatasourcePanel', () => {
     expect(wrapper.find('.ds-meta').text()).toBe('查表：sales.csv ← ERP 訂單（product = code） · 1 個欄位 · 0 個敏感')
   })
 
+  it('a 對照 source says 對照 instead of 疊加 in its summary', async () => {
+    const compared = { ...merged, id: 'cp', name: '銷售／退貨 對照', merge: { ...merged.merge, compare: true } }
+    api.listDatasources.mockResolvedValue([ds1, ds2, compared])
+    const wrapper = mountPanel('cp')
+    await flushPromises()
+
+    expect(wrapper.find('.ds-meta').text()).toBe('對照：sales.csv、（已不存在） · 3 個欄位 · 1 個敏感')
+  })
+
   it('合併 tab widens the dialog and shows the merge form; a created source is selected and the dialog closes', async () => {
     api.listDatasources.mockResolvedValue([ds1, ds2])
     const wrapper = mountPanel()
