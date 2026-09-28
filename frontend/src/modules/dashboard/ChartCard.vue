@@ -42,6 +42,8 @@ function tunedOption(base) {
     ...(reduced && { animation: false }),
     stateAnimation: { duration: reduced ? 0 : 120, easing: 'cubicOut' },
     tooltip: { ...base.tooltip, transitionDuration: 0 },
+    // B3：dataset 的第一列沒有數字（比率第一期是 null）時，ECharts 會把它當成表頭丟掉；rows 永遠沒有表頭
+    ...(base.dataset && { dataset: { ...base.dataset, sourceHeader: false } }),
     ...(base.xAxis && { xAxis: compactValueAxis(base.xAxis) }),
     // B2 spec 6.2：兩個數值差距大時 yAxis 是兩條軸的陣列
     ...(base.yAxis && { yAxis: Array.isArray(base.yAxis) ? base.yAxis.map(compactValueAxis) : compactValueAxis(base.yAxis) }),

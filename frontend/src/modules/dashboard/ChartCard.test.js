@@ -268,4 +268,12 @@ describe('ChartCard', () => {
     expect(option.yAxis.axisLabel.formatter(0.052)).toBe('5.2%')
     expect(option.tooltip.valueFormatter(0.052)).toBe('5.2%')
   })
+
+  it('a first row with no number is still data, not a header: the ratio chart keeps its first, empty period', () => {
+    const data = {
+      chartId: 'c1', type: 'line', dimensions: ['date', '退貨率'], rows: [['2026-01', null], ['2026-07', 0.035]], percent: true,
+    }
+    const option = chartOf(mountCard({ spec: { ...barSpec, type: 'line' }, data, highlight: null })).props('option')
+    expect(option.dataset).toEqual({ dimensions: ['date', '退貨率'], source: [['2026-01', null], ['2026-07', 0.035]], sourceHeader: false })
+  })
 })
