@@ -427,7 +427,8 @@ class ConfigAssemblerTest {
         });
     }
 
-    static final Set<Set<String>> SALES_VS_REFUNDS = Set.of(Set.of("sales", "refund"));
+    /** 對照組 sales、refund，兩個來源都有 date 和 region。 */
+    static final Map<Set<String>, Set<String>> SALES_VS_REFUNDS = Map.of(Set.of("sales", "refund"), Set.of("date", "region"));
 
     /** 對照來源的候選欄位：sales、refund 是對照組；qty 跟 refund 同一個來源，不是。 */
     static List<FieldEval> compareCandidates() {
@@ -446,7 +447,7 @@ class ConfigAssemblerTest {
         // 不是對照組的兩個數值（sales 和 qty、refund 和 qty）不配
         assertThat(ranked).filteredOn(Combo::compare).hasSize(2);
         // 沒有對照組就跟以前一樣
-        assertThat(ConfigAssembler.ranked(compareCandidates(), Set.of())).noneMatch(Combo::compare);
+        assertThat(ConfigAssembler.ranked(compareCandidates(), Map.of())).noneMatch(Combo::compare);
     }
 
     @Test
@@ -476,5 +477,14 @@ class ConfigAssemblerTest {
         DashboardConfig c = new DashboardConfig(null, "對照", null,
             layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList());
         assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void compareCombosOnlyUseAxesBothSourcesProvide() {
+        // region 只有其中一個來源有：配上它，另一個數值整條是空的，所以不配
+        List<Combo> ranked = ConfigAssembler.ranked(compareCandidates(), Map.of(Set.of("sales", "refund"), Set.of("date")));
+
+        assertThat(ranked).filteredOn(Combo::compare).extracting(ConfigAssemblerTest::names)
+            .containsExactly(List.of("date", "sales", "refund"));
     }
 }

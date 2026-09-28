@@ -111,15 +111,15 @@ public final class ConfigAssembler {
     }
 
     public static List<Combo> ranked(List<FieldEval> c) {
-        return ranked(c, Set.of());
+        return ranked(c, Map.of());
     }
 
     /**
      * 全部合法組合，照 spec 6.3 排序：含焦點欄位的排前面，再比平均重要性，同分照產生順序（穩定排序）。
-     * pairs 是對照組（B2 spec 4.2），只有對照來源才有：每一組配上時間欄位出折線、長條，配上分類欄位出長條，
-     * 排在焦點之後、其他組合之前。
+     * pairs 是對照組 → 可以當 x 軸的欄位（B2 spec 4.2），只有對照來源才有：每一組配上時間欄位出折線、長條，
+     * 配上分類欄位出長條，排在焦點之後、其他組合之前。x 軸欄位要兩個數值的來源都有，不然其中一邊整條是空的。
      */
-    public static List<Combo> ranked(List<FieldEval> c, Set<Set<String>> pairs) {
+    public static List<Combo> ranked(List<FieldEval> c, Map<Set<String>, Set<String>> pairs) {
         List<Combo> all = new ArrayList<>();
         int n = c.size();
         for (int i = 0; i < n; i++) {
@@ -147,8 +147,10 @@ public final class ConfigAssembler {
                 FieldEval a = c.get(i);
                 FieldEval b = c.get(j);
                 if (!a.role().equals("measure") || !b.role().equals("measure")) continue;
-                if (!pairs.contains(Set.of(a.name(), b.name()))) continue;
+                Set<String> axes = pairs.get(Set.of(a.name(), b.name()));
+                if (axes == null) continue;
                 for (FieldEval d : c) {
+                    if (!axes.contains(d.name())) continue;
                     if (d.role().equals("time")) add(all, List.of(d, a, b), List.of("line", "bar"));
                     if (d.role().equals("dimension")) add(all, List.of(d, a, b), List.of("bar"));
                 }
@@ -162,10 +164,10 @@ public final class ConfigAssembler {
 
     /** 第一次分析要問的組合：排序後的前 2K 組。 */
     public static List<Combo> combos(List<FieldEval> c, int k) {
-        return combos(c, k, Set.of());
+        return combos(c, k, Map.of());
     }
 
-    public static List<Combo> combos(List<FieldEval> c, int k, Set<Set<String>> pairs) {
+    public static List<Combo> combos(List<FieldEval> c, int k, Map<Set<String>, Set<String>> pairs) {
         List<Combo> all = ranked(c, pairs);
         return List.copyOf(all.subList(0, Math.min(all.size(), 2 * k)));
     }

@@ -95,7 +95,7 @@ public class AnalyzeService {
             .map(e -> compare != null && e.name().equals(compare.sourceColumn())
                 ? new FieldEval(e.field(), e.importance(), "ignore", e.focus()) : e)
             .toList();
-        Set<Set<String>> pairs = compare == null ? Set.of() : compare.pairs();
+        Map<Set<String>, Set<String>> pairs = compare == null ? Map.of() : compare.pairs();
         List<FieldEval> candidates = ConfigAssembler.candidates(evals);
         int k = ConfigAssembler.chartCount(a1.get("chart_count"));
         List<ChartSpec> kept = current == null ? null : ConfigAssembler.kept(current, a1);

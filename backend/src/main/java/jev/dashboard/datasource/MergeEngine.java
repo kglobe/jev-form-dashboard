@@ -33,8 +33,11 @@ public final class MergeEngine {
     /** 輸出欄位的名稱、型別（照輸入欄位）和繼承來的顯示名稱。 */
     public record Output(String name, FieldType type, String label) {}
 
-    /** B2 spec 4.2、5.5：對照組（來自不同來源的兩個數字欄位，名稱組成的 Set）和來源欄名稱。 */
-    public record Comparison(Set<Set<String>> pairs, String sourceColumn) {}
+    /**
+     * B2 spec 4.2、5.5：pairs 是對照組（來自不同來源的兩個數字欄位，名稱組成的 Set）→ 可以當 x 軸的欄位，
+     * 也就是兩個數值的來源都有提供的欄位；sourceColumn 是來源欄名稱。
+     */
+    public record Comparison(Map<Set<String>, Set<String>> pairs, String sourceColumn) {}
 
     private MergeEngine() {}
 
@@ -228,12 +231,17 @@ public final class MergeEngine {
             .map(FieldSchema::name).collect(Collectors.toSet());
         List<Union.Column> measured = u.columns().stream()
             .filter(c -> numbers.contains(c.name()) && c.from().size() == 1).toList();
-        Set<Set<String>> pairs = new HashSet<>();
+        Map<Set<String>, Set<String>> pairs = new HashMap<>();
         for (int i = 0; i < measured.size(); i++) {
             for (int j = i + 1; j < measured.size(); j++) {
-                if (!measured.get(i).from().keySet().equals(measured.get(j).from().keySet())) {
-                    pairs.add(Set.of(measured.get(i).name(), measured.get(j).name()));
-                }
+                Set<UUID> a = measured.get(i).from().keySet();
+                Set<UUID> b = measured.get(j).from().keySet();
+                if (a.equals(b)) continue;
+                // 只有一邊有的欄位當 x 軸，另一個數值整條都是空的
+                Set<String> axes = u.columns().stream()
+                    .filter(c -> c.from().keySet().containsAll(a) && c.from().keySet().containsAll(b))
+                    .map(Union.Column::name).collect(Collectors.toSet());
+                pairs.put(Set.of(measured.get(i).name(), measured.get(j).name()), axes);
             }
         }
         return new Comparison(pairs, u.sourceColumn());
