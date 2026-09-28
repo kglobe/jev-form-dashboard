@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -136,5 +137,55 @@ class UniversalTransformerTest {
         assertThat(d.error()).isEqualTo("FIELD_MISSING");
         assertThat(d.missingField()).isEqualTo("profit");
         assertThat(d.rows()).isNull();
+    }
+
+    /** 對照來源的資料列：每一列只有一邊的數值（B2 spec 5.3）；最後一列沒有日期。 */
+    static final List<Map<String, Object>> COMPARE = List.of(
+        Map.of("date", "2026-01-05", "region", "北區", "sales", 100.0),
+        Map.of("date", "2026-01-20", "region", "南區", "sales", 250.0),
+        Map.of("date", "2026-02-03", "region", "北區", "sales", 200.0),
+        Map.of("date", "2026-02-10", "region", "北區", "refund", 20.0),
+        Map.of("date", "2026-02-11", "region", "東區", "refund", 5.0),
+        Map.of("region", "北區", "refund", 7.0));
+    static final Set<String> COMPARE_FIELDS = Set.of("date", "region", "sales", "refund");
+
+    static ChartData compare(String type, String x, String aggregate, String grain) {
+        return UniversalTransformer.transform(new ChartSpec("c1", type, "t", new GridPos(0, 0, 6, 4),
+            new Mapping(x, null, null, null, List.of("sales", "refund"), null, aggregate, grain), Map.of()),
+            COMPARE, COMPARE_FIELDS);
+    }
+
+    @Test
+    void twoMeasuresAreSummedSeparatelyAndAPeriodWithoutOneSideIsNull() {
+        ChartData d = compare("line", "date", "sum", "month");
+        assertThat(d.dimensions()).containsExactly("date", "sales", "refund");
+        assertThat(d.rows()).isEqualTo(List.of(Arrays.asList("2026-01", 350.0, null), List.of("2026-02", 200.0, 25.0)));
+    }
+
+    @Test
+    void twoMeasuresByCategorySortByTheFirstMeasureWithNullsLast() {
+        ChartData d = compare("bar", "region", "sum", null);
+        assertThat(d.rows()).isEqualTo(List.of(
+            List.of("北區", 300.0, 27.0), Arrays.asList("南區", 250.0, null), Arrays.asList("東區", null, 5.0)));
+    }
+
+    @Test
+    void twoMeasuresAverageAndCountLookOnlyAtEachMeasuresOwnValues() {
+        assertThat(compare("bar", "region", "avg", null).rows()).isEqualTo(List.of(
+            Arrays.asList("南區", 250.0, null), List.of("北區", 150.0, 13.5), Arrays.asList("東區", null, 5.0)));
+        assertThat(compare("bar", "region", "count", null).rows()).isEqualTo(List.of(
+            List.of("北區", 2.0, 2.0), Arrays.asList("南區", 1.0, null), Arrays.asList("東區", null, 1.0)));
+    }
+
+    @Test
+    void countOnlyCountsRowsWhereTheValueIsPresent() {
+        // 南區 2024-04-10 那列的 amount 是空的，不算
+        assertThat(run("bar", xv("region", "amount", "count", null)).rows())
+            .isEqualTo(List.of(List.of("北", 2.0), List.of("南", 1.0)));
+        // 沒有 value 時照舊算列數
+        assertThat(run("bar", xv("region", null, "count", null)).rows())
+            .isEqualTo(List.of(List.of("北", 2.0), List.of("南", 2.0)));
+        ChartData radar = run("radar", new Mapping(null, null, "region", null, List.of("amount", "qty"), null, "count", null));
+        assertThat(radar.rows()).isEqualTo(List.of(List.of("北", 2.0, 2.0), List.of("南", 1.0, 2.0)));
     }
 }
