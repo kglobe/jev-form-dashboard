@@ -173,4 +173,38 @@ class HighlightSummarizerTest {
             List.of(r("2024-05", 100.0), r("2024-06", 150.0)), null, null);
         assertThat(HighlightSummarizer.summarize(spec("bar", noneAgg), barData, TODAY)).isNull();
     }
+
+    static final Mapping RETURN_RATE = new Mapping("date", null, null, "退貨率", null, null, "sum", "month");
+
+    static ChartData percent(String type, List<String> dimensions, List<List<Object>> rows) {
+        return new ChartData("c1", type, dimensions, rows, null, null, null, null, null, true);
+    }
+
+    @Test
+    void ratioChartsComparePercentagesAndTheChangeInPoints() {
+        ChartData d = percent("line", List.of("date", "退貨率"),
+            List.of(r("2024-04", 0.03), r("2024-05", 0.0521), r("2024-06", 0.0649)));
+
+        Map<String, Object> s = HighlightSummarizer.summarize(spec("line", RETURN_RATE), d, TODAY);
+
+        assertThat(s).containsEntry("metric", "退貨率").containsEntry("unit", "%")
+            .containsEntry("previousPeriod", "2024-05").containsEntry("period", "2024-06");
+        assertThat(s.get("series")).isEqualTo(List.of(
+            Map.of("name", "全部", "previous", 5.2, "current", 6.5, "changePoints", 1.3)));
+    }
+
+    @Test
+    void aRatioSeriesWithAnEmptyPeriodIsNotComparedAndACardWithNothingComparableIsSkipped() {
+        Mapping bySeries = new Mapping("date", null, "region", "退貨率", null, null, "sum", "month");
+        ChartData d = percent("stacked_bar", List.of("date", "region", "退貨率"), List.of(
+            r("2024-05", "北", 0.04), r("2024-05", "南", null),
+            r("2024-06", "北", 0.05), r("2024-06", "南", 0.02), r("2024-06", "東", 0.1)));
+
+        // 南區前一期是空白、東區前一期沒有資料，都不比；沒有值不代表比率是 0
+        assertThat(HighlightSummarizer.summarize(spec("stacked_bar", bySeries), d, TODAY).get("series")).isEqualTo(List.of(
+            Map.of("name", "北", "previous", 4.0, "current", 5.0, "changePoints", 1.0)));
+
+        ChartData empty = percent("line", List.of("date", "退貨率"), List.of(r("2024-05", null), r("2024-06", 0.05)));
+        assertThat(HighlightSummarizer.summarize(spec("line", RETURN_RATE), empty, TODAY)).isNull();
+    }
 }

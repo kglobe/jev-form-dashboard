@@ -3,6 +3,7 @@ package jev.dashboard.dashboard;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import jev.dashboard.datasource.Datasource;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
@@ -178,5 +180,32 @@ class DashboardDataServiceTest {
         assertThatThrownBy(() -> service.load("u1", config(bar("c1", SALES, "region", "amount"), bar("c2", RETURNS, "reason", "qty"))))
             .isInstanceOf(ApiException.class)
             .hasMessage("外部 API 無法連線");
+    }
+
+    @Test
+    void ratioChartsGetTheSourcesRatiosTheirTitleUsesTheXLabelAndBothViewsArePercent() {
+        UUID id = UUID.randomUUID();
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("date", FieldType.DATE, 3, List.of(), false, null, null, "日期"),
+            new FieldSchema("sales", FieldType.NUMBER, 2, List.of(), false, null, null, "銷售額"),
+            new FieldSchema("refund", FieldType.NUMBER, 1, List.of(), false, null, null, "退貨額"));
+        Datasource ds = new Datasource(id, "對照", "merged", schema, null, Map.of(), "u1", null)
+            .withRatios(List.of(new Ratio("退貨率", "refund", "sales")));
+        List<Map<String, Object>> rows = List.of(Map.of("date", "2026-06-10", "sales", 50.0),
+            Map.of("date", "2026-07-03", "sales", 100.0), Map.of("date", "2026-07-09", "refund", 5.0));
+        DashboardDataService service = new DashboardDataService(sources(Map.of(id, ds), Map.of(id, rows), Set.of(), new HashMap<>()));
+        ChartSpec line = new ChartSpec("c1", "line", "退貨率 依 date", POS,
+            new Mapping("date", null, null, "退貨率", null, null, "sum", "month"), Map.of(), id);
+
+        ChartData shown = service.display("u1", config(line)).get(0);
+
+        // 比率名稱是使用者取的，沒有顯示名稱；x 軸照舊換
+        assertThat(shown.title()).isEqualTo("退貨率 依 日期");
+        assertThat(shown.dimensions()).isEqualTo(List.of("日期", "退貨率"));
+        assertThat(shown.rows()).isEqualTo(List.of(Arrays.asList("2026-06", null), List.of("2026-07", 0.05)));
+        assertThat(shown.percent()).isTrue();
+        ChartData loaded = service.load("u1", config(line)).get(0);
+        assertThat(loaded.dimensions()).isEqualTo(List.of("date", "退貨率"));
+        assertThat(loaded.percent()).isTrue();
     }
 }

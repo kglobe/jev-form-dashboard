@@ -35,6 +35,8 @@ public final class HighlightSummarizer {
         String previous = periods.get(periods.size() - 2);
         List<String> measures = spec.mapping().measures();
         boolean hasSeries = measures == null && data.dimensions().size() == 3;
+        // B3 spec 5.4：比率的圖比百分點；沒有值不代表比率是 0，不能當 0
+        boolean percent = Boolean.TRUE.equals(data.percent());
 
         Map<String, double[]> bySeries = new LinkedHashMap<>(); // [前一期, 最後一期]
         for (List<Object> row : data.rows()) {
@@ -44,19 +46,32 @@ public final class HighlightSummarizer {
             if (measures != null) {
                 // B2 spec 5.7：兩個數值的圖，每個數值當一條系列，名稱是原始欄位名稱
                 for (int i = 1; i < row.size(); i++) add(bySeries, data.dimensions().get(i), slot, row.get(i));
+            } else if (percent) {
+                put(bySeries, hasSeries ? String.valueOf(row.get(1)) : "全部", slot, row.get(row.size() - 1));
             } else {
                 add(bySeries, hasSeries ? String.valueOf(row.get(1)) : "全部", slot, row.get(row.size() - 1));
             }
         }
-        if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries);
+        if (percent) {
+            // 前一期或最後一期是空白的系列不比；一條都不能比，這張圖就不做異常檢查
+            bySeries.values().removeIf(v -> Double.isNaN(v[0]) || Double.isNaN(v[1]));
+            if (bySeries.isEmpty()) return null;
+        }
+        if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries, !percent);
 
         List<Map<String, Object>> series = new ArrayList<>();
         bySeries.forEach((name, v) -> {
             Map<String, Object> s = new LinkedHashMap<>();
             s.put("name", name);
-            s.put("previous", v[0]);
-            s.put("current", v[1]);
-            s.put("changePercent", v[0] == 0 ? null : Math.round((v[1] - v[0]) / Math.abs(v[0]) * 1000) / 10.0);
+            if (percent) {
+                s.put("previous", points(v[0]));
+                s.put("current", points(v[1]));
+                s.put("changePoints", points(v[1] - v[0]));
+            } else {
+                s.put("previous", v[0]);
+                s.put("current", v[1]);
+                s.put("changePercent", v[0] == 0 ? null : Math.round((v[1] - v[0]) / Math.abs(v[0]) * 1000) / 10.0);
+            }
             series.add(s);
         });
 
@@ -64,6 +79,7 @@ public final class HighlightSummarizer {
         out.put("title", spec.title());
         out.put("metric", measures != null ? String.join("、", measures)
             : spec.mapping().value() == null ? "count" : spec.mapping().value());
+        if (percent) out.put("unit", "%");
         out.put("previousPeriod", previous);
         out.put("period", current);
         out.put("series", series);
@@ -75,8 +91,22 @@ public final class HighlightSummarizer {
         bySeries.computeIfAbsent(name, k -> new double[2])[slot] += v instanceof Number n ? n.doubleValue() : 0;
     }
 
-    /** 留變化 |本期 − 前期| 最大的 MAX_SERIES 個（同分照名字排），其餘加總成「其他」；資料本來就有「其他」就併進去。 */
-    private static Map<String, double[]> keepBiggestChanges(Map<String, double[]> bySeries) {
+    /** 比率：沒有值就是 NaN，不當 0。 */
+    private static void put(Map<String, double[]> bySeries, String name, int slot, Object v) {
+        bySeries.computeIfAbsent(name, k -> new double[] {Double.NaN, Double.NaN})[slot] =
+            v instanceof Number n ? n.doubleValue() : Double.NaN;
+    }
+
+    /** 比率（0.052）換成百分比數字（5.2），四捨五入到小數一位。 */
+    private static double points(double ratio) {
+        return Math.round(ratio * 1000) / 10.0;
+    }
+
+    /**
+     * 留變化 |本期 − 前期| 最大的 MAX_SERIES 個（同分照名字排），其餘加總成「其他」；資料本來就有「其他」就併進去。
+     * sumRest 是 false 時（比率加起來沒有意義），其餘直接不送。
+     */
+    private static Map<String, double[]> keepBiggestChanges(Map<String, double[]> bySeries, boolean sumRest) {
         List<Map.Entry<String, double[]>> ranked = bySeries.entrySet().stream()
             .sorted(Comparator.comparingDouble((Map.Entry<String, double[]> e) -> -Math.abs(e.getValue()[1] - e.getValue()[0]))
                 .thenComparing(Map.Entry::getKey))
@@ -92,7 +122,7 @@ public final class HighlightSummarizer {
                 rest[1] += v[1];
             }
         }
-        kept.merge("其他", rest, (a, b) -> new double[] {a[0] + b[0], a[1] + b[1]});
+        if (sumRest) kept.merge("其他", rest, (a, b) -> new double[] {a[0] + b[0], a[1] + b[1]});
         return kept;
     }
 }

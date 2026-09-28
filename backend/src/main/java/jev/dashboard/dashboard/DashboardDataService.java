@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.datasource.FieldSchema;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.datasource.SchemaInference;
 import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartData;
@@ -26,10 +27,14 @@ public class DashboardDataService {
 
     private final DatasourceService datasources;
 
-    /** 一個來源載入一次的結果。載入失敗時 rows 是 null；name 是查得到的來源名稱，查不到是 null。 */
-    private record Source(String name, List<Map<String, Object>> rows, Set<String> available, Map<String, String> labels) {
+    /**
+     * 一個來源載入一次的結果。載入失敗時 rows 是 null；name 是查得到的來源名稱，查不到是 null。
+     * ratios 是這個來源的比率定義（B3），交給轉換器。
+     */
+    private record Source(String name, List<Map<String, Object>> rows, Set<String> available, Map<String, String> labels,
+                          List<Ratio> ratios) {
         static Source failed(String name) {
-            return new Source(name, null, null, null);
+            return new Source(name, null, null, null, null);
         }
     }
 
@@ -57,7 +62,7 @@ public class DashboardDataService {
                 out.add(ChartData.sourceFailed(s.chartId(), s.type(), src.name()));
                 continue;
             }
-            ChartData d = UniversalTransformer.transform(s, src.rows(), src.available());
+            ChartData d = UniversalTransformer.transform(s, src.rows(), src.available(), src.ratios());
             out.add((labelled ? relabelled(s, d, src.labels()) : d).withSource(src.name()));
         }
         return out;
@@ -93,7 +98,7 @@ public class DashboardDataService {
             : SchemaInference.fieldNames(loaded.rows());
         Map<String, String> labels = schema.stream().filter(f -> f.label() != null)
             .collect(Collectors.toMap(FieldSchema::name, FieldSchema::label));
-        return new Source(loaded.datasource().name(), loaded.rows(), available, labels);
+        return new Source(loaded.datasource().name(), loaded.rows(), available, labels, loaded.datasource().ratios());
     }
 
     /** 載入失敗時才查名稱給卡片顯示；來源本身找不到就沒有名稱。 */
