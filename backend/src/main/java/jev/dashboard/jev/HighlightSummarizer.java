@@ -33,16 +33,20 @@ public final class HighlightSummarizer {
         if (periods.size() < 2) return null;
         String current = periods.getLast();
         String previous = periods.get(periods.size() - 2);
-        boolean hasSeries = data.dimensions().size() == 3;
+        List<String> measures = spec.mapping().measures();
+        boolean hasSeries = measures == null && data.dimensions().size() == 3;
 
         Map<String, double[]> bySeries = new LinkedHashMap<>(); // [前一期, 最後一期]
         for (List<Object> row : data.rows()) {
             String period = String.valueOf(row.get(0));
             int slot = period.equals(current) ? 1 : period.equals(previous) ? 0 : -1;
             if (slot < 0) continue;
-            String name = hasSeries ? String.valueOf(row.get(1)) : "全部";
-            Object v = row.get(row.size() - 1);
-            bySeries.computeIfAbsent(name, k -> new double[2])[slot] += v instanceof Number n ? n.doubleValue() : 0;
+            if (measures != null) {
+                // B2 spec 5.7：兩個數值的圖，每個數值當一條系列，名稱是原始欄位名稱
+                for (int i = 1; i < row.size(); i++) add(bySeries, data.dimensions().get(i), slot, row.get(i));
+            } else {
+                add(bySeries, hasSeries ? String.valueOf(row.get(1)) : "全部", slot, row.get(row.size() - 1));
+            }
         }
         if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries);
 
@@ -58,11 +62,17 @@ public final class HighlightSummarizer {
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("title", spec.title());
-        out.put("metric", spec.mapping().value() == null ? "count" : spec.mapping().value());
+        out.put("metric", measures != null ? String.join("、", measures)
+            : spec.mapping().value() == null ? "count" : spec.mapping().value());
         out.put("previousPeriod", previous);
         out.put("period", current);
         out.put("series", series);
         return out;
+    }
+
+    /** 空值當 0。 */
+    private static void add(Map<String, double[]> bySeries, String name, int slot, Object v) {
+        bySeries.computeIfAbsent(name, k -> new double[2])[slot] += v instanceof Number n ? n.doubleValue() : 0;
     }
 
     /** 留變化 |本期 − 前期| 最大的 MAX_SERIES 個（同分照名字排），其餘加總成「其他」；資料本來就有「其他」就併進去。 */

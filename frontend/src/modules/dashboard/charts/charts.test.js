@@ -69,3 +69,38 @@ describe('toOption', () => {
     expect(o).toMatchSnapshot()
   })
 })
+
+describe('toOption with two measures (B2 spec 6.2)', () => {
+  const compare = (rows, type = 'line') => ({ chartId: 'c8', type, dimensions: ['date', '銷售·amount', '退貨·amount'], rows })
+
+  it('line and bar draw one series per measure with a legend; bars sit side by side on one shared axis', () => {
+    for (const type of ['line', 'bar']) {
+      const o = toOption[type](compare([['2026-07', 1000, 200], ['2026-08', 1200, 300]], type))
+      expect(o.series.map((s) => [s.type, s.name, s.encode, s.stack, s.yAxisIndex])).toEqual([
+        [type, '銷售·amount', { x: 0, y: 1 }, undefined, undefined],
+        [type, '退貨·amount', { x: 0, y: 2 }, undefined, undefined],
+      ])
+      expect(o.legend).toEqual({ type: 'scroll', bottom: 0 })
+      expect(o.yAxis).toEqual({ type: 'value' })
+    }
+  })
+
+  it('more than 10× apart: the second measure moves to a right-hand Y axis and both axes are named', () => {
+    const o = toOption.line(compare([['2026-07', 1100, 100]]))
+    expect(o.yAxis).toEqual([{ type: 'value', name: '銷售·amount' }, { type: 'value', name: '退貨·amount' }])
+    expect(o.series.map((s) => s.yAxisIndex)).toEqual([undefined, 1])
+  })
+
+  it('exactly 10× apart, one side all zero, or one side empty keeps one shared axis', () => {
+    expect(toOption.bar(compare([['北區', 1000, 100]], 'bar')).yAxis).toEqual({ type: 'value' })
+    expect(toOption.bar(compare([['北區', 1000, 0]], 'bar')).yAxis).toEqual({ type: 'value' })
+    expect(toOption.line(compare([['2026-07', 1000, null]])).yAxis).toEqual({ type: 'value' })
+  })
+
+  it('negative values count by their size, and a missing side stays null so the line breaks there', () => {
+    const rows = [['2026-01', -1100, null], ['2026-07', 900, 50]]
+    const o = toOption.line(compare(rows))
+    expect(o.yAxis).toHaveLength(2)
+    expect(o.dataset.source).toEqual(rows)
+  })
+})

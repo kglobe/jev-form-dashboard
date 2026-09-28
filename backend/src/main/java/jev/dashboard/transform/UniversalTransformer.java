@@ -47,6 +47,14 @@ public final class UniversalTransformer {
         if (m.timeGrain() != null && !TimeBucket.GRAINS.contains(m.timeGrain())) {
             return "timeGrain 必須是 " + String.join("、", TimeBucket.GRAINS) + " 其中之一";
         }
+        // B2 spec 5.3、第 8 節：長條圖、折線圖可以用剛好兩個不同的 measures 取代 value
+        if (m.measures() != null && (spec.type().equals("bar") || spec.type().equals("line"))) {
+            if (m.value() != null) return "value 和 measures 只能擇一";
+            if (m.measures().size() != 2 || blank(m.measures()) || m.measures().get(0).equals(m.measures().get(1))) {
+                return "兩個數值的圖需要剛好兩個不同的 measures";
+            }
+            if ("none".equals(m.aggregate())) return "兩個數值的圖不能用 aggregate none";
+        }
         return null;
     }
 
@@ -65,7 +73,10 @@ public final class UniversalTransformer {
         }
         String agg = m.aggregate() != null ? m.aggregate() : defaultAggregate(spec.type());
         return switch (spec.type()) {
-            case "bar", "line", "pie" -> grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain());
+            case "bar", "line" -> m.measures() != null
+                ? measured(spec, rows, m.x(), m.measures(), agg, m.timeGrain())
+                : grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain());
+            case "pie" -> grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain());
             case "stacked_bar" -> grouped(spec, rows, List.of(m.x(), m.series()), m.value(), agg, m.timeGrain());
             case "heatmap" -> grouped(spec, rows, List.of(m.x(), m.y()), m.value(), agg, m.timeGrain());
             case "radar" -> radar(spec, rows, m.series(), m.measures(), agg.equals("none") ? "sum" : agg);
@@ -98,7 +109,8 @@ public final class UniversalTransformer {
             }
             if (key.contains(null)) continue;
             Object v = value == null ? null : row.get(value);
-            if (!agg.equals("count") && !(v instanceof Number)) continue;
+            // B2 spec 5.4：count 只算 value 不是空值的列；沒有 value 時算列數
+            if (agg.equals("count") ? value != null && v == null : !(v instanceof Number)) continue;
             double[] a = acc.computeIfAbsent(key, k -> new double[2]);
             if (v instanceof Number n) a[0] += n.doubleValue();
             a[1]++;
@@ -118,6 +130,43 @@ public final class UniversalTransformer {
         return new ChartData(spec.chartId(), spec.type(), dims, out, null, null);
     }
 
+    /**
+     * B2 spec 5.3：兩個數值各自聚合；某一組沒有這個數值的任何值就是 null，兩個都沒有的組不輸出。
+     * 有 timeGrain 照期別排，沒有就照第一個數值由大到小，null 排最後。
+     */
+    private static ChartData measured(ChartSpec spec, List<Map<String, Object>> rows, String x,
+                                      List<String> measures, String agg, String grain) {
+        Map<Object, double[][]> acc = new LinkedHashMap<>(); // 每個數值一組 [加總, 筆數]
+        for (Map<String, Object> row : rows) {
+            Object key = grain != null ? TimeBucket.of(row.get(x), grain) : row.get(x);
+            if (key == null) continue;
+            for (int i = 0; i < measures.size(); i++) {
+                Object v = row.get(measures.get(i));
+                if (agg.equals("count") ? v == null : !(v instanceof Number)) continue;
+                double[] a = acc.computeIfAbsent(key, k -> new double[measures.size()][2])[i];
+                if (v instanceof Number n) a[0] += n.doubleValue();
+                a[1]++;
+            }
+        }
+        List<List<Object>> out = new ArrayList<>();
+        acc.forEach((key, a) -> {
+            List<Object> r = new ArrayList<>();
+            r.add(key);
+            for (double[] one : a) r.add(one[1] == 0 ? null : result(agg, one));
+            out.add(r);
+        });
+        if (grain != null) {
+            out.sort(Comparator.comparing((List<Object> r) -> String.valueOf(r.get(0))));
+        } else {
+            out.sort(Comparator.comparing((List<Object> r) -> (Double) r.get(1),
+                Comparator.nullsLast(Comparator.<Double>reverseOrder())));
+        }
+        List<String> dims = new ArrayList<>();
+        dims.add(x);
+        dims.addAll(measures);
+        return new ChartData(spec.chartId(), spec.type(), dims, out, null, null);
+    }
+
     private static ChartData radar(ChartSpec spec, List<Map<String, Object>> rows, String series,
                                    List<String> measures, String agg) {
         Map<Object, double[][]> acc = new LinkedHashMap<>();
@@ -128,7 +177,7 @@ public final class UniversalTransformer {
             for (int i = 0; i < measures.size(); i++) {
                 Object v = row.get(measures.get(i));
                 if (v instanceof Number n) a[i][0] += n.doubleValue();
-                if (v instanceof Number || agg.equals("count")) a[i][1]++;
+                if (v instanceof Number || agg.equals("count") && v != null) a[i][1]++;
             }
         }
         List<List<Object>> out = new ArrayList<>();

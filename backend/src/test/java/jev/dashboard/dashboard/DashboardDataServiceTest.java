@@ -120,6 +120,27 @@ class DashboardDataServiceTest {
     }
 
     @Test
+    void displayRelabelsBothMeasuresOfATwoMeasureChart() {
+        UUID id = UUID.randomUUID();
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("date", FieldType.DATE, 2, List.of(), false, null, null, "日期"),
+            new FieldSchema("sales", FieldType.NUMBER, 1, List.of(), false, null, null, "銷售額"),
+            new FieldSchema("refund", FieldType.NUMBER, 1, List.of(), false, null, null, "退貨額"));
+        Datasource ds = new Datasource(id, "對照", "merged", schema, null, Map.of(), "u1", null);
+        List<Map<String, Object>> rows = List.of(
+            Map.of("date", "2026-07-03", "sales", 100.0), Map.of("date", "2026-07-09", "refund", 5.0));
+        DatasourceService datasources = sources(Map.of(id, ds), Map.of(id, rows), Set.of(), new HashMap<>());
+        Mapping m = new Mapping("date", null, null, null, List.of("sales", "refund"), null, "sum", "month");
+        ChartSpec line = new ChartSpec("c1", "line", "sales 與 refund 依 date", POS, m, Map.of(), id);
+
+        ChartData shown = new DashboardDataService(datasources).display("u1", config(line)).get(0);
+
+        assertThat(shown.dimensions()).isEqualTo(List.of("日期", "銷售額", "退貨額"));
+        assertThat(shown.title()).isEqualTo("銷售額 與 退貨額 依 日期");
+        assertThat(shown.rows()).isEqualTo(List.of(List.of("2026-07", 100.0, 5.0)));
+    }
+
+    @Test
     void eachSourceIsLoadedOnceAndEachCardUsesItsOwnSource() {
         Map<UUID, Integer> loads = new HashMap<>();
         DashboardDataService service = new DashboardDataService(sources(TWO, ROWS, Set.of(), loads));

@@ -33,21 +33,40 @@ const fieldsOf = (id) => byId.value[id]?.schema ?? []
 const typeOf = (id, field) => fieldsOf(id).find((f) => f.name === field)?.type
 const fieldItems = (id) => fieldsOf(id).map((f) => ({ title: f.name, value: f.name, prependIcon: FIELD_TYPES[f.type]?.icon }))
 
-// ponytail: 選的來源一變就重排對應表，手動改過的對應會不見；要保留再比對新舊來源
-watch(inputs, (ids) => {
-  const names = [...new Set(ids.flatMap((id) => fieldsOf(id).map((f) => f.name)))]
-  columns.value = names.map((n) => ({
+// 同名的欄位自動對上；only 決定哪些欄位參加（對照時數字欄位另外依來源拆開）
+function matchByName(ids, only = () => true) {
+  const has = (id, n) => fieldsOf(id).some((f) => f.name === n && only(f))
+  const names = [...new Set(ids.flatMap((id) => fieldsOf(id).filter(only).map((f) => f.name)))]
+  return names.map((n) => ({ key: nextKey++, name: n, from: Object.fromEntries(ids.map((id) => [id, has(id, n) ? n : null])) }))
+}
+
+// B2 spec 6.1：對照時，每個來源的每個數字欄位各一列，名稱是「來源名·欄位」，只對應那一個來源
+function splitNumbers(ids) {
+  return ids.flatMap((id) => fieldsOf(id).filter((f) => f.type === 'number').map((f) => ({
     key: nextKey++,
-    name: n,
-    from: Object.fromEntries(ids.map((id) => [id, typeOf(id, n) ? n : null])),
-  }))
+    name: `${nameOf(id)}·${f.name}`,
+    from: Object.fromEntries(ids.map((other) => [other, other === id ? f.name : null])),
+  })))
+}
+
+// ponytail: 選的來源或方式一變就重排對應表，手動改過的對應會不見；要保留再比對新舊來源。切到查表時不動
+watch([inputs, op], ([ids, mode]) => {
+  if (mode === 'union') columns.value = matchByName(ids)
+  if (mode === 'compare') columns.value = [...matchByName(ids, (f) => f.type !== 'number'), ...splitNumbers(ids)]
 })
 
-function typeProblem(c) {
+function columnProblem(c) {
   const used = inputs.value.filter((id) => c.from[id]).map((id) => ({ id, type: typeOf(id, c.from[id]) }))
-  if (new Set(used.map((u) => u.type)).size < 2) return ''
-  return '型別不一致：' + used.map((u) => `${nameOf(u.id)}是${FIELD_TYPES[u.type]?.text ?? u.type}`).join('、')
+  if (new Set(used.map((u) => u.type)).size >= 2) {
+    return '型別不一致：' + used.map((u) => `${nameOf(u.id)}是${FIELD_TYPES[u.type]?.text ?? u.type}`).join('、')
+  }
+  if (op.value === 'compare' && used.length > 1 && used[0].type === 'number') return '對照時數字欄位只能對應一個來源'
+  return ''
 }
+
+const MAX_INPUTS = 5 // B1 spec 4.2：疊加和對照最多 5 個來源
+// 選滿 5 個之後，其他來源停用，不用等按預覽才由後端擋
+const inputProps = (ds) => ({ disabled: inputs.value.length >= MAX_INPUTS && !inputs.value.includes(ds.id) })
 
 const lookupItems = computed(() => props.sources.filter((ds) => ds.id !== main.value))
 
@@ -71,9 +90,10 @@ watch(() => keys.value.map((k) => k.lookup), (now, before) => {
   for (const b of bring.value) if (now.includes(b.from) && !before.includes(b.from)) b.on = false
 })
 
-const definition = computed(() => op.value === 'union'
+const definition = computed(() => op.value !== 'lookup'
   ? {
       op: 'union',
+      ...(op.value === 'compare' && { compare: true }),
       inputs: inputs.value,
       columns: columns.value.map((c) => ({
         name: c.name.trim(),
@@ -90,9 +110,11 @@ const definition = computed(() => op.value === 'union'
     })
 const definitionKey = computed(() => JSON.stringify(definition.value))
 
-const defaultName = computed(() => op.value === 'union'
-  ? inputs.value.map(nameOf).join('＋')
-  : main.value && lookup.value ? `${nameOf(main.value)}（補${nameOf(lookup.value)}）` : '')
+const defaultName = computed(() => {
+  if (op.value === 'union') return inputs.value.map(nameOf).join('＋')
+  if (op.value === 'compare') return inputs.value.length ? `${inputs.value.map(nameOf).join('／')} 對照` : ''
+  return main.value && lookup.value ? `${nameOf(main.value)}（補${nameOf(lookup.value)}）` : ''
+})
 watch(defaultName, (n) => {
   if (!nameEdited.value) name.value = n
 }, { immediate: true })
@@ -103,7 +125,7 @@ watch(definitionKey, () => {
   error.value = ''
 })
 
-const canPreview = computed(() => !busy.value && (op.value === 'union'
+const canPreview = computed(() => !busy.value && (op.value !== 'lookup'
   ? inputs.value.length >= 2
   : !!main.value && !!lookup.value && keys.value.every((k) => k.main && k.lookup)))
 const canCreate = computed(() => !busy.value && !!preview.value && !!name.value.trim())
@@ -141,10 +163,11 @@ async function create() {
   <div>
     <v-radio-group v-model="op" inline hide-details aria-label="合併方式" class="mb-2">
       <v-radio value="union" label="疊加（欄位一樣的資料接起來）" />
+      <v-radio value="compare" label="對照（數值依來源分開比較）" />
       <v-radio value="lookup" label="查表（用主檔補欄位）" />
     </v-radio-group>
 
-    <template v-if="op === 'union'">
+    <template v-if="op !== 'lookup'">
       <v-select
         v-model="inputs"
         :items="sources"
@@ -154,6 +177,7 @@ async function create() {
         multiple
         chips
         closable-chips
+        :item-props="inputProps"
         hint="2～5 個，順序就是資料列的順序"
         persistent-hint
       />
@@ -174,7 +198,7 @@ async function create() {
                   :aria-label="`第 ${i + 1} 欄的輸出名稱`"
                   density="compact"
                   hide-details="auto"
-                  :error-messages="typeProblem(c) || []"
+                  :error-messages="columnProblem(c) || []"
                 />
               </td>
               <td v-for="id in inputs" :key="id">

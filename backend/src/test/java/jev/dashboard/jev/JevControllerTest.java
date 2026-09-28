@@ -219,6 +219,35 @@ class JevControllerTest {
     }
 
     @Test
+    void analyzingACompareSourceAsksTwoMeasureCombosFirst() throws Exception {
+        String sales = TestData.uploadCsv(mvc, "u1", "銷售",
+            "order_date,region,product,amount\n2026-01-05,北區,A,1000\n2026-02-10,南區,B,2000\n");
+        String refunds = TestData.uploadCsv(mvc, "u1", "退貨", "return_date,region,product,amount\n2026-02-12,北區,A,50\n");
+        // 欄位順序對齊 round1.json 的角色：0 時間、1 數值、2 分類、3 分類、4 數值；來源欄排最後
+        String merge = """
+            {"op":"union","compare":true,"inputs":["%1$s","%2$s"],"columns":[
+              {"name":"date","from":{"%1$s":"order_date","%2$s":"return_date"}},
+              {"name":"銷售·amount","from":{"%1$s":"amount"}},
+              {"name":"region","from":{"%1$s":"region","%2$s":"region"}},
+              {"name":"product","from":{"%1$s":"product","%2$s":"product"}},
+              {"name":"退貨·amount","from":{"%2$s":"amount"}}],"sourceColumn":"來源"}""".formatted(sales, refunds);
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售／退貨 對照\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String compared = JsonPath.read(created, "$.id");
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + compared + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout[0].type").value("line"))
+            .andExpect(jsonPath("$.layout[0].mapping.measures[0]").value("銷售·amount"))
+            .andExpect(jsonPath("$.layout[0].mapping.measures[1]").value("退貨·amount"));
+
+        assertThat(JEV.bodies.get(1)).contains("兩個數值來自不同來源，要放在同一張圖上對照。");
+    }
+
+    @Test
     void highlightChecksSensitiveFieldsAgainstEachCardsOwnSource() throws Exception {
         String plain = TestData.uploadSales(mvc, "u1");
         String secret = TestData.uploadSales(mvc, "u1");

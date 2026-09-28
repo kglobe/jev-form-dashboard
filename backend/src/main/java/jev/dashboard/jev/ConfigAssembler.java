@@ -56,6 +56,14 @@ public final class ConfigAssembler {
         boolean hasFocus() {
             return fields.stream().anyMatch(FieldEval::focus);
         }
+
+        /**
+         * B2 spec 5.5：對照組合是一個時間或分類欄位配兩個數值。一般的三欄組合遇到兩個數值時
+         * tripleTypes 不給圖型，所以只有對照組合會有三個欄位、兩個數值。
+         */
+        boolean compare() {
+            return fields.size() == 3 && byRole("measure").size() == 2;
+        }
     }
 
     /** 選出來的一張圖：哪一組欄位、畫成哪種圖。 */
@@ -102,8 +110,16 @@ public final class ConfigAssembler {
         return Stream.concat(focus, others).limit(MAX_CANDIDATES).toList();
     }
 
-    /** 全部合法組合，照 spec 6.3 排序：含焦點欄位的排前面，再比平均重要性，同分照產生順序（穩定排序）。 */
     public static List<Combo> ranked(List<FieldEval> c) {
+        return ranked(c, Map.of());
+    }
+
+    /**
+     * 全部合法組合，照 spec 6.3 排序：含焦點欄位的排前面，再比平均重要性，同分照產生順序（穩定排序）。
+     * provides 只有對照來源才有（B2 spec 4.2）：來自不同來源的兩個數值是對照組，配上時間欄位出折線、長條，
+     * 配上分類欄位出長條，排在焦點之後、其他組合之前；畫不出東西的組合（drawable）一律不要。
+     */
+    public static List<Combo> ranked(List<FieldEval> c, Map<String, Set<String>> provides) {
         List<Combo> all = new ArrayList<>();
         int n = c.size();
         for (int i = 0; i < n; i++) {
@@ -126,15 +142,53 @@ public final class ConfigAssembler {
                 }
             }
         }
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                FieldEval a = c.get(i);
+                FieldEval b = c.get(j);
+                if (!a.role().equals("measure") || !b.role().equals("measure")) continue;
+                Set<String> seenByA = provides.get(a.name());
+                // 對照組：兩個數值都是對照來源的數字欄位，而且來自不同來源
+                if (seenByA == null || !provides.containsKey(b.name()) || seenByA.contains(b.name())) continue;
+                for (FieldEval d : c) {
+                    if (d.role().equals("time")) add(all, List.of(d, a, b), List.of("line", "bar"));
+                    if (d.role().equals("dimension")) add(all, List.of(d, a, b), List.of("bar"));
+                }
+            }
+        }
+        all.removeIf(combo -> !drawable(combo, provides));
         all.sort(Comparator.comparing(Combo::hasFocus).reversed()
+            .thenComparing(Comparator.comparing(Combo::compare).reversed())
             .thenComparing(Comparator.comparingDouble(Combo::score).reversed()));
         return all;
     }
 
     /** 第一次分析要問的組合：排序後的前 2K 組。 */
     public static List<Combo> combos(List<FieldEval> c, int k) {
-        List<Combo> all = ranked(c);
+        return combos(c, k, Map.of());
+    }
+
+    public static List<Combo> combos(List<FieldEval> c, int k, Map<String, Set<String>> provides) {
+        List<Combo> all = ranked(c, provides);
         return List.copyOf(all.subList(0, Math.min(all.size(), 2 * k)));
+    }
+
+    /**
+     * B2 spec 5.5：對照來源裡，每個數值只有自己來源的列有值。組合裡的時間、分類欄位要每個數值的來源都有，
+     * 散佈圖逐列畫，兩個數值要來自同一個來源；不然畫出來是空的。一般來源的 provides 是空的，一律可以畫。
+     */
+    private static boolean drawable(Combo combo, Map<String, Set<String>> provides) {
+        List<FieldEval> measures = combo.byRole("measure");
+        for (FieldEval m : measures) {
+            Set<String> seen = provides.get(m.name());
+            if (seen == null) continue;
+            for (FieldEval f : combo.fields()) {
+                if (!f.role().equals("measure") && !seen.contains(f.name())) return false;
+            }
+        }
+        if (!combo.chartTypes().contains("scatter")) return true;
+        Set<String> seen = provides.get(measures.get(0).name());
+        return seen == null || seen.contains(measures.get(1).name());
     }
 
     /**
@@ -292,9 +346,14 @@ public final class ConfigAssembler {
         String time = t.isEmpty() ? null : t.get(0).name();
         String grain = t.isEmpty() ? null : timeGrain(t.get(0).field());
         return switch (type) {
-            case "line", "bar" -> time != null
-                ? new Mapping(time, null, null, m.get(0).name(), null, null, "sum", grain)
-                : new Mapping(d.get(0).name(), null, null, m.get(0).name(), null, null, "sum", null);
+            case "line", "bar" -> {
+                String x = time != null ? time : d.get(0).name();
+                String g = time != null ? grain : null;
+                // B2 spec 5.5：對照組合的兩個數值放 measures
+                yield m.size() == 2
+                    ? new Mapping(x, null, null, null, List.of(m.get(0).name(), m.get(1).name()), null, "sum", g)
+                    : new Mapping(x, null, null, m.get(0).name(), null, null, "sum", g);
+            }
             case "pie" -> new Mapping(d.get(0).name(), null, null, m.get(0).name(), null, null, "sum", null);
             case "scatter" -> new Mapping(m.get(0).name(), m.get(1).name(), null, null, null, null, "none", null);
             case "radar" -> new Mapping(null, null, d.get(0).name(), null, m.stream().map(FieldEval::name).toList(), null, "sum", null);
@@ -314,6 +373,7 @@ public final class ConfigAssembler {
     public static String title(String type, Mapping m) {
         if (type.equals("scatter")) return m.x() + " 與 " + m.y();
         if (type.equals("radar")) return m.series() + " 各指標比較";
+        if (m.measures() != null) return String.join(" 與 ", m.measures()) + " 依 " + m.x();
         String second = m.series() != null ? m.series() : m.y();
         return m.value() + " 依 " + m.x() + (second == null ? "" : " 與 " + second);
     }

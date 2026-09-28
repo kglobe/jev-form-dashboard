@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.List;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -188,5 +189,29 @@ class DatasourceControllerTest {
         mergeIsRejected("{\"name\":\"x\",\"merge\":{\"op\":\"union\",\"inputs\":[\"" + n + "\"],\"columns\":[],\"sourceColumn\":\"來源\"}}",
             400, "疊加要選 2 到 5 個來源");
         mergeIsRejected("{\"name\":\"x\",\"merge\":" + NORTH_SOUTH.formatted(n, others) + "}", 404, "找不到資料源");
+    }
+
+    @Test
+    void aCompareSourceKeepsCompareInItsDefinition() throws Exception {
+        String sales = TestData.uploadCsv(mvc, "u1", "銷售", "order_date,amount\n2026-07-03,1000\n");
+        String refunds = TestData.uploadCsv(mvc, "u1", "退貨", "return_date,amount\n2026-08-05,50\n");
+        String merge = """
+            {"op":"union","compare":true,"inputs":["%1$s","%2$s"],"columns":[
+              {"name":"date","from":{"%1$s":"order_date","%2$s":"return_date"}},
+              {"name":"銷售·amount","from":{"%1$s":"amount"}},
+              {"name":"退貨·amount","from":{"%2$s":"amount"}}],"sourceColumn":"來源"}""".formatted(sales, refunds);
+
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售／退貨 對照\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.merge.compare").value(true))
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(created, "$.id");
+
+        String list = mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        List<Boolean> compare = JsonPath.read(list, "$[?(@.id == '" + id + "')].merge.compare");
+        assertThat(compare).containsExactly(true);
     }
 }

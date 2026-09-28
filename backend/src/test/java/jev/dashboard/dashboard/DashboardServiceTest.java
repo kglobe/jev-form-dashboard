@@ -90,6 +90,23 @@ class DashboardServiceTest {
     }
 
     @Test
+    void twoMeasureChartsNeedExactlyTwoDifferentMeasuresAndAnAggregate() {
+        Mapping ok = new Mapping("date", null, null, null, List.of("sales", "refund"), null, "sum", "month");
+        assertThatCode(() -> DashboardService.requireComplete(config(card("line", ok)))).doesNotThrowAnyException();
+        assertThatCode(() -> DashboardService.requireComplete(config(card("bar", ok)))).doesNotThrowAnyException();
+
+        rejects(config(card("bar", new Mapping("region", null, null, "sales", List.of("sales", "refund"), null, "sum", null))),
+            "圖表 c1：value 和 measures 只能擇一");
+        String two = "圖表 c1：兩個數值的圖需要剛好兩個不同的 measures";
+        rejects(config(card("line", new Mapping("date", null, null, null, List.of("sales"), null, "sum", null))), two);
+        rejects(config(card("line", new Mapping("date", null, null, null, List.of("sales", "refund", "qty"), null, "sum", null))), two);
+        rejects(config(card("line", new Mapping("date", null, null, null, List.of("sales", "sales"), null, "sum", null))), two);
+        rejects(config(card("line", new Mapping("date", null, null, null, Arrays.asList("sales", null), null, "sum", null))), two);
+        rejects(config(card("bar", new Mapping("region", null, null, null, List.of("sales", "refund"), null, "none", null))),
+            "圖表 c1：兩個數值的圖不能用 aggregate none");
+    }
+
+    @Test
     void gridPosMustFitTheTwelveColumnGrid() {
         rejects(config(at(null)), "圖表 c1：缺少 gridPos");
         for (GridPos bad : List.of(new GridPos(-1, 0, 6, 4), new GridPos(0, -1, 6, 4), new GridPos(0, 0, 0, 4),
