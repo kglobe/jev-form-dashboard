@@ -2,6 +2,7 @@ package jev.dashboard.datasource;
 
 import static jev.dashboard.datasource.CsvSources.csv;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Collections;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -49,6 +51,23 @@ class MergeEngineTest {
     static Loaded labeled(Loaded l, String field, String label) {
         return new Loaded(l.datasource().withSchema(l.datasource().schema().stream()
             .map(f -> f.name().equals(field) ? f.withLabel(label) : f).toList()), l.rows());
+    }
+
+    final Loaded sales = csv("銷售", "order_date,region,amount", "2026-07-03,北區,1000", "2026-08-02,南區,1200");
+    final Loaded refunds = csv("退貨", "return_date,region,amount,qty", "2026-08-05,北區,50,1");
+
+    /** 對照：銷售、退貨，來源欄叫「來源」。 */
+    Union compare(Union.Column... columns) {
+        return new Union(ids(sales, refunds), List.of(columns), "來源", true);
+    }
+
+    Union.Column date() {
+        return new Union.Column("date", from(sales, "order_date", refunds, "return_date"));
+    }
+
+    static Datasource mergedSource(Union u, Loaded... inputs) {
+        List<FieldSchema> schema = MergeEngine.schema(MergeEngine.union(u, List.of(inputs)));
+        return new Datasource(UUID.randomUUID(), "對照", "merged", schema, null, Map.of(), "u1", null, u);
     }
 
     Union regionAmountReason() {
@@ -210,5 +229,56 @@ class MergeEngineTest {
         assertThat(MergeEngine.sources(regionAmountReason(), "來源")).isEmpty();
         assertThat(MergeEngine.sources(productLookup(), "產品主檔·owner")).isEqualTo(Map.of(products.datasource().id(), "owner"));
         assertThat(MergeEngine.sources(productLookup(), "qty")).isEqualTo(Map.of(returns.datasource().id(), "qty"));
+    }
+
+    @Test
+    void compareKeepsEveryNumberColumnToOneSourceAndNeedsTwoSourcesWithNumbers() {
+        Function<UUID, Datasource> input = only(sales, refunds);
+        Union merged = compare(date(), new Union.Column("amount", from(sales, "amount", refunds, "amount")));
+        assertThatThrownBy(() -> MergeEngine.validateUnion(merged, input))
+            .isInstanceOf(ApiException.class).hasMessage("對照時，數字欄位「amount」只能對應一個來源");
+
+        Union oneSide = compare(date(), new Union.Column("銷售·amount", from(sales, "amount")));
+        assertThatThrownBy(() -> MergeEngine.validateUnion(oneSide, input))
+            .isInstanceOf(ApiException.class).hasMessage("對照至少要有兩個來源各提供一個數字欄位");
+        Union sameSource = compare(date(),
+            new Union.Column("退貨·amount", from(refunds, "amount")), new Union.Column("退貨·qty", from(refunds, "qty")));
+        assertThatThrownBy(() -> MergeEngine.validateUnion(sameSource, input))
+            .isInstanceOf(ApiException.class).hasMessage("對照至少要有兩個來源各提供一個數字欄位");
+
+        Union ok = compare(date(), new Union.Column("region", from(sales, "region", refunds, "region")),
+            new Union.Column("銷售·amount", from(sales, "amount")), new Union.Column("退貨·amount", from(refunds, "amount")));
+        assertThatCode(() -> MergeEngine.validateUnion(ok, input)).doesNotThrowAnyException();
+        // 一般疊加照舊可以把兩邊的數字併成一欄
+        Union plain = new Union(ids(sales, refunds), List.of(date(),
+            new Union.Column("amount", from(sales, "amount", refunds, "amount"))), "來源");
+        assertThatCode(() -> MergeEngine.validateUnion(plain, input)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void compareOnlyWarnsAboutTextAndDateColumnsThatSomeSourcesLack() {
+        Union u = compare(date(), new Union.Column("region", from(sales, "region")),
+            new Union.Column("銷售·amount", from(sales, "amount")), new Union.Column("退貨·amount", from(refunds, "amount")));
+        Result r = MergeEngine.union(u, List.of(sales, refunds));
+
+        assertThat(r.warnings()).containsExactly("「region」只有銷售有，其他來源的列這欄是空的");
+        assertThat(r.rows().get(2).keySet()).containsExactly("date", "退貨·amount", "來源");
+        assertThat(r.rows().get(2).get("退貨·amount")).isEqualTo(50.0);
+    }
+
+    @Test
+    void comparisonPairsNumberColumnsFromDifferentSourcesOnly() {
+        Union u = compare(date(), new Union.Column("銷售·amount", from(sales, "amount")),
+            new Union.Column("退貨·amount", from(refunds, "amount")), new Union.Column("退貨·qty", from(refunds, "qty")));
+
+        MergeEngine.Comparison c = MergeEngine.comparison(mergedSource(u, sales, refunds));
+
+        assertThat(c.sourceColumn()).isEqualTo("來源");
+        // 退貨·amount 和 退貨·qty 來自同一個來源，不配對
+        assertThat(c.pairs()).containsExactlyInAnyOrder(Set.of("銷售·amount", "退貨·amount"), Set.of("銷售·amount", "退貨·qty"));
+        // 一般疊加、上傳來源都不是對照
+        Union plain = new Union(u.inputs(), u.columns(), "來源");
+        assertThat(MergeEngine.comparison(mergedSource(plain, sales, refunds))).isNull();
+        assertThat(MergeEngine.comparison(sales.datasource())).isNull();
     }
 }

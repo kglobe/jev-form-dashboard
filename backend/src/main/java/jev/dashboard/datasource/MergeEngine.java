@@ -33,6 +33,9 @@ public final class MergeEngine {
     /** 輸出欄位的名稱、型別（照輸入欄位）和繼承來的顯示名稱。 */
     public record Output(String name, FieldType type, String label) {}
 
+    /** B2 spec 4.2、5.5：對照組（來自不同來源的兩個數字欄位，名稱組成的 Set）和來源欄名稱。 */
+    public record Comparison(Set<Set<String>> pairs, String sourceColumn) {}
+
     private MergeEngine() {}
 
     /** 依 op 分派；def 是 null 代表 request 沒帶 merge。 */
@@ -54,6 +57,7 @@ public final class MergeEngine {
         for (UUID id : ids) byId.put(id, input.apply(id));
         if (u.columns() == null || u.columns().isEmpty()) throw bad("至少要有一個輸出欄位");
         Set<String> taken = new HashSet<>();
+        Set<UUID> numberSources = new HashSet<>(); // 對照：提供數字欄位的來源
         for (Union.Column c : u.columns()) {
             requireName(c == null ? null : c.name(), taken, "欄位名稱");
             if (c.from() == null || c.from().isEmpty()) throw bad("欄位「" + c.name() + "」至少要對應一個來源");
@@ -71,7 +75,13 @@ public final class MergeEngine {
                         + "、在" + ds.name() + "是" + TYPE_ZH.get(f.type()) + "，不能併成同一欄");
                 }
             }
+            // B2 spec 5.1：對照時數字欄位依來源分開
+            if (u.compare() && first.type() == FieldType.NUMBER) {
+                if (c.from().size() > 1) throw bad("對照時，數字欄位「" + c.name() + "」只能對應一個來源");
+                numberSources.add(c.from().keySet().iterator().next());
+            }
         }
+        if (u.compare() && numberSources.size() < 2) throw bad("對照至少要有兩個來源各提供一個數字欄位");
         requireName(u.sourceColumn(), taken, "來源欄名稱");
     }
 
@@ -134,7 +144,8 @@ public final class MergeEngine {
                 if (label == null) label = f.label();
             }
             columns.add(new Output(c.name(), type == null ? FieldType.STRING : type, label));
-            if (has.size() < inputs.size()) {
+            // B2 spec 5.2：對照的數字欄位本來就只來自一個來源，不出提示
+            if (has.size() < inputs.size() && !(u.compare() && type == FieldType.NUMBER)) {
                 warnings.add("「" + c.name() + "」只有" + String.join("、", has) + "有，其他來源的列這欄是空的");
             }
         }
@@ -208,6 +219,24 @@ public final class MergeEngine {
                 date ? f.min() : null, date ? f.max() : null, label));
         }
         return out;
+    }
+
+    /** 不是對照來源回 null。型別看合併來源自己的 schema；只看最上層的定義。 */
+    public static Comparison comparison(Datasource ds) {
+        if (!(ds.merge() instanceof Union u) || !u.compare()) return null;
+        Set<String> numbers = ds.schema().stream().filter(f -> f.type() == FieldType.NUMBER)
+            .map(FieldSchema::name).collect(Collectors.toSet());
+        List<Union.Column> measured = u.columns().stream()
+            .filter(c -> numbers.contains(c.name()) && c.from().size() == 1).toList();
+        Set<Set<String>> pairs = new HashSet<>();
+        for (int i = 0; i < measured.size(); i++) {
+            for (int j = i + 1; j < measured.size(); j++) {
+                if (!measured.get(i).from().keySet().equals(measured.get(j).from().keySet())) {
+                    pairs.add(Set.of(measured.get(i).name(), measured.get(j).name()));
+                }
+            }
+        }
+        return new Comparison(pairs, u.sourceColumn());
     }
 
     /** spec 6.3：提供這個輸出欄位的輸入欄位，輸入來源 id → 欄位名稱；來源欄沒有輸入欄位。 */

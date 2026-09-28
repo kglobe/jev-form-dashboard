@@ -12,8 +12,15 @@ import java.util.UUID;
     @JsonSubTypes.Type(value = MergeDefinition.Union.class, name = "union"),
     @JsonSubTypes.Type(value = MergeDefinition.Lookup.class, name = "lookup")})
 public sealed interface MergeDefinition {
-    /** inputs 的順序就是資料列的順序；sourceColumn 是標出每列來自哪個來源的欄位。 */
-    record Union(List<UUID> inputs, List<Column> columns, String sourceColumn) implements MergeDefinition {
+    /**
+     * inputs 的順序就是資料列的順序；sourceColumn 是標出每列來自哪個來源的欄位。
+     * compare 是對照（B2 spec 4.1）：數字欄位依來源分開，JSON 沒寫就是 false。
+     */
+    record Union(List<UUID> inputs, List<Column> columns, String sourceColumn, boolean compare) implements MergeDefinition {
+        public Union(List<UUID> inputs, List<Column> columns, String sourceColumn) {
+            this(inputs, columns, sourceColumn, false);
+        }
+
         /** from：輸入來源 id → 那個來源裡提供這個輸出欄位的欄位名稱。 */
         public record Column(String name, Map<UUID, String> from) {}
     }
