@@ -849,4 +849,24 @@ describe('ChartBuilder', () => {
     await adjustWith(wrapper, '二')
     expect(api.analyze).toHaveBeenLastCalledWith('ds2', ['一', '二'], first.layout)
   })
+
+  it('比率 follow the fields as % chips with the formula on hover, and can be picked as focus fields', async () => {
+    const [sales, ...rest] = sources()
+    api.listDatasources.mockResolvedValue([
+      { ...sales, ratios: [{ name: '退貨率', numerator: '退貨·amount', denominator: '銷售·amount', sensitive: false }] },
+      ...rest,
+    ])
+    api.analyze.mockResolvedValue({ name: 'p', datasourceId: 'ds1', layout: [table('c1', 0)] })
+    await mountBuilder()
+
+    expect(chips().map((c) => c.textContent.trim())).toEqual(['地區', 'amount', '退貨率'])
+    expect(chips()[2].getAttribute('title')).toBe('退貨率（比率：退貨·amount ÷ 銷售·amount）')
+    expect(chips()[2].querySelector('.mdi-percent')).not.toBeNull()
+
+    chips()[2].click()
+    await flushPromises()
+    expect(chips()[2].getAttribute('aria-checked')).toBe('true')
+    await runAnalyze()
+    expect(api.analyze).toHaveBeenLastCalledWith('ds1', undefined, undefined, ['退貨率'])
+  })
 })

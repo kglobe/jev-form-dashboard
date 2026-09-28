@@ -19,6 +19,7 @@ import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.jev.ConfigAssembler.Combo;
 import jev.dashboard.jev.ConfigAssembler.FieldEval;
 import jev.dashboard.transform.ChartSpec;
@@ -505,5 +506,115 @@ class ConfigAssemblerTest {
             .containsExactly(List.of("refund", "qty"));
         // 銷售的數值照舊可以依 region 畫
         assertThat(ranked).extracting(ConfigAssemblerTest::names).contains(List.of("sales", "region"));
+    }
+
+    static final Ratio RETURN_RATE = new Ratio("退貨率", "refund", "sales");
+
+    /** 比率的 FieldEval，跟 ConfigAssembler.evaluate 做出來的一樣。 */
+    static FieldEval ratio(Ratio r, double importance) {
+        return new FieldEval(new FieldSchema(r.name(), NUMBER, 0, List.of(), false, null, null), importance, "measure", false, r);
+    }
+
+    @Test
+    void evaluateAddsEachRatioAfterTheFieldsAsAMeasureWithItsOwnImportanceAndRelevance() {
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("sales", NUMBER, 9, List.of(), false, null, null),
+            new FieldSchema("refund", NUMBER, 5, List.of(), false, null, null));
+        Ratio margin = new Ratio("毛利率", "refund", "sales");
+        Map<String, Answer> answers = Map.of("imp_2", score(2.0), "rel_2", rel(2, 0.9), "imp_3", score(1.0));
+
+        List<FieldEval> evals = ConfigAssembler.evaluate(schema, List.of(RETURN_RATE, margin), answers);
+
+        assertThat(evals).extracting(FieldEval::name, FieldEval::importance, FieldEval::role, FieldEval::focus).containsExactly(
+            tuple("sales", 0.0, "ignore", false), tuple("refund", 0.0, "ignore", false),
+            tuple("退貨率", 2.0, "measure", true), tuple("毛利率", 1.0, "measure", false));
+        assertThat(evals).extracting(FieldEval::ratio).containsExactly(null, null, RETURN_RATE, margin);
+    }
+
+    @Test
+    void ratiosAreAlwaysCandidatesRightAfterTheFocusFields() {
+        List<FieldEval> evals = List.of(
+            eval("amount", NUMBER, 12, 3, "measure"),
+            ratio(new Ratio("毛利率", "gross_profit", "amount"), 0),
+            focus(eval("region", STRING, 4, 0, "dimension")),
+            ratio(RETURN_RATE, 2),
+            eval("memo", STRING, 12, 3, "ignore"));
+
+        // 重要性是 0 的比率也進候選；比率之間照重要性排
+        assertThat(ConfigAssembler.candidates(evals)).extracting(FieldEval::name)
+            .containsExactly("region", "退貨率", "毛利率", "amount");
+    }
+
+    @Test
+    void aRatioIsDrawnByTimeAsLineOrBarAndByCategoryAsBarOnly() {
+        FieldEval date = compareCandidates().get(0);
+        List<FieldEval> cands = List.of(date, eval("region", STRING, 4, 2, "dimension"),
+            eval("sales", NUMBER, 9, 2, "measure"), eval("qty", NUMBER, 5, 1, "measure"), ratio(RETURN_RATE, 1));
+
+        List<Combo> ranked = ConfigAssembler.ranked(cands);
+
+        // 不出圓餅（region 只有 4 個分類也不出）、散佈、堆疊、熱力
+        assertThat(ranked).filteredOn(c -> names(c).contains("退貨率"))
+            .extracting(ConfigAssemblerTest::names, Combo::chartTypes).containsExactly(
+                tuple(List.of("date", "退貨率"), List.of("line", "bar")),
+                tuple(List.of("region", "退貨率"), List.of("bar")));
+        // 比率不算進雷達圖的數值：只剩 sales、qty 兩個，不到三個
+        assertThat(ranked).noneMatch(c -> c.chartTypes().contains("radar"));
+        // region 配一般數值照舊有圓餅
+        assertThat(ranked).filteredOn(c -> names(c).equals(List.of("region", "sales"))).singleElement()
+            .extracting(Combo::chartTypes).isEqualTo(List.of("bar", "pie"));
+    }
+
+    @Test
+    void ratioCombosShareTheCompareTierBetweenFocusCombosAndTheRest() {
+        List<FieldEval> cands = new ArrayList<>(compareCandidates());
+        cands.add(ratio(RETURN_RATE, 0));
+
+        List<Combo> ranked = ConfigAssembler.ranked(cands, SALES_VS_REFUNDS);
+
+        // 同一層裡照平均重要性：四個對照組合在前，兩個比率組合接著；重要性更高的一般組合（例如 date 配 sales）排在後面
+        assertThat(ranked.subList(0, 6)).allMatch(c -> c.compare() || names(c).contains("退貨率"));
+        assertThat(names(ranked.get(4))).containsExactly("date", "退貨率");
+        assertThat(names(ranked.get(5))).containsExactly("region", "退貨率");
+        // 比率不跟其他數值組成對照組
+        assertThat(ranked).filteredOn(c -> names(c).contains("退貨率")).allMatch(c -> c.fields().size() == 2);
+
+        cands.set(2, focus(cands.get(2))); // region 是焦點欄位
+        List<Combo> focused = ConfigAssembler.ranked(cands, SALES_VS_REFUNDS);
+        assertThat(focused.subList(0, 3)).extracting(ConfigAssemblerTest::names).containsExactly(
+            List.of("region", "sales", "refund"), List.of("region", "sales", "qty"), List.of("region", "退貨率"));
+        assertThat(focused.get(3).hasFocus()).isTrue();
+    }
+
+    @Test
+    void onACompareSourceARatioOnlyGoesWithFieldsBothOfItsSourcesHave() {
+        // region 只有銷售有；退貨率的分子來自退貨、分母來自銷售，兩邊都有的只有 date
+        Map<String, Set<String>> regionOnlyInSales = Map.of(
+            "sales", Set.of("date", "region", "sales"),
+            "refund", Set.of("date", "refund", "qty"),
+            "qty", Set.of("date", "refund", "qty"));
+        List<FieldEval> cands = new ArrayList<>(compareCandidates());
+        cands.add(ratio(RETURN_RATE, 1));
+
+        assertThat(ConfigAssembler.ranked(cands, regionOnlyInSales)).filteredOn(c -> names(c).contains("退貨率"))
+            .extracting(ConfigAssemblerTest::names).containsExactly(List.of("date", "退貨率"));
+    }
+
+    @Test
+    void ratioCombosBecomeSingleValueChartsThatPassValidation() {
+        FieldEval date = compareCandidates().get(0);
+        List<FieldEval> cands = List.of(date, eval("region", STRING, 4, 2, "dimension"), ratio(RETURN_RATE, 2));
+        List<Combo> combos = ConfigAssembler.combos(cands, 2);
+        Map<String, Answer> round2 = Map.of("combo_0", choice("line", 0.9), "combo_1", choice("bar", 0.9));
+
+        List<ChartSpec> layout = ConfigAssembler.assemble(combos, round2, 2, List.of("date", "region"));
+
+        assertThat(layout.get(0).mapping()).isEqualTo(new Mapping("date", null, null, "退貨率", null, null, "sum", "month"));
+        assertThat(layout.get(0).title()).isEqualTo("退貨率 依 date");
+        assertThat(layout.get(1).mapping()).isEqualTo(new Mapping("region", null, null, "退貨率", null, null, "sum", null));
+        assertThat(layout.get(1).title()).isEqualTo("退貨率 依 region");
+        DashboardConfig c = new DashboardConfig(null, "比率", null,
+            layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList());
+        assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
     }
 }

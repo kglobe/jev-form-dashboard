@@ -214,4 +214,44 @@ class DatasourceControllerTest {
         List<Boolean> compare = JsonPath.read(list, "$[?(@.id == '" + id + "')].merge.compare");
         assertThat(compare).containsExactly(true);
     }
+
+    @Test
+    void ratiosArePatchedAsAWholeListValidatedAndListedWithTheirSensitivity() throws Exception {
+        String id = TestData.uploadSales(mvc, "u1");
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+            .andExpect(jsonPath("$[0].ratios.length()").value(0));
+
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ratios\":[{\"name\":\" 單價 \",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.ratios[0].name").value("單價"))
+            .andExpect(jsonPath("$.ratios[0].numerator").value("amount"))
+            .andExpect(jsonPath("$.ratios[0].denominator").value("qty"))
+            .andExpect(jsonPath("$.ratios[0].sensitive").value(false));
+
+        // 分母標成敏感，比率跟著敏感
+        mvc.perform(patch("/api/datasources/" + id + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"qty\"]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.ratios[0].sensitive").value(true));
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+            .andExpect(jsonPath("$[0].ratios[0].sensitive").value(true));
+
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ratios\":[{\"name\":\"x\",\"numerator\":\"region\",\"denominator\":\"qty\"}]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("分子「region」不是這個來源的數字欄位"));
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u2")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"ratios\":[]}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+
+        // 沒帶 ratios 就是清空
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.ratios.length()").value(0));
+    }
 }

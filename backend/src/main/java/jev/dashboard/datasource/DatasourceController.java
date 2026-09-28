@@ -19,6 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class DatasourceController {
     public record SensitiveFields(List<String> fields) {}
     public record FieldLabels(Map<String, String> labels) {}
+    public record RatioList(List<Ratio> ratios) {}
     public record ApiRegistration(String name, String url, Map<String, String> headers) {}
     /** merge 是合併定義，JSON 用 op 分辨疊加（union）和查表（lookup），見 spec 4.2、4.3。 */
     public record MergeRequest(String name, MergeDefinition merge) {}
@@ -68,5 +69,12 @@ public class DatasourceController {
     public Datasource labels(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
                              @RequestBody FieldLabels body) {
         return service.setLabels(userId, id, body.labels() == null ? Map.of() : body.labels());
+    }
+
+    /** B3 spec 第 7 節：整份取代，新增、刪除都用這支。 */
+    @PatchMapping("/{id}/ratios")
+    public Datasource ratios(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+                             @RequestBody RatioList body) {
+        return service.setRatios(userId, id, body.ratios() == null ? List.of() : body.ratios());
     }
 }

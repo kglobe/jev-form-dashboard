@@ -23,6 +23,7 @@ public class DatasourceRepository {
     private static final TypeReference<Map<String, String>> HEADERS = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> ROW = new TypeReference<>() {};
     private static final TypeReference<MergeDefinition> MERGE = new TypeReference<>() {};
+    private static final TypeReference<List<Ratio>> RATIOS = new TypeReference<>() {};
 
     private final JdbcClient jdbc;
     private final JdbcTemplate jdbcTemplate;
@@ -34,6 +35,7 @@ public class DatasourceRepository {
         this.json = json;
     }
 
+    /** ratios_json 不寫，用欄位預設的空清單：新建的來源一律沒有比率（B3 spec 第 7 節）。 */
     public void insert(Datasource d) {
         jdbc.sql("""
                 insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by, merge_json)
@@ -70,6 +72,12 @@ public class DatasourceRepository {
             .update();
     }
 
+    public void updateRatios(UUID id, List<Ratio> ratios) {
+        jdbc.sql("update datasource set ratios_json = cast(:ratios as jsonb) where id = :id")
+            .param("ratios", write(ratios)).param("id", id)
+            .update();
+    }
+
     public void insertRows(UUID id, List<Map<String, Object>> rows) {
         List<Object[]> args = new ArrayList<>(rows.size());
         for (int i = 0; i < rows.size(); i++) args.add(new Object[] {id, i, write(rows.get(i))});
@@ -95,7 +103,8 @@ public class DatasourceRepository {
             read(rs.getString("api_headers_json"), HEADERS),
             rs.getString("created_by"),
             rs.getObject("created_at", OffsetDateTime.class),
-            merge == null ? null : read(merge, MERGE));
+            merge == null ? null : read(merge, MERGE),
+            read(rs.getString("ratios_json"), RATIOS));
     }
 
     private String write(Object value) {

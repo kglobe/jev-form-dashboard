@@ -116,14 +116,46 @@ public class DatasourceService {
             String label = labels.get(f.name());
             return f.withLabel(label == null || label.isBlank() ? null : label.strip());
         }).toList();
-        // 圖表的 dataset 用顯示名稱當維度名，重複了 ECharts 會分不出來
-        Set<String> seen = new HashSet<>();
+        // 圖表的 dataset 用顯示名稱當維度名，重複了 ECharts 會分不出來；比率名稱也會當維度名（B3）
+        Set<String> seen = ds.ratios().stream().map(Ratio::name).collect(Collectors.toCollection(HashSet::new));
         for (FieldSchema f : schema) {
             String shown = f.label() != null ? f.label() : f.name();
             if (!seen.add(shown)) throw new ApiException(BAD_REQUEST, "顯示名稱「" + shown + "」重複");
             if (shown.length() > 50) throw new ApiException(BAD_REQUEST, "顯示名稱最多 50 個字");
         }
         repo.updateSchema(id, schema);
+        return get(userId, id);
+    }
+
+    /**
+     * B3 spec 4.2：整份取代。名稱去掉頭尾空白，不能跟欄位名稱、顯示名稱或其他比率重複；
+     * 分子、分母要是這個來源的兩個不同的數字欄位。存進去的 sensitive 一律是 false，讀取時才算。
+     */
+    public Datasource setRatios(String userId, UUID id, List<Ratio> ratios) {
+        Datasource ds = stored(userId, id);
+        Set<String> taken = new HashSet<>();
+        Set<String> numbers = new HashSet<>();
+        for (FieldSchema f : ds.schema()) {
+            taken.add(f.name());
+            if (f.label() != null) taken.add(f.label());
+            if (f.type() == FieldType.NUMBER) numbers.add(f.name());
+        }
+        List<Ratio> out = new ArrayList<>();
+        for (Ratio r : ratios) {
+            String name = r == null || r.name() == null ? "" : r.name().strip();
+            if (name.isEmpty()) throw new ApiException(BAD_REQUEST, "比率名稱不能空白");
+            if (name.length() > 50) throw new ApiException(BAD_REQUEST, "比率名稱最多 50 個字");
+            if (!taken.add(name)) throw new ApiException(BAD_REQUEST, "比率名稱「" + name + "」跟欄位或其他比率重複");
+            if (!numbers.contains(r.numerator())) {
+                throw new ApiException(BAD_REQUEST, "分子「" + r.numerator() + "」不是這個來源的數字欄位");
+            }
+            if (!numbers.contains(r.denominator())) {
+                throw new ApiException(BAD_REQUEST, "分母「" + r.denominator() + "」不是這個來源的數字欄位");
+            }
+            if (r.numerator().equals(r.denominator())) throw new ApiException(BAD_REQUEST, "分子和分母不能是同一個欄位");
+            out.add(new Ratio(name, r.numerator(), r.denominator()));
+        }
+        repo.updateRatios(id, out);
         return get(userId, id);
     }
 
@@ -183,9 +215,16 @@ public class DatasourceService {
         };
     }
 
-    /** spec 6.3：合併來源實際的敏感設定＝自己勾的，或任何一個提供這欄的輸入欄位是敏感的。讀取時才算，不存。 */
+    /**
+     * spec 6.3：合併來源實際的敏感設定＝自己勾的，或任何一個提供這欄的輸入欄位是敏感的。
+     * B3 spec 4.3：分子或分母敏感（含繼承）時，比率也敏感。兩者都是讀取時才算，不存。
+     */
     private Datasource effective(Datasource ds, Function<UUID, Datasource> find) {
-        return "merged".equals(ds.kind()) ? ds.withSchema(inherit(ds.merge(), ds.schema(), find)) : ds;
+        Datasource d = "merged".equals(ds.kind()) ? ds.withSchema(inherit(ds.merge(), ds.schema(), find)) : ds;
+        Set<String> sensitive = d.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name)
+            .collect(Collectors.toSet());
+        return d.withRatios(d.ratios().stream()
+            .map(r -> r.withSensitive(sensitive.contains(r.numerator()) || sensitive.contains(r.denominator()))).toList());
     }
 
     private List<FieldSchema> inherit(MergeDefinition def, List<FieldSchema> schema, Function<UUID, Datasource> find) {

@@ -6,16 +6,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** merge 只有合併來源（kind = merged）才有，其他來源是 null，JSON 不輸出。 */
+/**
+ * merge 只有合併來源（kind = merged）才有，其他來源是 null，JSON 不輸出。
+ * ratios 是使用者加的比率（B3 spec 4.1），沒有就是空清單。
+ */
 public record Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                          Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt,
-                         @JsonInclude(JsonInclude.Include.NON_NULL) MergeDefinition merge) {
+                         @JsonInclude(JsonInclude.Include.NON_NULL) MergeDefinition merge, List<Ratio> ratios) {
     public Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                       Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt) {
-        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, null);
+        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, null, List.of());
+    }
+
+    public Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
+                      Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt, MergeDefinition merge) {
+        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, List.of());
     }
 
     public Datasource withSchema(List<FieldSchema> value) {
-        return new Datasource(id, name, kind, value, apiUrl, apiHeaders, createdBy, createdAt, merge);
+        return new Datasource(id, name, kind, value, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios);
+    }
+
+    public Datasource withRatios(List<Ratio> value) {
+        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, value);
     }
 }

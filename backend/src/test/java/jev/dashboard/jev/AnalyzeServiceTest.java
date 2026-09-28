@@ -18,6 +18,7 @@ import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
 import jev.dashboard.datasource.MergeEngine;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
@@ -232,6 +233,55 @@ class AnalyzeServiceTest {
 
             assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("table");
             assertThat(c.layout().get(0).mapping().columns()).containsExactly("銷售·amount");
+        }
+    }
+
+    @Test
+    void ratiosAreAskedAfterTheFieldsWithTheirFormulaAndDrawnAsSingleValueCharts() throws Exception {
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("order_date", FieldType.DATE, 12, List.of("2024-01-05"), false, "2024-01-05", "2024-06-20"),
+            new FieldSchema("region", FieldType.STRING, 4, List.of("北區"), false, null, null),
+            new FieldSchema("revenue", FieldType.NUMBER, 12, List.of("1200"), false, null, null),
+            new FieldSchema("gross_profit", FieldType.NUMBER, 12, List.of("300"), false, null, null));
+        List<Ratio> ratios = List.of(new Ratio("毛利率", "gross_profit", "revenue"));
+        // 毛利率的重要性是 0，照樣一定進候選；gross_profit 不重要，不進候選
+        String round1 = """
+            {"model":"jev-1.13.0","answers":{
+              "imp_0":{"type":"score","score":3.0,"confidence":0.9},"role_0":{"type":"choice","choice":"time","confidence":0.9},
+              "imp_1":{"type":"score","score":2.0,"confidence":0.9},"role_1":{"type":"choice","choice":"dimension","confidence":0.9},
+              "imp_2":{"type":"score","score":2.0,"confidence":0.9},"role_2":{"type":"choice","choice":"measure","confidence":0.9},
+              "imp_3":{"type":"score","score":0.0,"confidence":0.9},"role_3":{"type":"choice","choice":"measure","confidence":0.9},
+              "imp_4":{"type":"score","score":0.0,"confidence":0.9},
+              "chart_count":{"type":"score","score":1.0,"confidence":0.9}}}""";
+        // 比率組合排在一般組合前面：combo_0 是毛利率配 order_date，combo_1 是毛利率配 region
+        String round2 = """
+            {"model":"jev-1.13.0","answers":{
+              "combo_0":{"type":"choice","choice":"line","confidence":0.9},
+              "combo_1":{"type":"choice","choice":"bar","confidence":0.9}}}""";
+
+        try (FakeJevServer server = FakeJevServer.start(body -> body.contains("\"combo_0\"") ? round2 : round1)) {
+            DashboardConfig c = service(server).analyze("毛利 總覽", UUID.randomUUID(), schema, 12,
+                List.of(), null, Set.of(), null, ratios);
+
+            assertThat(c.layout()).extracting(ChartSpec::type, ChartSpec::title).containsExactly(
+                tuple("line", "毛利率 依 order_date"), tuple("bar", "毛利率 依 region"), tuple("table", "明細"));
+            assertThat(c.layout().get(0).mapping())
+                .isEqualTo(new Mapping("order_date", null, null, "毛利率", null, null, "sum", "month"));
+            // 明細表不放比率
+            assertThat(c.layout().get(2).mapping().columns()).containsExactly("order_date", "region", "revenue");
+            assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
+
+            JsonNode fields = JSON.readTree(server.bodies.get(0)).at("/state/fields");
+            assertThat(fields).hasSize(5);
+            assertThat(JSON.convertValue(fields.get(4), new TypeReference<Map<String, Object>>() {}))
+                .isEqualTo(Map.of("name", "毛利率", "type", "ratio", "formula", "gross_profit ÷ revenue"));
+            assertThat(server.bodies.get(0)).contains("\"imp_4\"").contains("比率「毛利率」對分析這份資料有多重要？")
+                .doesNotContain("\"role_4\"").doesNotContain("rel_");
+            assertThat(server.bodies.get(1)).contains("「毛利率」是比率＝gross_profit ÷ revenue，每組先各自加總再相除。");
+
+            // 有需求時也問比率的相關性
+            service(server).analyze("毛利 總覽", UUID.randomUUID(), schema, 12, List.of("毛利"), null, Set.of(), null, ratios);
+            assertThat(server.bodies.get(2)).contains("\"rel_4\"").contains("比率「毛利率」跟這個需求有多相關？");
         }
     }
 }

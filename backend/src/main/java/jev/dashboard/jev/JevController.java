@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.dashboard.DashboardDataService;
@@ -17,6 +18,7 @@ import jev.dashboard.datasource.Datasource;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.MergeEngine;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.UniversalTransformer;
@@ -65,7 +67,7 @@ public class JevController {
         return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
             loaded.datasource().schema(), loaded.rows().size(), intents, body.current(),
             body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()),
-            MergeEngine.comparison(loaded.datasource()));
+            MergeEngine.comparison(loaded.datasource()), loaded.datasource().ratios());
     }
 
     /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */
@@ -78,9 +80,10 @@ public class JevController {
     public List<Highlight> highlight(@RequestHeader("X-User-Id") String userId, @PathVariable UUID dashboardId) {
         DashboardConfig c = dashboards.get(userId, dashboardId);
         List<ChartData> data = dashboardData.load(userId, c);
-        // 每個來源各自的敏感欄位（多來源 spec 第 7 節）
+        // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
         Map<UUID, Set<String>> sensitive = datasources.list(userId).stream().collect(Collectors.toMap(Datasource::id,
-            ds -> ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name).collect(Collectors.toSet())));
+            ds -> Stream.concat(ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name),
+                ds.ratios().stream().filter(Ratio::sensitive).map(Ratio::name)).collect(Collectors.toSet())));
 
         // 卡片只要用到它自己來源裡任何被標記敏感的欄位就整張跳過，不送進異常檢查；
         // 清單裡找不到的來源查不到敏感設定，也不送

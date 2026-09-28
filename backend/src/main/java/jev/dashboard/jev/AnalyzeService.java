@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.MergeEngine;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.jev.ConfigAssembler.Combo;
 import jev.dashboard.jev.ConfigAssembler.FieldEval;
 import jev.dashboard.transform.ChartSpec;
@@ -64,8 +66,15 @@ public class AnalyzeService {
     public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
                                    List<String> intents, List<ChartSpec> current, Set<String> picked,
                                    MergeEngine.Comparison compare) {
+        return analyze(name, datasourceId, schema, rowCount, intents, current, picked, compare, List.of());
+    }
+
+    /** @param ratios 這個來源的比率（B3 spec 5.3）：接在欄位後面問，一定進候選，不進明細表 */
+    public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
+                                   List<String> intents, List<ChartSpec> current, Set<String> picked,
+                                   MergeEngine.Comparison compare, List<Ratio> ratios) {
         String intent = intents.isEmpty() ? null : intents.get(intents.size() - 1);
-        Map<String, Object> state = state(schema, rowCount, intents, current);
+        Map<String, Object> state = state(schema, ratios, rowCount, intents, current);
 
         Map<String, Question> round1 = new LinkedHashMap<>();
         for (int i = 0; i < schema.size(); i++) {
@@ -75,6 +84,16 @@ public class AnalyzeService {
             if (intent != null) {
                 round1.put("rel_" + i, Question.score(
                     "使用者想看：「" + intent + "」。欄位「" + field + "」跟這個需求有多相關？", RELEVANCE));
+            }
+        }
+        // B3 spec 5.3：比率接在欄位後面編號，只問重要性和相關性，角色固定是 measure
+        for (int j = 0; j < ratios.size(); j++) {
+            int i = schema.size() + j;
+            String ratio = ratios.get(j).name();
+            round1.put("imp_" + i, Question.score("比率「" + ratio + "」對分析這份資料有多重要？", IMPORTANCE));
+            if (intent != null) {
+                round1.put("rel_" + i, Question.score(
+                    "使用者想看：「" + intent + "」。比率「" + ratio + "」跟這個需求有多相關？", RELEVANCE));
             }
         }
         if (current == null) {
@@ -89,8 +108,8 @@ public class AnalyzeService {
         }
         Map<String, Answer> a1 = jev.ask(state, round1);
 
-        List<FieldEval> evals = ConfigAssembler.evaluate(schema, a1).stream()
-            .map(e -> picked.contains(e.name()) ? new FieldEval(e.field(), e.importance(), e.role(), true) : e)
+        List<FieldEval> evals = ConfigAssembler.evaluate(schema, ratios, a1).stream()
+            .map(e -> picked.contains(e.name()) ? new FieldEval(e.field(), e.importance(), e.role(), true, e.ratio()) : e)
             // B2 spec 5.5：對照來源的來源欄不拿來畫圖，也不進明細表
             .map(e -> compare != null && e.name().equals(compare.sourceColumn())
                 ? new FieldEval(e.field(), e.importance(), "ignore", e.focus()) : e)
@@ -115,10 +134,11 @@ public class AnalyzeService {
 
         List<ChartSpec> layout;
         if (current == null) {
-            List<String> tableColumns = (candidates.isEmpty()
+            // B3 spec 5.3：明細表不放比率；候選裡只剩比率時，跟沒有候選一樣放全部欄位
+            List<String> columns = candidates.stream().filter(e -> e.ratio() == null).map(FieldEval::name).toList();
+            List<String> tableColumns = !columns.isEmpty() ? columns
                 // B2 spec 5.5：對照來源的來源欄不進明細表
-                ? schema.stream().map(FieldSchema::name).filter(n -> compare == null || !n.equals(compare.sourceColumn()))
-                : candidates.stream().map(FieldEval::name)).toList();
+                : schema.stream().map(FieldSchema::name).filter(n -> compare == null || !n.equals(compare.sourceColumn())).toList();
             layout = ConfigAssembler.assemble(combos, a2, k, tableColumns);
         } else {
             Set<String> focus = evals.stream().filter(FieldEval::focus).map(FieldEval::name).collect(Collectors.toSet());
@@ -138,6 +158,11 @@ public class AnalyzeService {
 
     static Map<String, Object> state(List<FieldSchema> schema, long rowCount, List<String> intents,
                                      List<ChartSpec> current) {
+        return state(schema, List.of(), rowCount, intents, current);
+    }
+
+    static Map<String, Object> state(List<FieldSchema> schema, List<Ratio> ratios, long rowCount, List<String> intents,
+                                     List<ChartSpec> current) {
         List<Map<String, Object>> fields = new ArrayList<>();
         for (FieldSchema f : schema) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -147,6 +172,14 @@ public class AnalyzeService {
                 m.put("distinctCount", f.distinctCount());
                 m.put("samples", f.samples() == null ? null : f.samples().stream().map(AnalyzeService::clip).toList());
             }
+            fields.add(m);
+        }
+        // B3 spec 5.3：比率接在欄位後面，只有名稱和公式，沒有樣本值和相異值數量
+        for (Ratio r : ratios) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", r.name());
+            m.put("type", "ratio");
+            m.put("formula", formula(r));
             fields.add(m);
         }
         Map<String, Object> state = new LinkedHashMap<>();
@@ -177,10 +210,18 @@ public class AnalyzeService {
         String fields = c.fields().stream()
             .map(f -> f.name() + "（" + ROLE_ZH.get(f.role()) + "）")
             .collect(Collectors.joining("、"));
+        Ratio ratio = c.fields().stream().map(FieldEval::ratio).filter(Objects::nonNull).findFirst().orElse(null);
         String text = "用這組欄位畫一張圖：" + fields + "。"
             + (c.compare() ? "兩個數值來自不同來源，要放在同一張圖上對照。" : "")
+            // B3 spec 5.3：比率組合只有一個比率
+            + (ratio == null ? "" : "「" + ratio.name() + "」是比率＝" + formula(ratio) + "，每組先各自加總再相除。")
             + "選最適合的圖表類型；如果這組欄位不值得畫，選 none。";
         return intent == null ? text : text + "使用者想看：「" + intent + "」。";
+    }
+
+    /** 例如「退貨·amount ÷ 銷售·amount」；用原始欄位名稱，跟 state.fields 對得上。 */
+    static String formula(Ratio r) {
+        return r.numerator() + " ÷ " + r.denominator();
     }
 
     /** 圖型中文名取 CHART_TYPES_ZH 冒號前面那段，例如「圓餅圖」。 */

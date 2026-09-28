@@ -275,4 +275,54 @@ class JevControllerTest {
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c1\"").doesNotContain("anomaly_c2");
     }
+
+    @Test
+    void highlightSendsRatioCardsInPercentPointsAndSkipsThemOnceTheRatioIsSensitive() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        mvc.perform(patch("/api/datasources/" + ds + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ratios\":[{\"name\":\"單價\",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
+            .andExpect(status().isOk());
+        String dashboardJson = """
+            {"name":"單價","layout":[
+              {"chartId":"c1","datasourceId":"%1$s","type":"line","title":"單價 依 order_date","gridPos":{"x":0,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","value":"單價","aggregate":"sum"}},
+              {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
+               "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
+            ]}""".formatted(ds);
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(dashboardJson))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("\"anomaly_c1\"").contains("\"unit\":\"%\"").contains("\"changePoints\"");
+
+        // 分子標成敏感，比率跟著敏感，那張卡整張不送
+        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"amount\"]}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        assertThat(JEV.bodies).hasSize(2);
+        assertThat(JEV.bodies.get(1)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1");
+    }
+
+    @Test
+    void analyzingASourceWithARatioAsksAboutItAfterTheFields() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        mvc.perform(patch("/api/datasources/" + ds + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ratios\":[{\"name\":\"單價\",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
+            .andExpect(status().isOk());
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
+            .andExpect(status().isOk());
+
+        // sales.csv 有 6 個欄位，比率是第 7 個（imp_6），不問角色
+        assertThat(JEV.bodies.get(0)).contains("{\"name\":\"單價\",\"type\":\"ratio\",\"formula\":\"amount ÷ qty\"}")
+            .contains("\"imp_6\"").doesNotContain("\"role_6\"");
+    }
 }
