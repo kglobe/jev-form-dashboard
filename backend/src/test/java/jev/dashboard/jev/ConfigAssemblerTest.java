@@ -426,4 +426,55 @@ class ConfigAssemblerTest {
             assertThat(s.gridPos()).isEqualTo(new GridPos(0, 0, 6, 4));
         });
     }
+
+    static final Set<Set<String>> SALES_VS_REFUNDS = Set.of(Set.of("sales", "refund"));
+
+    /** 對照來源的候選欄位：sales、refund 是對照組；qty 跟 refund 同一個來源，不是。 */
+    static List<FieldEval> compareCandidates() {
+        FieldEval time = new FieldEval(new FieldSchema("date", DATE, 9, List.of(), false, "2026-01-05", "2026-09-20"), 3, "time");
+        return List.of(time, eval("sales", NUMBER, 9, 2.75, "measure"), eval("region", STRING, 3, 2, "dimension"),
+            eval("refund", NUMBER, 5, 1, "measure"), eval("qty", NUMBER, 5, 1, "measure"));
+    }
+
+    @Test
+    void comparePairsGetTimeAndCategoryCombosRankedFirst() {
+        List<Combo> ranked = ConfigAssembler.ranked(compareCandidates(), SALES_VS_REFUNDS);
+
+        assertThat(ranked.subList(0, 2)).extracting(ConfigAssemblerTest::names, Combo::chartTypes).containsExactly(
+            tuple(List.of("date", "sales", "refund"), List.of("line", "bar")),
+            tuple(List.of("region", "sales", "refund"), List.of("bar")));
+        // 不是對照組的兩個數值（sales 和 qty、refund 和 qty）不配
+        assertThat(ranked).filteredOn(Combo::compare).hasSize(2);
+        // 沒有對照組就跟以前一樣
+        assertThat(ConfigAssembler.ranked(compareCandidates(), Set.of())).noneMatch(Combo::compare);
+    }
+
+    @Test
+    void focusCombosStillComeBeforeCompareCombos() {
+        List<FieldEval> cands = new ArrayList<>(compareCandidates());
+        cands.set(2, focus(cands.get(2))); // region 是焦點欄位
+        List<Combo> ranked = ConfigAssembler.ranked(cands, SALES_VS_REFUNDS);
+
+        // 焦點層級裡對照組合排第一；焦點組合全部排完，才輪到沒有焦點的對照組合
+        assertThat(names(ranked.get(0))).containsExactly("region", "sales", "refund");
+        int focused = (int) ranked.stream().filter(Combo::hasFocus).count();
+        assertThat(ranked.subList(0, focused)).allMatch(Combo::hasFocus);
+        assertThat(names(ranked.get(focused))).containsExactly("date", "sales", "refund");
+    }
+
+    @Test
+    void compareCombosBecomeTwoMeasureChartsThatPassValidation() {
+        List<Combo> combos = ConfigAssembler.combos(compareCandidates(), 2, SALES_VS_REFUNDS);
+        Map<String, Answer> round2 = Map.of("combo_0", choice("line", 0.9), "combo_1", choice("bar", 0.9));
+
+        List<ChartSpec> layout = ConfigAssembler.assemble(combos, round2, 2, List.of("date", "sales", "region", "refund"));
+
+        assertThat(layout.get(0).mapping()).isEqualTo(new Mapping("date", null, null, null, List.of("sales", "refund"), null, "sum", "month"));
+        assertThat(layout.get(0).title()).isEqualTo("sales 與 refund 依 date");
+        assertThat(layout.get(1).mapping()).isEqualTo(new Mapping("region", null, null, null, List.of("sales", "refund"), null, "sum", null));
+        assertThat(layout.get(1).title()).isEqualTo("sales 與 refund 依 region");
+        DashboardConfig c = new DashboardConfig(null, "對照", null,
+            layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList());
+        assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
+    }
 }
