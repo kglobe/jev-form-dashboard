@@ -48,6 +48,21 @@ class HighlightSummarizerTest {
             Map.of("name", "南", "previous", 20.0, "current", 0.0, "changePercent", -100.0)));
     }
 
+    @Test
+    void twoMeasureChartsCompareEachMeasureAsItsOwnSeries() {
+        Mapping m = new Mapping("date", null, null, null, List.of("sales", "refund"), null, "sum", "month");
+        ChartData d = new ChartData("c1", "line", List.of("date", "sales", "refund"),
+            List.of(r("2024-04", 90.0, null), r("2024-05", 100.0, 10.0), r("2024-06", 150.0, 5.0)), null, null);
+
+        Map<String, Object> s = HighlightSummarizer.summarize(spec("line", m), d, TODAY);
+
+        assertThat(s).containsEntry("metric", "sales、refund")
+            .containsEntry("previousPeriod", "2024-05").containsEntry("period", "2024-06");
+        assertThat(s.get("series")).isEqualTo(List.of(
+            Map.of("name", "sales", "previous", 100.0, "current", 150.0, "changePercent", 50.0),
+            Map.of("name", "refund", "previous", 10.0, "current", 5.0, "changePercent", -50.0)));
+    }
+
     @SafeVarargs
     static ChartData line(List<Object>... rows) {
         return new ChartData("c1", "line", List.of("order_date", "amount"), List.of(rows), null, null);

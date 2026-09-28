@@ -117,6 +117,7 @@ public class DashboardDataService {
     private static Mapping relabel(Mapping m, Map<String, String> labels) {
         return new Mapping(labels.getOrDefault(m.x(), m.x()), labels.getOrDefault(m.y(), m.y()),
             labels.getOrDefault(m.series(), m.series()), labels.getOrDefault(m.value(), m.value()),
-            m.measures(), m.columns(), m.aggregate(), m.timeGrain());
+            m.measures() == null ? null : m.measures().stream().map(n -> labels.getOrDefault(n, n)).toList(),
+            m.columns(), m.aggregate(), m.timeGrain());
     }
 }
