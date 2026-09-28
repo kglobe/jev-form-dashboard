@@ -255,6 +255,19 @@ async function append(id) {
             >
               <v-icon :icon="FIELD_TYPES[f.type]?.icon" size="13" start />{{ f.label || f.name }}
             </v-chip>
+            <!-- B3 spec 6.2：比率接在欄位後面，勾了一樣當焦點欄位 -->
+            <v-chip
+              v-for="r in source.ratios ?? []"
+              :key="`ratio:${r.name}`"
+              :value="r.name"
+              :title="`${r.name}（比率：${r.numerator} ÷ ${r.denominator}）`"
+              role="checkbox"
+              :aria-checked="String(picked.includes(r.name))"
+              variant="outlined"
+              filter
+            >
+              <v-icon icon="mdi-percent" size="13" start />{{ r.name }}
+            </v-chip>
           </v-chip-group>
           <p v-else class="text-caption text-medium-emphasis">先選資料來源。</p>
 
