@@ -28,6 +28,8 @@ export const api = {
   registerApi: (body) => request('POST', '/api/datasources/api', body),
   setSensitive: (id, fields) => request('PATCH', `/api/datasources/${id}/sensitive`, { fields }),
   setLabels: (id, labels) => request('PATCH', `/api/datasources/${id}/labels`, { labels }),
+  // B3 spec 第 7 節：比率清單整份取代，新增、刪除都用這支
+  setRatios: (id, ratios) => request('PATCH', `/api/datasources/${id}/ratios`, { ratios }),
   previewMerged: (body) => request('POST', '/api/datasources/merged/preview', body),
   createMerged: (body) => request('POST', '/api/datasources/merged', body),
   // intents、current、fields 沒給時 JSON.stringify 會略過，body 跟原本一樣只有 datasourceId

@@ -13,6 +13,7 @@ vi.mock('./api.js', () => ({
     registerApi: vi.fn(),
     setSensitive: vi.fn(),
     setLabels: vi.fn(),
+    setRatios: vi.fn(),
     previewMerged: vi.fn(),
     createMerged: vi.fn(),
   },
@@ -46,6 +47,20 @@ const enriched = {
   kind: 'merged',
   merge: { op: 'lookup', main: 'ds1', lookup: 'ds2', keys: [{ main: 'product', lookup: 'code' }], bring: [] },
   schema: [{ name: 'product', type: 'string', sensitive: false }],
+}
+
+// B3：sales、refund 有顯示名稱，refund 是敏感的，已經有一個比率
+const withRatio = {
+  id: 'dr',
+  name: '銷售明細',
+  kind: 'upload',
+  schema: [
+    { name: 'region', type: 'string', sensitive: false },
+    { name: 'sales', type: 'number', sensitive: false, label: '銷售金額' },
+    { name: 'refund', type: 'number', sensitive: true, label: '退貨金額' },
+    { name: 'qty', type: 'number', sensitive: false },
+  ],
+  ratios: [{ name: '退貨率', numerator: 'refund', denominator: 'sales', sensitive: true }],
 }
 
 function mountPanel(selectedId = 'ds1') {
@@ -82,6 +97,23 @@ async function pickFile(wrapper, file) {
 
 async function click(text) {
   button(text).click()
+  await flushPromises()
+}
+
+// 比率區每一列的名稱、公式、敏感；「新增比率」是第二個對話框（第一個是「新增來源」）
+const ratioRows = (wrapper) => wrapper.findAll('.ds-ratios tbody tr').map((r) => r.findAll('td').slice(0, 3).map((td) => td.text()))
+const ratioDialog = (wrapper) => wrapper.findAllComponents({ name: 'VDialog' })[1]
+const ratioSelect = (wrapper, label) => wrapper.findAllComponents({ name: 'VSelect' }).find((s) => s.props('label') === label)
+
+async function openRatio(wrapper) {
+  await wrapper.findAll('button').find((b) => b.text() === '新增比率').trigger('click')
+  await flushPromises()
+}
+
+async function fillRatio(wrapper, name, numerator, denominator) {
+  await field(wrapper, '名稱').find('input').setValue(name)
+  await ratioSelect(wrapper, '分子').vm.$emit('update:modelValue', numerator)
+  await ratioSelect(wrapper, '分母').vm.$emit('update:modelValue', denominator)
   await flushPromises()
 }
 
@@ -491,5 +523,80 @@ describe('DatasourcePanel', () => {
     expect(api.listDatasources).toHaveBeenCalledTimes(2)
     expect(wrapper.emitted('select').at(-1)).toEqual(['mg'])
     expect(dialogOpen(wrapper)).toBe(false)
+  })
+
+  it('比率區 lists each ratio with its formula in display names and a 敏感 mark; with none it explains what a ratio is', async () => {
+    api.listDatasources.mockResolvedValue([withRatio, ds1])
+    const wrapper = mountPanel('dr')
+    await flushPromises()
+
+    expect(wrapper.find('.ds-ratios .cc-label').text()).toBe('比率 · 1')
+    expect(ratioRows(wrapper)).toEqual([['退貨率', '退貨金額 ÷ 銷售金額', '敏感']])
+    expect(wrapper.find('.ds-ratios .tc-tag').attributes('title')).toBe('分子或分母是敏感欄位')
+    expect(wrapper.find('button[aria-label="刪除比率 退貨率"]').exists()).toBe(true)
+
+    await wrapper.setProps({ selectedId: 'ds1' })
+    expect(wrapper.find('.ds-ratios .cc-label').text()).toBe('比率 · 0')
+    expect(wrapper.findAll('.ds-ratios tbody tr')).toHaveLength(0)
+    expect(wrapper.find('.ds-ratios').text()).toContain('比率＝分子 ÷ 分母，每一組先各自加總再相除，例如退貨率。')
+  })
+
+  it('新增比率 offers only number fields by display name, enables 新增 once all three are filled with two different fields, and sends the whole list', async () => {
+    api.listDatasources.mockResolvedValue([withRatio])
+    api.setRatios.mockResolvedValue({})
+    const wrapper = mountPanel('dr')
+    await flushPromises()
+    await openRatio(wrapper)
+
+    expect(ratioDialog(wrapper).props('modelValue')).toBe(true)
+    expect(ratioSelect(wrapper, '分子').props('items')).toEqual([
+      { title: '銷售金額', value: 'sales' }, { title: '退貨金額', value: 'refund' }, { title: 'qty', value: 'qty' },
+    ])
+    expect(button('新增').disabled).toBe(true)
+    await fillRatio(wrapper, ' 件均 ', 'sales', 'sales')
+    expect(button('新增').disabled).toBe(true) // 分子和分母一樣
+    await ratioSelect(wrapper, '分母').vm.$emit('update:modelValue', 'qty')
+    await flushPromises()
+    expect(button('新增').disabled).toBe(false)
+
+    await click('新增')
+    // 整份清單送出，只有名稱、分子、分母；sensitive 是後端算的
+    expect(api.setRatios).toHaveBeenCalledWith('dr', [
+      { name: '退貨率', numerator: 'refund', denominator: 'sales' },
+      { name: '件均', numerator: 'sales', denominator: 'qty' },
+    ])
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+    expect(ratioDialog(wrapper).props('modelValue')).toBe(false)
+  })
+
+  it('a rejected 新增 keeps the dialog open with the backend message', async () => {
+    api.listDatasources.mockResolvedValue([withRatio])
+    api.setRatios.mockRejectedValue(new Error('比率名稱「退貨率」跟欄位或其他比率重複'))
+    const wrapper = mountPanel('dr')
+    await flushPromises()
+    await openRatio(wrapper)
+    await fillRatio(wrapper, '退貨率', 'sales', 'qty')
+
+    await click('新增')
+
+    expect(ratioDialog(wrapper).props('modelValue')).toBe(true)
+    expect(ratioDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('比率名稱「退貨率」跟欄位或其他比率重複')
+    expect(api.listDatasources).toHaveBeenCalledTimes(1)
+  })
+
+  it('刪除比率 sends the list without it and refreshes; a rejected delete shows the message in the 比率 section', async () => {
+    api.listDatasources.mockResolvedValue([withRatio])
+    api.setRatios.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('找不到資料源'))
+    const wrapper = mountPanel('dr')
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="刪除比率 退貨率"]').trigger('click')
+    await flushPromises()
+    expect(api.setRatios).toHaveBeenCalledWith('dr', [])
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+
+    await wrapper.find('button[aria-label="刪除比率 退貨率"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.ds-ratios .v-alert').text()).toBe('找不到資料源')
   })
 })

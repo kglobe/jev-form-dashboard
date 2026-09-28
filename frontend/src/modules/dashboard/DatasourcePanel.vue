@@ -166,6 +166,63 @@ async function saveLabel(ds, field, value) {
     busy.value = false
   }
 }
+
+// ---------- 比率（B3 spec 6.1） ----------
+const ratioOpen = ref(false)
+const ratioName = ref('')
+const ratioNumerator = ref(null)
+const ratioDenominator = ref(null)
+const ratioError = ref('') // 刪除失敗：顯示在比率區
+const ratioDialogError = ref('') // 新增失敗：顯示在對話框裡
+
+const ratios = computed(() => selected.value?.ratios ?? [])
+// 分子、分母的選單只列數字欄位，選項用顯示名稱
+const numberFields = computed(() =>
+  (selected.value?.schema ?? []).filter((f) => f.type === 'number').map((f) => ({ title: f.label || f.name, value: f.name })),
+)
+const canAddRatio = computed(
+  () => !!ratioName.value.trim() && !!ratioNumerator.value && !!ratioDenominator.value && ratioNumerator.value !== ratioDenominator.value,
+)
+const shownName = (ds, field) => ds.schema.find((f) => f.name === field)?.label || field
+
+function openRatio() {
+  ratioName.value = ''
+  ratioNumerator.value = ratioDenominator.value = null
+  ratioDialogError.value = ''
+  ratioOpen.value = true
+}
+
+// 整份清單送給後端，只送名稱、分子、分母；sensitive 是後端讀取時算的
+async function saveRatios(ds, next) {
+  busy.value = true
+  try {
+    await api.setRatios(ds.id, next.map((r) => ({ name: r.name, numerator: r.numerator, denominator: r.denominator })))
+    await refresh()
+  } finally {
+    busy.value = false
+  }
+}
+
+async function addRatio(ds) {
+  ratioDialogError.value = ''
+  try {
+    await saveRatios(ds, [...ratios.value, { name: ratioName.value.trim(), numerator: ratioNumerator.value, denominator: ratioDenominator.value }])
+    ratioOpen.value = false
+    ratioError.value = ''
+  } catch (e) {
+    ratioDialogError.value = e.message
+  }
+}
+
+// spec 6.1：按下去直接刪，不另外確認
+async function removeRatio(ds, ratio) {
+  try {
+    await saveRatios(ds, ratios.value.filter((r) => r.name !== ratio.name))
+    ratioError.value = ''
+  } catch (e) {
+    ratioError.value = e.message
+  }
+}
 </script>
 
 <template>
@@ -270,6 +327,46 @@ async function saveLabel(ds, field, value) {
           顯示名稱會用在圖表標題、座標軸和明細表頭，空白就顯示原始欄位名稱。
           標成敏感的欄位不會把樣本和相異值送給 JEV，用到它的卡片也不做異常檢查。
         </p>
+
+        <!-- B3 spec 6.1：比率＝分子 ÷ 分母，存在來源上 -->
+        <section class="ds-ratios" aria-label="比率">
+          <div class="ds-ratios__head">
+            <span class="cc-label">比率 · {{ ratios.length }}</span>
+            <v-spacer />
+            <v-btn size="small" variant="text" prepend-icon="mdi-plus" :disabled="busy" @click="openRatio">新增比率</v-btn>
+          </div>
+          <v-alert v-if="ratioError" type="error" density="compact" class="mx-5 mb-2">{{ ratioError }}</v-alert>
+          <v-table v-if="ratios.length">
+            <thead>
+              <tr>
+                <th>名稱</th>
+                <th>公式</th>
+                <th class="text-center">敏感</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in ratios" :key="r.name">
+                <td>{{ r.name }}</td>
+                <td>{{ shownName(selected, r.numerator) }} ÷ {{ shownName(selected, r.denominator) }}</td>
+                <td class="text-center">
+                  <span v-if="r.sensitive" class="tc-tag" title="分子或分母是敏感欄位">敏感</span>
+                </td>
+                <td class="text-right">
+                  <v-btn
+                    icon="mdi-delete-outline"
+                    size="small"
+                    variant="text"
+                    :aria-label="`刪除比率 ${r.name}`"
+                    :disabled="busy"
+                    @click="removeRatio(selected, r)"
+                  />
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+          <p v-else class="ds-ratios__empty">比率＝分子 ÷ 分母，每一組先各自加總再相除，例如退貨率。</p>
+        </section>
       </section>
 
       <section v-else class="cc-panel cc-empty">
@@ -322,6 +419,23 @@ async function saveLabel(ds, field, value) {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <v-dialog v-model="ratioOpen" max-width="480" transition="tc-sheet">
+      <v-card>
+        <v-card-title class="pt-5 px-6">新增比率</v-card-title>
+        <v-card-text class="px-6">
+          <v-text-field v-model="ratioName" label="名稱" placeholder="例如退貨率" />
+          <v-select v-model="ratioNumerator" label="分子" :items="numberFields" />
+          <v-select v-model="ratioDenominator" label="分母" :items="numberFields" />
+          <v-alert v-if="ratioDialogError" type="error" density="compact">{{ ratioDialogError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="px-6 pb-5">
+          <v-spacer />
+          <v-btn variant="flat" @click="ratioOpen = false">取消</v-btn>
+          <v-btn variant="flat" color="primary" :disabled="!canAddRatio" :loading="busy" @click="addRatio(selected)">新增</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </section>
 </template>
 
@@ -357,4 +471,8 @@ async function saveLabel(ds, field, value) {
   color: var(--tc-muted);
   border-top: 1px solid var(--tc-border-subtle);
 }
+/* B3 spec 6.1：欄位表下面的比率區 */
+.ds-ratios { border-top: 1px solid var(--tc-border-subtle); }
+.ds-ratios__head { display: flex; align-items: center; padding: 12px 20px 4px; }
+.ds-ratios__empty { margin: 0; padding: 4px 20px 18px; font-size: 12.5px; color: var(--tc-muted); }
 </style>
