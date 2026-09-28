@@ -54,4 +54,21 @@ class DatasourceRepositoryTest {
         Datasource broken = new Datasource(UUID.randomUUID(), "壞的", "merged", List.of(), null, Map.of(), "u1", null);
         assertThatThrownBy(() -> repo.insert(broken)).isInstanceOf(DataIntegrityViolationException.class);
     }
+
+    @Test
+    void ratiosAreStoredInOrderAndRowsWrittenBeforeV4ReadAsAnEmptyList() {
+        Datasource upload = new Datasource(UUID.randomUUID(), "銷售", "upload", List.of(), null, Map.of(), "u1", null);
+        repo.insert(upload);
+        assertThat(repo.find(upload.id(), "u1").orElseThrow().ratios()).isEmpty();
+
+        List<Ratio> ratios = List.of(new Ratio("退貨率", "refund", "sales"), new Ratio("毛利率", "gross_profit", "revenue"));
+        repo.updateRatios(upload.id(), ratios);
+        assertThat(repo.find(upload.id(), "u1").orElseThrow().ratios()).isEqualTo(ratios);
+
+        // V4 之前寫進去的列沒有 ratios_json，靠欄位預設值
+        UUID old = UUID.randomUUID();
+        jdbc.sql("insert into datasource (id, name, kind, schema_json, created_by) values (:id, '舊的', 'upload', '[]', 'u1')")
+            .param("id", old).update();
+        assertThat(repo.find(old, "u1").orElseThrow().ratios()).isEmpty();
+    }
 }
