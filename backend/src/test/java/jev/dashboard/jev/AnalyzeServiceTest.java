@@ -17,6 +17,7 @@ import jev.dashboard.Fixtures;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
+import jev.dashboard.datasource.MergeEngine;
 import jev.dashboard.dashboard.DashboardService;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
@@ -181,5 +182,33 @@ class AnalyzeServiceTest {
         @SuppressWarnings("unchecked")
         List<String> samples = (List<String>) ((List<Map<String, Object>>) state.get("fields")).get(0).get("samples");
         assertThat(samples).containsExactly("備".repeat(AnalyzeService.MAX_SAMPLE_CHARS) + "…", "短");
+    }
+
+    @Test
+    void aCompareSourceAsksTwoMeasureCombosFirstAndNeverDrawsTheSourceColumn() throws Exception {
+        // 欄位順序對齊 round1.json 的角色：0 時間、1 數值、2 分類、3 分類（來源欄）、4 數值、5 忽略
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("date", FieldType.DATE, 9, List.of("2026-01-05"), false, "2026-01-05", "2026-09-20"),
+            new FieldSchema("銷售·amount", FieldType.NUMBER, 9, List.of("1000"), false, null, null),
+            new FieldSchema("region", FieldType.STRING, 2, List.of("北區"), false, null, null),
+            new FieldSchema("來源", FieldType.STRING, 2, List.of("銷售", "退貨"), false, null, null),
+            new FieldSchema("退貨·amount", FieldType.NUMBER, 3, List.of("50"), false, null, null),
+            new FieldSchema("memo", FieldType.STRING, 9, List.of(), false, null, null));
+        MergeEngine.Comparison compare = new MergeEngine.Comparison(Set.of(Set.of("銷售·amount", "退貨·amount")), "來源");
+
+        try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
+            DashboardConfig c = service(server).analyze("對照 總覽", UUID.randomUUID(), schema, 12,
+                List.of(), null, Set.of(), compare);
+
+            // round2.json：combo_0（對照組合配時間）答 line；combo_4（銷售·amount 依 region）答 bar
+            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "bar", "table");
+            assertThat(c.layout().get(0).mapping()).isEqualTo(
+                new Mapping("date", null, null, null, List.of("銷售·amount", "退貨·amount"), null, "sum", "month"));
+            assertThat(c.layout().get(0).title()).isEqualTo("銷售·amount 與 退貨·amount 依 date");
+            assertThat(c.layout().get(2).mapping().columns()).containsExactly("date", "銷售·amount", "region", "退貨·amount");
+            assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
+            assertThat(server.bodies.get(1)).contains("兩個數值來自不同來源，要放在同一張圖上對照。")
+                .doesNotContain("來源（分類）");
+        }
     }
 }

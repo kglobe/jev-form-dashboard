@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.datasource.FieldSchema;
+import jev.dashboard.datasource.MergeEngine;
 import jev.dashboard.jev.ConfigAssembler.Combo;
 import jev.dashboard.jev.ConfigAssembler.FieldEval;
 import jev.dashboard.transform.ChartSpec;
@@ -56,6 +57,13 @@ public class AnalyzeService {
     /** @param picked 使用者勾選想看的欄位，跟 JEV 判定「直接相關」的欄位一樣當焦點欄位 */
     public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
                                    List<String> intents, List<ChartSpec> current, Set<String> picked) {
+        return analyze(name, datasourceId, schema, rowCount, intents, current, picked, null);
+    }
+
+    /** @param compare 對照來源的對照組和來源欄（B2 spec 5.5）；其他來源是 null */
+    public DashboardConfig analyze(String name, UUID datasourceId, List<FieldSchema> schema, long rowCount,
+                                   List<String> intents, List<ChartSpec> current, Set<String> picked,
+                                   MergeEngine.Comparison compare) {
         String intent = intents.isEmpty() ? null : intents.get(intents.size() - 1);
         Map<String, Object> state = state(schema, rowCount, intents, current);
 
@@ -82,13 +90,18 @@ public class AnalyzeService {
         Map<String, Answer> a1 = jev.ask(state, round1);
 
         List<FieldEval> evals = ConfigAssembler.evaluate(schema, a1).stream()
-            .map(e -> picked.contains(e.name()) ? new FieldEval(e.field(), e.importance(), e.role(), true) : e).toList();
+            .map(e -> picked.contains(e.name()) ? new FieldEval(e.field(), e.importance(), e.role(), true) : e)
+            // B2 spec 5.5：對照來源的來源欄不拿來畫圖，也不進明細表
+            .map(e -> compare != null && e.name().equals(compare.sourceColumn())
+                ? new FieldEval(e.field(), e.importance(), "ignore", e.focus()) : e)
+            .toList();
+        Set<Set<String>> pairs = compare == null ? Set.of() : compare.pairs();
         List<FieldEval> candidates = ConfigAssembler.candidates(evals);
         int k = ConfigAssembler.chartCount(a1.get("chart_count"));
         List<ChartSpec> kept = current == null ? null : ConfigAssembler.kept(current, a1);
         List<Combo> combos = current == null
-            ? ConfigAssembler.combos(candidates, k)
-            : ConfigAssembler.adjustCombos(ConfigAssembler.ranked(candidates), kept);
+            ? ConfigAssembler.combos(candidates, k, pairs)
+            : ConfigAssembler.adjustCombos(ConfigAssembler.ranked(candidates, pairs), kept);
 
         Map<String, Answer> a2 = Map.of();
         if (!combos.isEmpty()) {
@@ -163,7 +176,9 @@ public class AnalyzeService {
         String fields = c.fields().stream()
             .map(f -> f.name() + "（" + ROLE_ZH.get(f.role()) + "）")
             .collect(Collectors.joining("、"));
-        String text = "用這組欄位畫一張圖：" + fields + "。選最適合的圖表類型；如果這組欄位不值得畫，選 none。";
+        String text = "用這組欄位畫一張圖：" + fields + "。"
+            + (c.compare() ? "兩個數值來自不同來源，要放在同一張圖上對照。" : "")
+            + "選最適合的圖表類型；如果這組欄位不值得畫，選 none。";
         return intent == null ? text : text + "使用者想看：「" + intent + "」。";
     }
 
