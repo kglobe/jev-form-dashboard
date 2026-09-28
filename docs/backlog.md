@@ -4,6 +4,14 @@
 
 > **既有資料要注意**：這波修復上線後，下列舊資料可能要重新註冊或重新存檔，新規則才生效——網址帶帳密／token 的外部 API 資料源（之後每次抓取都會被擋下來）、補零代碼欄位被判斷成 `number` 型別的外部 API 資料源（值會變成 null；上傳的 CSV／Excel 存檔當下就正規化過，不受影響）、存了不合法卡片的舊儀表板（`/data` 會持續 500）。
 
+## 下一步
+
+多來源儀表板的 A（每張圖各自一個來源）和 B1（合併來源：疊加、查表）已經在 2026-09-28 合併進 main（`166cab4`）。
+
+- P1 · 把 main 推上 GitHub。目前只在本機合併，還沒 `git push`。
+- P1 · B2 對照：同一張圖上比兩個來源的數字，例如每月銷售額對退貨額。先寫 spec，從 B1 spec 第 12 節開始：疊加多一個「對照」選項，數值欄位依來源分開放（`銷售·amount`、`退貨·amount`）；折線圖、長條圖可以放兩個數值，兩者差距超過 10 倍就改用左右兩條 Y 軸；JEV 只對合併來源多出這類組合；計數聚合改成只算非空值。（高階主管儀表板需求，2026-09-27）
+- P1 · B3 比率：計算指標＝分子÷分母，例如退貨率、達成率。每一組先各自加總再相除，任何來源都能加。B2 做完再寫 spec，兩者都會改到轉換器。（同上）
+
 ## 功能構想
 
 - ~~P3 · 分析前先讓使用者用一段文字講想看什麼（一個輸入框／對話框），JEV 再照這個提示挑欄位、選圖表。（human 提出的構想）~~ 已完成：分析前可以輸入需求，預覽裡也能「調整」，見 spec `docs/superpowers/specs/2026-09-25-jev-dashboard-intent-analysis-design.md`。
@@ -23,6 +31,7 @@
 - P2 · `docker/postgres/Dockerfile` 還沒建立（這個開發環境沒裝 Docker），部署前要補。（spec §7）
 - P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）
 - P3 · 監控和告警：JEV 逾時、呼叫失敗、快取命中率這些現在只寫進 log，沒有任何監控或告警機制。
+- P2 · `jev.datasource.allowed-hosts` 在 `application.yml` 預設是空的，`backend/.env` 也沒有設定，所以外部 API 來源一律抓不到。「E2E採購儀表板」打開時 `/data` 回 400「未開放註冊外部 API」。要用外部 API 來源，就得把 ERP 的 host 加進允許清單。（合併後檢查，2026-09-28）
 
 ## 穩定度與效能
 
@@ -55,12 +64,18 @@
 
 - P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）
 - P2 · 一張卡用某個 API 來源、另一張卡用到同一個 API 來源的合併來源，兩張卡都會讓這個 API 來源被重複抓一次（`/data` 抓兩次、`highlight` 又各再抓一次）；同一個合併來源裡有多個外部 API 輸入時，也是一個一個依序抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）
+- P3 · PUT 儀表板時，`basis` 裡 `intents` 是 null 或空陣列的分組也會通過驗證、被存下來（`DashboardService.requireValidBasis`）。前端顯示時會過濾掉，看不出來，只是資料不乾淨。（A final review）
+- P3 · 手動組一個預覽請求，把自己的來源和別人的來源混在一起送 `/preview/data`，別人來源的卡片會回 `SOURCE_FAILED`，名稱是 null，不會洩漏資料；只有全部來源都失敗時才回 404。行為跟 spec 寫的「載入時 404」不完全一樣。（A final review）
+- P3 · 已存儀表板移除卡片後，「不重抓資料」靠的是只生效一次的旗標 `ownUpdatePending`（`DashboardView.vue`）。如果 App 在同一個 Vue 更新週期裡連續換兩次設定（移除卡片後 PUT 回傳的設定，以及重新打開同一份儀表板），可能把重新打開誤判成移除而沒有重抓。現在的畫面流程不會觸發這種情況。（A final fix re-review）
+- P3 · 合併表單的「來源」選單寫著 2～5 個，但畫面沒有擋第 6 個，要等按預覽時才由後端回 400。（B1 Task 7 review）
 
 ## 資料品質
 
 - P2 · 民國年日期（例如 `113/09/24`）和不帶分隔符號的 8 碼日期（例如 `20240924`）目前都不會被判斷成日期欄位：前者年份不是 4 碼，正則比對不到；後者會先被數字規則吃掉，變成 `NUMBER`。（`SchemaInference.java` 的 `DATE`／`NUMBER` pattern 與型別判斷順序）
 - P3 · `distinctCount` 和樣本值都是拿原始字串去算，不是先照欄位型別正規化再算；同一個值的不同寫法（日期 `2024-1-1` 跟 `2024/01/01`，或代碼欄位補零與否）可能被當成兩個不同值。（backend ledger，Task 3）
 - P3 · 非敏感但幾乎每筆都不同的欄位（例如備註），如果被選成 series 或 y，等於間接把接近逐筆的明細送給 JEV，目前沒有這類欄位的偵測或筆數上限，屬於設計層級的問題。（backend ledger，Task 11）
+- P3 · 合併來源裡整欄都是空值的欄位，會被當成「欄位不見了」：合併時空值不放 key（spec 5.1），而 `DashboardDataService` 是從資料列的 key 判斷欄位在不在。上傳檔案的全空欄位會保留 key，不會有這個問題。（B1 final review）
+- P3 · 合併來源數字欄位的樣本值會顯示成 `1200.0`，不是 `1200`：schema 是拿已經轉成數字的資料列推斷的，`SchemaInference.infer` 用 `String.valueOf` 轉字串。欄位表和送給 JEV 的樣本都是這個格式。（B1 final review）
 
 ## 測試補強
 
@@ -70,3 +85,5 @@
 - P3 · 後端 round 2 沒有候選組合、候選欄位用滿全部欄位這兩種分支還沒有測試覆蓋；沒有測試驗證欄位改成敏感之後，已經快取的異常檢查結果會跟著失效。（backend ledger，Task 9、Task 11）
 - P3 · 測試輸出裡還留著 Mockito self-attach 的 JDK 警告，和一段 JEV 500 情境印出的 WARN 加 stack trace，不影響結果但會洗版。（backend ledger，Task 4、Task 5、Task 9）
 - P3 · `jev.dashboard` package 下有一個測試用的 controller，會被掃進所有 `@SpringBootTest`。（backend ledger，Task 1）
+- P3 · 有兩份存過需求的舊儀表板屬於另一個使用者 ID，合併後檢查只在資料庫層確認它們的需求紀錄轉成了 `basis`，沒有在畫面上看過「依據」那一行。下次用那個使用者登入時順手確認。（合併後檢查，2026-09-28）
+- P3 · README 的「合併來源」一節沒寫查表的對接欄位最多 3 組（畫面上已經限制 3 組）。（B1 Task 10 review）
