@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,6 +14,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import jev.dashboard.datasource.FieldSchema;
 import jev.dashboard.datasource.FieldType;
+import jev.dashboard.datasource.Ratio;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.ChartSpec.GridPos;
 import jev.dashboard.transform.Mapping;
@@ -37,10 +39,17 @@ public final class ConfigAssembler {
         CHART_TYPES_ZH.put("stacked_bar", "堆疊長條圖：比較各分類的組成");
     }
 
-    /** focus：spec 6.1 的焦點欄位（rel_i 答「直接相關」），或使用者勾選想看的欄位。 */
-    public record FieldEval(FieldSchema field, double importance, String role, boolean focus) {
+    /**
+     * focus：spec 6.1 的焦點欄位（rel_i 答「直接相關」），或使用者勾選想看的欄位。
+     * ratio：B3 的比率，角色固定是 measure；一般欄位是 null。
+     */
+    public record FieldEval(FieldSchema field, double importance, String role, boolean focus, Ratio ratio) {
         public FieldEval(FieldSchema field, double importance, String role) {
-            this(field, importance, role, false);
+            this(field, importance, role, false, null);
+        }
+
+        public FieldEval(FieldSchema field, double importance, String role, boolean focus) {
+            this(field, importance, role, focus, null);
         }
 
         public String name() {
@@ -63,6 +72,11 @@ public final class ConfigAssembler {
          */
         boolean compare() {
             return fields.size() == 3 && byRole("measure").size() == 2;
+        }
+
+        /** B3 spec 5.3：有比率的組合跟對照組合排在同一層。 */
+        boolean hasRatio() {
+            return fields.stream().anyMatch(f -> f.ratio() != null);
         }
     }
 
@@ -87,6 +101,20 @@ public final class ConfigAssembler {
         return out;
     }
 
+    /** B3 spec 5.3：比率接在欄位後面編號（有 n 個欄位時第一個是 imp_<n>），只讀重要性和相關性，角色固定是 measure。 */
+    public static List<FieldEval> evaluate(List<FieldSchema> schema, List<Ratio> ratios, Map<String, Answer> answers) {
+        List<FieldEval> out = new ArrayList<>(evaluate(schema, answers));
+        for (int j = 0; j < ratios.size(); j++) {
+            Ratio r = ratios.get(j);
+            int i = schema.size() + j;
+            Answer imp = answers.get("imp_" + i);
+            FieldSchema f = new FieldSchema(r.name(), FieldType.NUMBER, 0, List.of(), r.sensitive(), null, null);
+            out.add(new FieldEval(f, imp == null || imp.score() == null ? 0 : imp.score(), "measure",
+                isFocus(answers.get("rel_" + i)), r));
+        }
+        return out;
+    }
+
     /** spec 6.1：rel_i 的 round(score) 等於 2（直接相關），而且 confidence ≥ 0.5；JEV 沒回答就不算。四捨五入對級照 jev-1.13.0 調的。 */
     static boolean isFocus(Answer rel) {
         return rel != null && rel.score() != null && rel.confidence() != null
@@ -98,16 +126,22 @@ public final class ConfigAssembler {
         return (int) Math.max(1, Math.min(6, Math.round(a.score()) + 1));
     }
 
-    /** spec 6.2：角色不是 ignore 的焦點欄位不看重要性，排在最前面；其他欄位照原本的規則補，總數最多 8 個。 */
+    /**
+     * spec 6.2：角色不是 ignore 的焦點欄位不看重要性，排在最前面；其他欄位照原本的規則補，總數最多 8 個。
+     * B3 spec 5.3：比率是使用者特地加的，一定進候選，排在焦點欄位後面、其他欄位前面，比率之間照重要性排。
+     */
     public static List<FieldEval> candidates(List<FieldEval> evals) {
         Comparator<FieldEval> byImportance = Comparator.comparingDouble(FieldEval::importance).reversed();
         Stream<FieldEval> focus = evals.stream()
             .filter(e -> e.focus() && !e.role().equals("ignore"))
             .sorted(byImportance);
-        Stream<FieldEval> others = evals.stream()
-            .filter(e -> !e.focus() && !e.role().equals("ignore") && Math.round(e.importance()) >= 1)
+        Stream<FieldEval> ratios = evals.stream()
+            .filter(e -> !e.focus() && e.ratio() != null)
             .sorted(byImportance);
-        return Stream.concat(focus, others).limit(MAX_CANDIDATES).toList();
+        Stream<FieldEval> others = evals.stream()
+            .filter(e -> !e.focus() && e.ratio() == null && !e.role().equals("ignore") && Math.round(e.importance()) >= 1)
+            .sorted(byImportance);
+        return Stream.of(focus, ratios, others).flatMap(s -> s).limit(MAX_CANDIDATES).toList();
     }
 
     public static List<Combo> ranked(List<FieldEval> c) {
@@ -118,6 +152,7 @@ public final class ConfigAssembler {
      * 全部合法組合，照 spec 6.3 排序：含焦點欄位的排前面，再比平均重要性，同分照產生順序（穩定排序）。
      * provides 只有對照來源才有（B2 spec 4.2）：來自不同來源的兩個數值是對照組，配上時間欄位出折線、長條，
      * 配上分類欄位出長條，排在焦點之後、其他組合之前；畫不出東西的組合（drawable）一律不要。
+     * 有比率的組合（B3 spec 5.3）跟對照組合同一層；對照來源上，比率只配分子、分母兩邊來源都有的欄位（visible）。
      */
     public static List<Combo> ranked(List<FieldEval> c, Map<String, Set<String>> provides) {
         List<Combo> all = new ArrayList<>();
@@ -125,7 +160,8 @@ public final class ConfigAssembler {
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) add(all, List.of(c.get(i), c.get(j)), pairTypes(c.get(i), c.get(j)));
         }
-        List<FieldEval> measures = c.stream().filter(e -> e.role().equals("measure")).toList();
+        // B3 spec 5.3：比率不畫雷達圖，也不算進雷達圖的數值
+        List<FieldEval> measures = c.stream().filter(e -> e.role().equals("measure") && e.ratio() == null).toList();
         if (measures.size() >= 3) {
             for (FieldEval d : c) {
                 if (!d.role().equals("dimension") || d.field().distinctCount() > 5) continue;
@@ -148,7 +184,7 @@ public final class ConfigAssembler {
                 FieldEval b = c.get(j);
                 if (!a.role().equals("measure") || !b.role().equals("measure")) continue;
                 Set<String> seenByA = provides.get(a.name());
-                // 對照組：兩個數值都是對照來源的數字欄位，而且來自不同來源
+                // 對照組：兩個數值都是對照來源的數字欄位，而且來自不同來源；比率的名稱不在 provides 裡，不會組成對照組
                 if (seenByA == null || !provides.containsKey(b.name()) || seenByA.contains(b.name())) continue;
                 for (FieldEval d : c) {
                     if (d.role().equals("time")) add(all, List.of(d, a, b), List.of("line", "bar"));
@@ -156,9 +192,10 @@ public final class ConfigAssembler {
                 }
             }
         }
-        all.removeIf(combo -> !drawable(combo, provides));
+        Map<String, Set<String>> seen = visible(c, provides);
+        all.removeIf(combo -> !drawable(combo, seen));
         all.sort(Comparator.comparing(Combo::hasFocus).reversed()
-            .thenComparing(Comparator.comparing(Combo::compare).reversed())
+            .thenComparing(Comparator.comparing((Combo combo) -> combo.compare() || combo.hasRatio()).reversed())
             .thenComparing(Comparator.comparingDouble(Combo::score).reversed()));
         return all;
     }
@@ -177,6 +214,24 @@ public final class ConfigAssembler {
      * B2 spec 5.5：對照來源裡，每個數值只有自己來源的列有值。組合裡的時間、分類欄位要每個數值的來源都有，
      * 散佈圖逐列畫，兩個數值要來自同一個來源；不然畫出來是空的。一般來源的 provides 是空的，一律可以畫。
      */
+    /**
+     * B3 spec 5.3：對照來源上，分子、分母都有 provides 時，比率只看得到兩者的交集；
+     * 在 provides 裡補上「比率名稱 → 交集」，drawable 就照同一套規則擋掉交集外的時間、分類欄位。
+     */
+    private static Map<String, Set<String>> visible(List<FieldEval> c, Map<String, Set<String>> provides) {
+        Map<String, Set<String>> out = new HashMap<>(provides);
+        for (FieldEval e : c) {
+            if (e.ratio() == null) continue;
+            Set<String> num = provides.get(e.ratio().numerator());
+            Set<String> den = provides.get(e.ratio().denominator());
+            if (num == null || den == null) continue;
+            Set<String> both = new HashSet<>(num);
+            both.retainAll(den);
+            out.put(e.name(), both);
+        }
+        return out;
+    }
+
     private static boolean drawable(Combo combo, Map<String, Set<String>> provides) {
         List<FieldEval> measures = combo.byRole("measure");
         for (FieldEval m : measures) {
@@ -388,6 +443,14 @@ public final class ConfigAssembler {
     }
 
     private static List<String> pairTypes(FieldEval a, FieldEval b) {
+        // B3 spec 5.3：比率配時間出折線、長條，配分類只出長條；比率不能相加，不出圓餅，也不跟數值畫散佈圖
+        if (a.ratio() != null || b.ratio() != null) {
+            return switch (roles(a, b)) {
+                case "measure,time" -> List.of("line", "bar");
+                case "dimension,measure" -> List.of("bar");
+                default -> List.of();
+            };
+        }
         return switch (roles(a, b)) {
             case "measure,time" -> List.of("line", "bar");
             case "dimension,measure" -> {
@@ -400,6 +463,7 @@ public final class ConfigAssembler {
     }
 
     private static List<String> tripleTypes(FieldEval a, FieldEval b, FieldEval c) {
+        if (Stream.of(a, b, c).anyMatch(f -> f.ratio() != null)) return List.of(); // B3 spec 5.3：比率不出堆疊、熱力
         int minDimDistinct = Stream.of(a, b, c).filter(f -> f.role().equals("dimension"))
             .mapToInt(f -> f.field().distinctCount()).min().orElse(Integer.MAX_VALUE);
         return switch (roles(a, b, c)) {
