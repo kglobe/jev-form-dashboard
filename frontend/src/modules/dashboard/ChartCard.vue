@@ -40,7 +40,8 @@ function tunedOption(base) {
     stateAnimation: { duration: reduced ? 0 : 120, easing: 'cubicOut' },
     tooltip: { ...base.tooltip, transitionDuration: 0 },
     ...(base.xAxis && { xAxis: compactValueAxis(base.xAxis) }),
-    ...(base.yAxis && { yAxis: compactValueAxis(base.yAxis) }),
+    // B2 spec 6.2：兩個數值差距大時 yAxis 是兩條軸的陣列
+    ...(base.yAxis && { yAxis: Array.isArray(base.yAxis) ? base.yAxis.map(compactValueAxis) : compactValueAxis(base.yAxis) }),
     series: base.series.map((s) => ({ ...s, ...SERIES_ANIMATION })),
   }
 }

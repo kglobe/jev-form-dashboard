@@ -227,6 +227,13 @@ describe('ChartCard', () => {
     expect(option.xAxis).toEqual({ type: 'category' })
   })
 
+  it('two Y axes (two measures far apart) both label numbers in compact zh-TW form', () => {
+    const data = { chartId: 'c1', type: 'line', dimensions: ['date', '銷售', '退貨'], rows: [['2026-07', 1200000, 30000]] }
+    const option = chartOf(mountCard({ spec: { ...barSpec, type: 'line' }, data, highlight: null })).props('option')
+    expect(option.yAxis).toHaveLength(2)
+    expect(option.yAxis.map((a) => a.axisLabel.formatter(1200000))).toEqual(['120萬', '120萬'])
+  })
+
   it('reduced motion: the chart does not animate and the hover state is instant', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }))
     const option = optionFor('bar')
