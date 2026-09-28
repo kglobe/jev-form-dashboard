@@ -308,4 +308,21 @@ class JevControllerTest {
         assertThat(JEV.bodies).hasSize(2);
         assertThat(JEV.bodies.get(1)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1");
     }
+
+    @Test
+    void analyzingASourceWithARatioAsksAboutItAfterTheFields() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        mvc.perform(patch("/api/datasources/" + ds + "/ratios").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ratios\":[{\"name\":\"單價\",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
+            .andExpect(status().isOk());
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
+            .andExpect(status().isOk());
+
+        // sales.csv 有 6 個欄位，比率是第 7 個（imp_6），不問角色
+        assertThat(JEV.bodies.get(0)).contains("{\"name\":\"單價\",\"type\":\"ratio\",\"formula\":\"amount ÷ qty\"}")
+            .contains("\"imp_6\"").doesNotContain("\"role_6\"");
+    }
 }

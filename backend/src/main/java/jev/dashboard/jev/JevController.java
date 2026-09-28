@@ -67,7 +67,7 @@ public class JevController {
         return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
             loaded.datasource().schema(), loaded.rows().size(), intents, body.current(),
             body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()),
-            MergeEngine.comparison(loaded.datasource()));
+            MergeEngine.comparison(loaded.datasource()), loaded.datasource().ratios());
     }
 
     /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */
