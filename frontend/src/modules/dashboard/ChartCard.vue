@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
-import 'echarts'
+import './charts/echarts.js'
 import VChart from 'vue-echarts'
 import { toOption } from './charts/index.js'
 // 深淺兩套圖表主題，跟著 Vuetify 目前的主題換。色盤是 dataviz 預設色盤的深色欄／淺色欄，各自對卡片底色驗證過；
