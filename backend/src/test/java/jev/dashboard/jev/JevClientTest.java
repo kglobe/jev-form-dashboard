@@ -26,6 +26,9 @@ import jev.dashboard.ApiException;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.Fixtures;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 
@@ -61,6 +64,23 @@ class JevClientTest {
                 .hasMessageNotContaining("boom")
                 .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
         }
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void failuresAreLoggedAsOneLineWithoutAStackTrace(CapturedOutput output) {
+        // JEV 掛掉時每次載入儀表板都會失敗一次，stack trace 會洗版；原因都在 message 裡
+        try (FakeJevServer server = FakeJevServer.start(body -> null)) {
+            JevClient client = new JevClient(server.url(), "k", "jev-1.13.0", Duration.ofSeconds(5));
+            assertThatThrownBy(() -> client.ask(Map.of(), ONE)).isInstanceOf(ApiException.class);
+        }
+        JevClient unreachable = new JevClient("http://127.0.0.1:1/v1/systemone", "k", "jev-1.13.0", Duration.ofSeconds(1));
+        assertThatThrownBy(() -> unreachable.ask(Map.of(), ONE)).isInstanceOf(ApiException.class);
+
+        assertThat(output.getOut() + output.getErr())
+            .contains("JEV 呼叫失敗：500")
+            .contains("JEV 無法連線：java.net.ConnectException")
+            .doesNotContain("\tat ");
     }
 
     @Test

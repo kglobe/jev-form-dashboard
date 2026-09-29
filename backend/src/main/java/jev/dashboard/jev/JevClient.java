@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import jev.dashboard.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -133,10 +134,12 @@ public class JevClient {
                     log.warn("JEV 請求太多（HTTP 429），retry-after {} 秒", wait.toSeconds());
                     throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "JEV 目前請求太多，請稍後再試");
                 }
-                log.warn("JEV 呼叫失敗：HTTP {}", e.getStatusCode().value(), e);
+                // 不印 stack trace：JEV 掛掉時每次載入儀表板都會失敗一次，原因都在 message 裡
+                log.warn("JEV 呼叫失敗：{}", e.getMessage());
                 throw new ApiException(HttpStatus.BAD_GATEWAY, "JEV 呼叫失敗（HTTP " + e.getStatusCode().value() + "）");
             } catch (RestClientException e) {
-                log.warn("JEV 無法連線", e);
+                // 第一層原因才看得出是連線被拒、找不到主機還是逾時（ConnectException 沒有 message，再往下是 ClosedChannelException）
+                log.warn("JEV 無法連線：{}", Objects.requireNonNullElse(e.getCause(), e).toString());
                 throw new ApiException(HttpStatus.BAD_GATEWAY, "JEV 呼叫失敗（無法連線）");
             }
         }
