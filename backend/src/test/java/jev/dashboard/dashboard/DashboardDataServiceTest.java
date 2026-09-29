@@ -208,4 +208,27 @@ class DashboardDataServiceTest {
         assertThat(loaded.dimensions()).isEqualTo(List.of("date", "退貨率"));
         assertThat(loaded.percent()).isTrue();
     }
+
+    @Test
+    void aRatioByCategoryIsAlignedOnTheSourcesDateField() {
+        UUID id = UUID.randomUUID();
+        List<FieldSchema> schema = List.of(
+            new FieldSchema("region", FieldType.STRING, 1, List.of(), false, null, null, "地區"),
+            new FieldSchema("date", FieldType.DATE, 3, List.of(), false, null, null, null),
+            new FieldSchema("sales", FieldType.NUMBER, 2, List.of(), false, null, null, null),
+            new FieldSchema("refund", FieldType.NUMBER, 1, List.of(), false, null, null, null));
+        Datasource ds = new Datasource(id, "對照", "merged", schema, null, Map.of(), "u1", null)
+            .withRatios(List.of(new Ratio("退貨率", "refund", "sales")));
+        List<Map<String, Object>> rows = List.of(Map.of("date", "2026-06-10", "region", "北區", "sales", 50.0),
+            Map.of("date", "2026-07-03", "region", "北區", "sales", 100.0),
+            Map.of("date", "2026-07-09", "region", "北區", "refund", 5.0));
+        DashboardDataService service = new DashboardDataService(sources(Map.of(id, ds), Map.of(id, rows), Set.of(), new HashMap<>()));
+
+        ChartData shown = service.display("u1", config(bar("c1", id, "region", "退貨率"))).get(0);
+
+        // 退貨只有 7 月，6 月的銷售不算：5 ÷ 100
+        assertThat(shown.rows()).isEqualTo(List.of(List.of("北區", 0.05)));
+        assertThat(shown.ratioPeriod()).isEqualTo(new ChartData.RatioPeriod("2026-07", "2026-07"));
+        assertThat(shown.source()).isEqualTo("對照");
+    }
 }

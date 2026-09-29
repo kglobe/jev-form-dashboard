@@ -242,11 +242,12 @@ class UniversalTransformerTest {
         for (String agg : Arrays.asList("sum", "avg", "count", "none", null)) {
             assertThat(ratioChart("bar", xv("region", "退貨率", agg, null)).rows()).as(String.valueOf(agg)).isEqualTo(expected);
         }
-        // 堆疊長條走同一段分組：先照期別、再照分類排
+        // 堆疊長條走同一段分組：先照期別、再照分類排。有 timeGrain 就照 x 對齊：退貨 2～3 月、銷售 1～3 月，
+        // 1 月的銷售不算，北區 10 ÷ 400，南區只剩 3 月銷售 0
         ChartData stacked = ratioChart("stacked_bar", new Mapping("date", null, "region", "退貨率", null, null, "sum", "quarter"));
         assertThat(stacked.dimensions()).containsExactly("date", "region", "退貨率");
         assertThat(stacked.rows()).isEqualTo(List.of(
-            List.of("2026-Q1", "北區", 0.02), List.of("2026-Q1", "南區", 0.01), Arrays.asList("2026-Q1", "東區", null)));
+            List.of("2026-Q1", "北區", 0.025), Arrays.asList("2026-Q1", "南區", null), Arrays.asList("2026-Q1", "東區", null)));
     }
 
     @Test
@@ -271,5 +272,76 @@ class UniversalTransformerTest {
         ChartData deleted = UniversalTransformer.transform(spec("bar", xv("region", "退貨率", "sum", null)), RATIO_ROWS,
             RATIO_FIELDS, List.of());
         assertThat(deleted.missingField()).isEqualTo("退貨率");
+    }
+
+    /** 對照來源的樣子：銷售 1～9 月，退貨 8～9 月；return_date 只有退貨列有，最後一列退貨沒有日期。 */
+    static final List<Map<String, Object>> MISALIGNED = List.of(
+        Map.of("date", "2026-01-08", "region", "北區", "sales", 100.0),
+        Map.of("date", "2026-07-07", "region", "北區", "sales", 200.0),
+        Map.of("date", "2026-08-04", "region", "北區", "sales", 400.0),
+        Map.of("date", "2026-09-16", "region", "南區", "sales", 400.0),
+        Map.of("date", "2026-08-06", "return_date", "2026-08-06", "region", "北區", "refund", 10.0),
+        Map.of("date", "2026-09-19", "return_date", "2026-09-19", "region", "南區", "refund", 6.0),
+        Map.of("region", "北區", "refund", 7.0));
+    static final Set<String> MISALIGNED_FIELDS = Set.of("date", "return_date", "region", "sales", "refund");
+
+    static ChartData aligned(String type, Mapping m, List<Map<String, Object>> rows) {
+        return UniversalTransformer.transform(spec(type, m), rows, MISALIGNED_FIELDS, List.of(RETURN_RATE),
+            List.of("return_date", "date"));
+    }
+
+    @Test
+    void byCategoryARatioOnlyCountsTheMonthsWhereBothTheNumeratorAndTheDenominatorHaveData() throws Exception {
+        ChartData d = aligned("bar", xv("region", "退貨率", "sum", null), MISALIGNED);
+
+        // return_date 只有退貨有，改用 date；重疊 8～9 月：北區 10 ÷ 400，南區 6 ÷ 400；
+        // 1、7 月的銷售和沒有日期的退貨都不算（沒對齊時北區是 17 ÷ 700）
+        assertThat(d.rows()).isEqualTo(List.of(List.of("北區", 0.025), List.of("南區", 0.015)));
+        assertThat(d.ratioPeriod()).isEqualTo(new ChartData.RatioPeriod("2026-08", "2026-09"));
+        assertThat(JSON.writeValueAsString(d)).contains("\"ratioPeriod\":{\"from\":\"2026-08\",\"to\":\"2026-09\"}");
+    }
+
+    @Test
+    void overTimeARatioAlignsOnTheXFieldAndMonthsOutsideTheOverlapKeepTheirPlace() {
+        // 按月跟沒對齊時一樣：1、7 月沒有退貨，留空
+        assertThat(aligned("line", xv("date", "退貨率", "sum", "month"), MISALIGNED).rows()).isEqualTo(List.of(
+            Arrays.asList("2026-01", null), Arrays.asList("2026-07", null),
+            List.of("2026-08", 0.025), List.of("2026-09", 0.015)));
+        // 按季：Q3 只算 8、9 月，7 月的銷售不稀釋（沒對齊時是 16 ÷ 1000）
+        ChartData quarter = aligned("bar", xv("date", "退貨率", "sum", "quarter"), MISALIGNED);
+        assertThat(quarter.rows()).isEqualTo(List.of(Arrays.asList("2026-Q1", null), List.of("2026-Q3", 0.02)));
+        assertThat(quarter.ratioPeriod()).isEqualTo(new ChartData.RatioPeriod("2026-08", "2026-09"));
+    }
+
+    @Test
+    void aRatioIsNotAlignedWhenBothSidesCoverTheSameMonthsOrThereIsNoDateField() throws Exception {
+        List<Map<String, Object>> same = List.of(
+            Map.of("date", "2026-08-01", "region", "北區", "sales", 100.0),
+            Map.of("date", "2026-09-30", "region", "北區", "sales", 100.0),
+            Map.of("date", "2026-08-20", "region", "北區", "refund", 4.0),
+            Map.of("date", "2026-09-02", "region", "北區", "refund", 6.0),
+            Map.of("region", "北區", "refund", 10.0));
+        ChartData d = aligned("bar", xv("region", "退貨率", "sum", null), same);
+
+        // 兩邊都是 8～9 月，不用對齊，沒有日期的列照算：20 ÷ 200
+        assertThat(d.rows()).isEqualTo(List.of(List.of("北區", 0.1)));
+        assertThat(d.ratioPeriod()).isNull();
+        assertThat(JSON.writeValueAsString(d)).doesNotContain("ratioPeriod");
+        // 來源沒有日期欄位：照舊整段加總（MISALIGNED 的北區 17 ÷ 700）
+        ChartData noDates = UniversalTransformer.transform(spec("bar", xv("region", "退貨率", "sum", null)), MISALIGNED,
+            MISALIGNED_FIELDS, List.of(RETURN_RATE), List.of());
+        assertThat(noDates.rows().get(0)).isEqualTo(List.of("北區", 17.0 / 700));
+        assertThat(noDates.ratioPeriod()).isNull();
+    }
+
+    @Test
+    void whenTheMonthsDoNotOverlapEveryGroupIsNull() {
+        List<Map<String, Object>> apart = List.of(
+            Map.of("date", "2026-01-08", "region", "北區", "sales", 100.0),
+            Map.of("date", "2026-08-06", "region", "北區", "refund", 10.0));
+        ChartData d = aligned("bar", xv("region", "退貨率", "sum", null), apart);
+
+        assertThat(d.rows()).isEqualTo(List.of(Arrays.asList("北區", null)));
+        assertThat(d.ratioPeriod()).isEqualTo(new ChartData.RatioPeriod("2026-08", "2026-01"));
     }
 }

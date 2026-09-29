@@ -63,6 +63,13 @@ const option = computed(() =>
     ? tunedOption(toOption[props.spec.type](props.data))
     : null,
 )
+// 比率的期間對齊：後端只在有排除期間時帶 ratioPeriod，from 比 to 晚是沒有重疊（月份是 2026-07，照字串比）
+const ratioPeriodNote = computed(() => {
+  const p = ready.value && props.data.ratioPeriod
+  if (!p) return null
+  if (p.from > p.to) return '分子、分母的資料期間沒有重疊'
+  return `只算 ${p.from === p.to ? p.from : `${p.from}～${p.to}`}（分子、分母都有資料的月份）`
+})
 </script>
 
 <template>
@@ -113,7 +120,10 @@ const option = computed(() =>
           </tbody>
         </v-table>
       </template>
-      <VChart v-else :option="option" :theme="chartTheme" autoresize />
+      <div v-else class="chart-wrap">
+        <VChart :option="option" :theme="chartTheme" autoresize class="chart-canvas" />
+        <div v-if="ratioPeriodNote" class="tc-ratio-period text-caption text-medium-emphasis">{{ ratioPeriodNote }}</div>
+      </div>
     </v-card-text>
   </v-card>
 </template>
@@ -130,6 +140,10 @@ const option = computed(() =>
 }
 .card-drag { cursor: move; }
 .card-body { min-height: 0; padding: 8px 8px 0; }
+/* 圖表撐滿內容區；比率有說明時，說明那一行排在圖下方 */
+.chart-wrap { height: 100%; display: flex; flex-direction: column; }
+.chart-canvas { flex: 1 1 0; min-height: 0; }
+.tc-ratio-period { padding: 2px 4px 6px; }
 /* 多來源 spec 3.2：標題右邊的來源名稱，次要文字色的小字 */
 .tc-source {
   flex: 0 1 auto;

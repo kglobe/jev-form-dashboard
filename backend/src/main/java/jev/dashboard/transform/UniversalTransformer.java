@@ -1,6 +1,7 @@
 package jev.dashboard.transform;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,9 +72,17 @@ public final class UniversalTransformer {
         return transform(spec, rows, availableFields, List.of());
     }
 
-    /** ratios 是這個來源的比率定義（B3 spec 5.1）；value 是比率名稱時，每組分子、分母各自加總再相除。 */
     public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
                                       List<Ratio> ratios) {
+        return transform(spec, rows, availableFields, ratios, List.of());
+    }
+
+    /**
+     * ratios 是這個來源的比率定義（B3 spec 5.1）；value 是比率名稱時，每組分子、分母各自加總再相除。
+     * dateFields 是這個來源的日期欄位，依 schema 順序；比率只算分子、分母都有資料的月份（期間對齊）。
+     */
+    public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
+                                      List<Ratio> ratios, List<String> dateFields) {
         Mapping m = spec.mapping();
         Ratio ratio = ratios.stream().filter(r -> r.name().equals(m.value())).findFirst().orElse(null);
         List<String> fields = new ArrayList<>(referencedFields(m));
@@ -89,10 +98,10 @@ public final class UniversalTransformer {
         return switch (spec.type()) {
             case "bar", "line" -> m.measures() != null
                 ? measured(spec, rows, m.x(), m.measures(), agg, m.timeGrain())
-                : grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio);
-            case "pie" -> grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio);
-            case "stacked_bar" -> grouped(spec, rows, List.of(m.x(), m.series()), m.value(), agg, m.timeGrain(), ratio);
-            case "heatmap" -> grouped(spec, rows, List.of(m.x(), m.y()), m.value(), agg, m.timeGrain(), ratio);
+                : grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio, dateFields);
+            case "pie" -> grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio, dateFields);
+            case "stacked_bar" -> grouped(spec, rows, List.of(m.x(), m.series()), m.value(), agg, m.timeGrain(), ratio, dateFields);
+            case "heatmap" -> grouped(spec, rows, List.of(m.x(), m.y()), m.value(), agg, m.timeGrain(), ratio, dateFields);
             case "radar" -> radar(spec, rows, m.series(), m.measures(), agg.equals("none") ? "sum" : agg);
             case "scatter" -> project(spec, rows, List.of(m.x(), m.y()), true, Integer.MAX_VALUE);
             case "table" -> project(spec, rows, m.columns(), false, TABLE_ROW_LIMIT);
@@ -109,12 +118,14 @@ public final class UniversalTransformer {
     }
 
     private static ChartData grouped(ChartSpec spec, List<Map<String, Object>> rows, List<String> keys,
-                                     String value, String agg, String grain, Ratio ratio) {
+                                     String value, String agg, String grain, Ratio ratio, List<String> dateFields) {
         List<String> dims = new ArrayList<>(keys);
         dims.add(value != null ? value : "count");
         // B3 spec 5.1：比率不管 aggregate 寫什麼（包括 none），都是每組先加總再相除
         if (agg.equals("none") && ratio == null) return project(spec, rows, dims, true, Integer.MAX_VALUE);
 
+        // 有 timeGrain 時 x 就是日期欄位，照 x 對齊；沒有就找來源的日期欄位
+        Overlap overlap = ratio == null ? null : overlap(rows, ratio, grain != null ? List.of(keys.get(0)) : dateFields);
         // [加總, 筆數]；比率是 [分子加總, 分子筆數, 分母加總, 分母筆數]
         Map<List<Object>, double[]> acc = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -129,6 +140,7 @@ public final class UniversalTransformer {
                 Object den = row.get(ratio.denominator());
                 if (!(num instanceof Number) && !(den instanceof Number)) continue; // 兩邊都沒有值的列不算
                 double[] a = acc.computeIfAbsent(key, k -> new double[4]);
+                if (overlap != null && overlap.excludes(row)) continue; // 重疊月份以外的列不算，這一組照樣留著位置
                 if (num instanceof Number nv) {
                     a[0] += nv.doubleValue();
                     a[1]++;
@@ -163,7 +175,52 @@ public final class UniversalTransformer {
                 Comparator.nullsLast(Comparator.<Double>reverseOrder())));
         }
         return new ChartData(spec.chartId(), spec.type(), dims, out, null, null, null, null, null,
-            ratio != null ? Boolean.TRUE : null);
+            ratio != null ? Boolean.TRUE : null, overlap == null ? null : new ChartData.RatioPeriod(overlap.from(), overlap.to()));
+    }
+
+    /** 比率只算 from～to 這幾個月；from 比 to 晚時沒有重疊，每一列都不算。月份是 TimeBucket 的 2026-07，照字串比大小。 */
+    private record Overlap(String field, String from, String to) {
+        boolean excludes(Map<String, Object> row) {
+            String month = TimeBucket.of(row.get(field), "month");
+            return month == null || month.compareTo(from) < 0 || month.compareTo(to) > 0;
+        }
+    }
+
+    /**
+     * 期間對齊：用第一個分子、分母都有日期的欄位，兩邊有資料的月份範圍取交集。兩邊範圍一樣時不用對齊，回 null。
+     * ponytail: 只看整段的頭尾，中間缺的月份不管；某個月真的沒有退貨時不會被當成沒資料
+     */
+    private static Overlap overlap(List<Map<String, Object>> rows, Ratio ratio, List<String> dateFields) {
+        for (String field : dateFields) {
+            String[] num = months(rows, field, ratio.numerator());
+            String[] den = months(rows, field, ratio.denominator());
+            if (num == null || den == null) continue;
+            if (Arrays.equals(num, den)) return null;
+            return new Overlap(field, max(num[0], den[0]), min(num[1], den[1]));
+        }
+        return null;
+    }
+
+    /** value 有數字的列，日期落在的第一個和最後一個月；一列都沒有回 null。 */
+    private static String[] months(List<Map<String, Object>> rows, String dateField, String value) {
+        String first = null;
+        String last = null;
+        for (Map<String, Object> row : rows) {
+            if (!(row.get(value) instanceof Number)) continue;
+            String month = TimeBucket.of(row.get(dateField), "month");
+            if (month == null) continue;
+            first = first == null ? month : min(first, month);
+            last = last == null ? month : max(last, month);
+        }
+        return first == null ? null : new String[] {first, last};
+    }
+
+    private static String min(String a, String b) {
+        return a.compareTo(b) <= 0 ? a : b;
+    }
+
+    private static String max(String a, String b) {
+        return a.compareTo(b) >= 0 ? a : b;
     }
 
     /** B3 spec 5.1：缺分子、缺分母，或分母加總是 0，比率是 null（空白，不是 0%）。 */
