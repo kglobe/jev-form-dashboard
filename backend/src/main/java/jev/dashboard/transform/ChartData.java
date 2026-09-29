@@ -55,6 +55,11 @@ public record ChartData(String chartId, String type, List<String> dimensions, Li
         return new ChartData(chartId, type, null, null, "FIELD_MISSING", field);
     }
 
+    /** 有 timeGrain 的 x 欄位裡有不是日期的值（手動編的卡片才會這樣）；missingField 放那個欄位的名稱。 */
+    public static ChartData notADate(String chartId, String type, String field) {
+        return new ChartData(chartId, type, null, null, "NOT_A_DATE", field);
+    }
+
     /** 多來源 spec 第 7 節：這張圖的來源載入失敗；source 是查得到的來源名稱，查不到是 null。 */
     public static ChartData sourceFailed(String chartId, String type, String source) {
         return new ChartData(chartId, type, null, null, "SOURCE_FAILED", null, null, null, source);
