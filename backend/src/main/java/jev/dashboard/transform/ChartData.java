@@ -8,11 +8,21 @@ import java.util.List;
  * title 是套上欄位顯示名稱後的卡片標題；null 時前端照用 spec 的標題。
  * source 是這張圖的來源名稱，多來源的儀表板用它標在卡片上。
  * percent 只在數值欄是比率時是 true（B3 spec 5.1），前端把 Y 軸和 tooltip 顯示成百分比；其他時候是 null、JSON 不輸出。
+ * ratioPeriod 只在比率有排除期間時出現：只算 from～to 這幾個月（分子、分母都有資料的月份），from 比 to 晚代表沒有重疊。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChartData(String chartId, String type, List<String> dimensions, List<List<Object>> rows,
                         String error, String missingField, Boolean truncated, String title, String source,
-                        Boolean percent) {
+                        Boolean percent, RatioPeriod ratioPeriod) {
+    /** 月份寫成 2026-07。 */
+    public record RatioPeriod(String from, String to) {}
+
+    public ChartData(String chartId, String type, List<String> dimensions, List<List<Object>> rows,
+                     String error, String missingField, Boolean truncated, String title, String source,
+                     Boolean percent) {
+        this(chartId, type, dimensions, rows, error, missingField, truncated, title, source, percent, null);
+    }
+
     public ChartData(String chartId, String type, List<String> dimensions, List<List<Object>> rows,
                      String error, String missingField, Boolean truncated, String title, String source) {
         this(chartId, type, dimensions, rows, error, missingField, truncated, title, source, null);
@@ -34,11 +44,11 @@ public record ChartData(String chartId, String type, List<String> dimensions, Li
     }
 
     public ChartData withLabels(List<String> dimensions, String title) {
-        return new ChartData(chartId, type, dimensions, rows, error, missingField, truncated, title, source, percent);
+        return new ChartData(chartId, type, dimensions, rows, error, missingField, truncated, title, source, percent, ratioPeriod);
     }
 
     public ChartData withSource(String value) {
-        return new ChartData(chartId, type, dimensions, rows, error, missingField, truncated, title, value, percent);
+        return new ChartData(chartId, type, dimensions, rows, error, missingField, truncated, title, value, percent, ratioPeriod);
     }
 
     public static ChartData missing(String chartId, String type, String field) {
