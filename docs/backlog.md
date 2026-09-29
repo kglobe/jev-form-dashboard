@@ -37,13 +37,13 @@
 
 ## 穩定度與效能
 
-- P2 · 手動編出的卡片，把 `timeGrain` 指到不是日期型別的 `x` 欄位，`/data` 仍會回 500——卡片存檔驗證只查必填和型別合法性，沒有對照資料源 schema 檢查欄位真正的型別（`DashboardService.java` 的 `requireComplete`／`cardProblem`，錯誤來自 `TimeBucket.java` 的 `LocalDate.parse`）。（final-fix-backend-report.md「Concerns and open points」）
+- ~~P2 · 手動編出的卡片，把 `timeGrain` 指到不是日期型別的 `x` 欄位，`/data` 仍會回 500——卡片存檔驗證只查必填和型別合法性，沒有對照資料源 schema 檢查欄位真正的型別（`DashboardService.java` 的 `requireComplete`／`cardProblem`，錯誤來自 `TimeBucket.java` 的 `LocalDate.parse`）。（final-fix-backend-report.md「Concerns and open points」）~~ 已修正：`/data` 不再回 500，只有那張卡是 `NOT_A_DATE`，畫面寫「欄位「region」不是日期，不能按日、月或季分組」，其他卡照常畫。存檔時還是沒有對照 schema 檢查；這種卡只有用 API 手動編才會出現。
 - P2 · 每次載入儀表板做異常檢查，都會重新讀一次資料源，沒有重用同一次 `/data` 已經抓過的資料。（backend ledger，pre-flight）
 - P2 · analyze 要算資料筆數時用 `loaded.rows().size()`，外部 API 資料源等於要整批把資料抓回來才能算出筆數。（backend ledger，Task 9）
 - P2 · `ChartCard.vue` 整包 `import 'echarts'`，主要輸出 chunk 高達 1.59 MB（gzip 後約 528 KB），沒有照實際用到的圖表類型做分包。（frontend ledger，Task 4）
 - P2 · 異常檢查快取的「資料指紋」是所有沒用到敏感欄位的卡片 ChartData 雜湊值：改標題不會讓快取失效（太窄），沒被摘要的圖表型別、外部 API 資料順序不穩定都會讓快取失效（太寬），而且快取沒有上限也不會過期。（backend ledger，Task 11）
 - P2 · 上傳解析整段包在 `@Transactional` 裡，解析大檔案時會一直占著資料庫連線。（backend ledger，Task 5）
-- P2 · JEV 掛掉或連不上時，`JevClient` 和 `HighlightService` 每次都把整條 WARN stack trace 寫進 log；失敗又不快取，等於每次載入儀表板都重複噴一次。（backend ledger，Task 11）
+- ~~P2 · JEV 掛掉或連不上時，`JevClient` 和 `HighlightService` 每次都把整條 WARN stack trace 寫進 log；失敗又不快取，等於每次載入儀表板都重複噴一次。（backend ledger，Task 11）~~ 已修正：`JevClient` 不再印 stack trace，每次失敗只寫一行原因（例如「JEV 無法連線：java.net.ConnectException」），`HighlightService` 再寫一行「略過標註」。失敗還是不快取，每次載入儀表板仍會多這兩行。如果 JEV 常掛，又想省下每次載入等它失敗的時間，再考慮短暫記住失敗結果。
 - P3 · `bar`／`line`／`pie`／`radar`／`heatmap`／`stacked_bar` 的前端 `toOption` 目前忽略 mapping 參數，靠資料欄位的既定順序對應。（frontend ledger，Task 1、Task 2，plan 既有程式碼）
 - P3 · heatmap 拿到空資料時 `visualMap` 會變成 0/0，這個邊界沒有實際驗證過。（frontend ledger，Task 2）
 - P3 · 折線／長條圖沒有 `timeGrain` 時照數值高低排序；有 `timeGrain` 時，期別是照字串比較排序，不是照時間先後。（backend ledger，Task 4）
@@ -89,7 +89,7 @@
 - P3 · 幾支既有元件測試覆蓋不完整：`DashboardView` 的防過期 guard 只靠程式碼檢查過、沒有測試；`highlight` 只驗了第一個 guard，沒驗 error／highlight 兩個 guard 和「圖表先於標註顯示」以外的情境；勾選欄位的迴圈測試沒驗證數量；缺「已存檔模式可拖拉」這類正面對照組。（frontend ledger，Task 3、Task 4b）
 - P3 · `api.test.js` 的 `rejects.toThrow` 是子字串比對、假設 `VITE_USER_ID` 沒設，`stubGlobal` 也沒有還原；測試檔沒有統一用 `enableAutoUnmount`，靠手動清空 `document.body` 頂著。（frontend ledger，Task 4b）
 - P3 · 後端 round 2 沒有候選組合、候選欄位用滿全部欄位這兩種分支還沒有測試覆蓋；沒有測試驗證欄位改成敏感之後，已經快取的異常檢查結果會跟著失效。（backend ledger，Task 9、Task 11）
-- P3 · 測試輸出裡還留著 Mockito self-attach 的 JDK 警告，和一段 JEV 500 情境印出的 WARN 加 stack trace，不影響結果但會洗版。（backend ledger，Task 4、Task 5、Task 9）
+- P3 · 測試輸出裡還留著 Mockito self-attach 的 JDK 警告，不影響結果但會洗版。JEV 500 情境印出的 stack trace 已經拿掉，現在只剩一行 WARN。（backend ledger，Task 4、Task 5、Task 9）
 - P3 · `jev.dashboard` package 下有一個測試用的 controller，會被掃進所有 `@SpringBootTest`。（backend ledger，Task 1）
 - P3 · 有兩份存過需求的舊儀表板屬於另一個使用者 ID，合併後檢查只在資料庫層確認它們的需求紀錄轉成了 `basis`，沒有在畫面上看過「依據」那一行。下次用那個使用者登入時順手確認。（合併後檢查，2026-09-28）
 - ~~P3 · README 的「合併來源」一節沒寫查表的對接欄位最多 3 組（畫面上已經限制 3 組）。（B1 Task 10 review）~~ 已補上。
