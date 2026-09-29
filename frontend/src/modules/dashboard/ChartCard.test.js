@@ -47,6 +47,16 @@ describe('ChartCard', () => {
     expect(wrapper.find('.v-chart-stub').exists()).toBe(false)
   })
 
+  it('shows the NOT_A_DATE alert and renders no chart when the time grain sits on a field that is not a date', () => {
+    const wrapper = mountCard({
+      spec: { chartId: 'c1', type: 'line', title: 'T', mapping: {} },
+      data: { chartId: 'c1', type: 'line', error: 'NOT_A_DATE', missingField: 'region' },
+      highlight: null,
+    })
+    expect(wrapper.text()).toContain('欄位「region」不是日期，不能按日、月或季分組')
+    expect(wrapper.find('.v-chart-stub').exists()).toBe(false)
+  })
+
   it('while data is null the body shows an aria-hidden skeleton and says aria-busy; both go once data arrives', async () => {
     const card = mountCard({ spec: { chartId: 'c1', type: 'bar', title: 'T', mapping: {} }, data: null, highlight: null })
     expect(card.get('.tc-skeleton').attributes('aria-hidden')).toBe('true')
