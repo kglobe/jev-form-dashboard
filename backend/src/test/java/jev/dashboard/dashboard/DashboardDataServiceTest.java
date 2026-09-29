@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
 import jev.dashboard.datasource.Datasource;
@@ -49,11 +50,13 @@ class DashboardDataServiceTest {
             }
 
             @Override
-            public Loaded load(String userId, UUID id) {
-                loads.merge(id, 1, Integer::sum);
-                Datasource ds = get(userId, id);
-                if (fail.contains(id)) throw new ApiException(HttpStatus.BAD_GATEWAY, "外部 API 無法連線");
-                return new Loaded(ds, rows.get(id));
+            public Function<UUID, Loaded> loader(String userId) {
+                return id -> {
+                    loads.merge(id, 1, Integer::sum);
+                    Datasource ds = get(userId, id);
+                    if (fail.contains(id)) throw new ApiException(HttpStatus.BAD_GATEWAY, "外部 API 無法連線");
+                    return new Loaded(ds, rows.get(id));
+                };
             }
         };
     }
@@ -76,8 +79,8 @@ class DashboardDataServiceTest {
         DatasourceService datasources = new DatasourceService(null, List.of(),
                 new JevProperties(null, null, null, new JevProperties.Upload(100), null), null) {
             @Override
-            public Loaded load(String userId, UUID datasourceId) {
-                return new Loaded(ds, rows);
+            public Function<UUID, Loaded> loader(String userId) {
+                return datasourceId -> new Loaded(ds, rows);
             }
         };
         GridPos pos = new GridPos(0, 0, 6, 4);
@@ -102,8 +105,8 @@ class DashboardDataServiceTest {
         DatasourceService datasources = new DatasourceService(null, List.of(),
                 new JevProperties(null, null, null, new JevProperties.Upload(100), null), null) {
             @Override
-            public Loaded load(String userId, UUID datasourceId) {
-                return new Loaded(ds, rows);
+            public Function<UUID, Loaded> loader(String userId) {
+                return datasourceId -> new Loaded(ds, rows);
             }
         };
         GridPos pos = new GridPos(0, 0, 6, 4);

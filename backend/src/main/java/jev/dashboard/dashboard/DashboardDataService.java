@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.datasource.DatasourceService;
@@ -70,17 +71,19 @@ public class DashboardDataService {
     }
 
     /**
-     * 每個來源只載入一次。有來源載入失敗（外部 API 掛掉、超過筆數上限等）時，只有用到它的卡片是 SOURCE_FAILED；
+     * 每個來源只載入一次，卡片直接用的和合併來源裡用到的共用同一份（同一個 loader）。
+     * 有來源載入失敗（外部 API 掛掉、超過筆數上限等）時，只有用到它的卡片是 SOURCE_FAILED；
      * 全部來源都失敗就丟出第一個錯誤，單一來源的儀表板和預覽跟以前一樣整份報錯。
      */
     private Map<UUID, Source> sources(String userId, List<ChartSpec> layout) {
+        Function<UUID, DatasourceService.Loaded> load = datasources.loader(userId);
         Map<UUID, Source> out = new LinkedHashMap<>();
         ApiException first = null;
         for (ChartSpec s : layout) {
             UUID id = s.datasourceId();
             if (out.containsKey(id)) continue;
             try {
-                out.put(id, loaded(datasources.load(userId, id)));
+                out.put(id, loaded(load.apply(id)));
             } catch (ApiException e) {
                 if (first == null) first = e;
                 log.warn("資料來源 {} 載入失敗：{}", id, e.getMessage());

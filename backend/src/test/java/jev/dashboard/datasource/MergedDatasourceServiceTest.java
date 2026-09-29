@@ -2,6 +2,7 @@ package jev.dashboard.datasource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -310,5 +312,56 @@ class MergedDatasourceServiceTest {
         assertThat(field(repo.sources.get(m), "amount").sensitive()).isFalse();
         assertThat(repo.sources.get(m).schema()).allMatch(f -> f.sensitiveFrom() == null);
         assertThat(field(service.get("u1", n), "region").label()).isEqualTo("地區");
+    }
+
+    @Test
+    void oneLoaderFetchesEachApiSourceOnceEvenWhenMergedSourcesUseItAgainAndFailuresAreNotRetried() {
+        // 外部 API 來源 erp：每次抓都記在 fetches，down[0] 是 true 時抓取丟 502
+        Map<UUID, Integer> fetches = new HashMap<>();
+        boolean[] down = {false};
+        DataSourceProvider api = new DataSourceProvider() {
+            @Override
+            public boolean supports(String kind) {
+                return "api".equals(kind);
+            }
+
+            @Override
+            public List<Map<String, Object>> fetchRows(Datasource ds) {
+                fetches.merge(ds.id(), 1, Integer::sum);
+                if (down[0]) throw new ApiException(BAD_GATEWAY, "外部 API 無法連線");
+                return List.of(Map.of("region", "北區", "amount", "100"));
+            }
+        };
+        Loaded l = CsvSources.csv("erp", "region,amount", "北區,100");
+        UUID erp = l.datasource().id();
+        repo.insert(new Datasource(erp, "erp", "api", l.datasource().schema(), "http://10.0.0.5/x", Map.of(), "u1", null));
+        DatasourceService service = new DatasourceService(repo, List.of(new UploadDataSourceProvider(repo), api),
+            new JevProperties(null, null, null, new JevProperties.Upload(20), null), new ApiUrlGuard(List.of()));
+        UUID s = upload("南區", "region,amount", "南區,50");
+        UUID m = service.createMerged("u1", "全區", union(List.of(erp, s), "region", "amount")).id();
+        UUID top = service.createMerged("u1", "再疊一次", union(List.of(m, erp), "region", "amount")).id();
+
+        // 巢狀：erp 在 top 的結構裡出現兩次
+        fetches.clear();
+        assertThat(service.load("u1", top).rows()).extracting(r -> r.get("amount")).containsExactly(100.0, 50.0, 100.0);
+        assertThat(fetches).isEqualTo(Map.of(erp, 1));
+
+        // 一張卡直接用 erp、其他卡用到含 erp 的合併來源：同一個 loader 只抓一次
+        fetches.clear();
+        Function<UUID, Loaded> load = service.loader("u1");
+        load.apply(erp);
+        load.apply(m);
+        load.apply(top);
+        assertThat(fetches).isEqualTo(Map.of(erp, 1));
+
+        // 抓失敗也只試一次，之後用到它的來源都拿到同一個錯誤
+        down[0] = true;
+        fetches.clear();
+        Function<UUID, Loaded> failing = service.loader("u1");
+        for (UUID id : List.of(erp, m, top)) {
+            assertThatThrownBy(() -> failing.apply(id)).isInstanceOfSatisfying(ApiException.class,
+                e -> assertThat(e.status()).isEqualTo(BAD_GATEWAY));
+        }
+        assertThat(fetches).isEqualTo(Map.of(erp, 1));
     }
 }
