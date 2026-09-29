@@ -160,9 +160,36 @@ public class DatasourceService {
     }
 
     public Loaded load(String userId, UUID id) {
+        return loader(userId).apply(id);
+    }
+
+    /**
+     * 同一個 loader 裡每個來源只載入一次，合併來源裡的輸入來源也算在內，外部 API 不會被重複打；
+     * 載入失敗也只試一次，之後用到它的地方都拿到同一個錯誤。一次請求用一個，不跨請求。
+     */
+    public Function<UUID, Loaded> loader(String userId) {
+        Map<UUID, Loaded> loaded = new HashMap<>();
+        Map<UUID, ApiException> failed = new HashMap<>();
+        return new Function<>() {
+            @Override
+            public Loaded apply(UUID id) {
+                if (failed.containsKey(id)) throw failed.get(id);
+                if (loaded.containsKey(id)) return loaded.get(id);
+                try {
+                    loaded.put(id, fetch(userId, id, this));
+                } catch (ApiException e) {
+                    failed.put(id, e);
+                    throw e;
+                }
+                return loaded.get(id);
+            }
+        };
+    }
+
+    private Loaded fetch(String userId, UUID id, Function<UUID, Loaded> load) {
         Datasource ds = get(userId, id);
         if ("merged".equals(ds.kind())) {
-            List<Map<String, Object>> rows = merge(userId, ds.merge()).rows();
+            List<Map<String, Object>> rows = merge(ds.merge(), load).rows();
             // spec 5.4：載入時只擋超過上限；0 筆跟其他來源一樣照常回傳
             if (rows.size() > maxRows) checkRows(rows.size());
             return new Loaded(ds, rows);
@@ -195,7 +222,7 @@ public class DatasourceService {
         Map<UUID, Datasource> depthCache = new HashMap<>();
         int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id, depthCache)).max().orElse(0);
         if (depth > MAX_DEPTH) throw new ApiException(BAD_REQUEST, "合併最多 3 層");
-        MergeEngine.Result r = merge(userId, def);
+        MergeEngine.Result r = merge(def, loader(userId));
         checkRows(r.rows().size());
         return r;
     }
@@ -207,11 +234,10 @@ public class DatasourceService {
         return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i, cache)).max().orElse(0);
     }
 
-    // ponytail: 同一個輸入來源在巢狀結構裡出現兩次，就會載入兩次（spec 5.3）；巢狀合併常見、載入變慢時，再在同一次 load 裡加快取
-    private MergeEngine.Result merge(String userId, MergeDefinition def) {
+    private static MergeEngine.Result merge(MergeDefinition def, Function<UUID, Loaded> load) {
         return switch (def) {
-            case Union u -> MergeEngine.union(u, u.inputs().stream().map(id -> load(userId, id)).toList());
-            case Lookup l -> MergeEngine.lookup(l, load(userId, l.main()), load(userId, l.lookup()));
+            case Union u -> MergeEngine.union(u, u.inputs().stream().map(load).toList());
+            case Lookup l -> MergeEngine.lookup(l, load.apply(l.main()), load.apply(l.lookup()));
         };
     }
 

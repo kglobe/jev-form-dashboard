@@ -66,8 +66,9 @@
 - P3 · 用「各區每月營收」跑 E2E 第 1 步時，第一張卡片是「amount 依 region」，region × month 的組合排在第二張；排序沒有優先挑最貼近那句需求的組合。（E2E，Task 9）
 - P3 · 輸入「加每月的數量趨勢」，JEV 給的是 amount 的折線圖，不是 qty；這是 JEV 判斷上的問題。（E2E，Task 9）
 
-- P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）
-- P2 · 一張卡用某個 API 來源、另一張卡用到同一個 API 來源的合併來源，兩張卡都會讓這個 API 來源被重複抓一次（`/data` 抓兩次、`highlight` 又各再抓一次）；同一個合併來源裡有多個外部 API 輸入時，也是一個一個依序抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）
+- ~~P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）~~ 已修正，見下一項。
+- ~~P2 · 一張卡用某個 API 來源、另一張卡用到同一個 API 來源的合併來源，兩張卡都會讓這個 API 來源被重複抓一次（`/data` 抓兩次、`highlight` 又各再抓一次）。（B1 final review）~~ 已修正：同一個請求（`/data`、`highlight` 或分析）裡，每個來源只載入一次。不管是卡片直接用，還是透過合併來源間接用到，都共用同一份結果，巢狀結構裡重複出現的輸入來源也一樣（`DatasourceService.loader`）。載入失敗也只試一次，後面用到它的卡片直接拿同一個錯誤，不會每張卡各等一次逾時。`/data` 和 `highlight` 是兩個請求，打開儀表板時 API 來源還是會抓兩次；要省掉第二次，見上面「異常檢查重新讀一次資料源」那一項。
+- P2 · 同一個合併來源裡有多個外部 API 輸入時，會一個接一個抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）
 - P3 · PUT 儀表板時，`basis` 裡 `intents` 是 null 或空陣列的分組也會通過驗證、被存下來（`DashboardService.requireValidBasis`）。前端顯示時會過濾掉，看不出來，只是資料不乾淨。（A final review）
 - P3 · 手動組一個預覽請求，把自己的來源和別人的來源混在一起送 `/preview/data`，別人來源的卡片會回 `SOURCE_FAILED`，名稱是 null，不會洩漏資料；只有全部來源都失敗時才回 404。行為跟 spec 寫的「載入時 404」不完全一樣。（A final review）
 - P3 · 已存儀表板移除卡片後，「不重抓資料」靠的是只生效一次的旗標 `ownUpdatePending`（`DashboardView.vue`）。如果 App 在同一個 Vue 更新週期裡連續換兩次設定（移除卡片後 PUT 回傳的設定，以及重新打開同一份儀表板），可能把重新打開誤判成移除而沒有重抓。現在的畫面流程不會觸發這種情況。（A final fix re-review）
