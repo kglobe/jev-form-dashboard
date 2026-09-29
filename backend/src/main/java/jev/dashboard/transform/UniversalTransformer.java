@@ -1,5 +1,6 @@
 package jev.dashboard.transform;
 
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -95,6 +96,16 @@ public final class UniversalTransformer {
             if (!availableFields.contains(field)) return ChartData.missing(spec.chartId(), spec.type(), field);
         }
         String agg = m.aggregate() != null ? m.aggregate() : defaultAggregate(spec.type());
+        try {
+            return shaped(spec, rows, m, agg, ratio, dateFields);
+        } catch (DateTimeParseException e) {
+            // TimeBucket 分期時遇到不是日期的值：只有這張卡出錯，其他卡照常畫
+            return ChartData.notADate(spec.chartId(), spec.type(), m.x());
+        }
+    }
+
+    private static ChartData shaped(ChartSpec spec, List<Map<String, Object>> rows, Mapping m, String agg, Ratio ratio,
+                                    List<String> dateFields) {
         return switch (spec.type()) {
             case "bar", "line" -> m.measures() != null
                 ? measured(spec, rows, m.x(), m.measures(), agg, m.timeGrain())

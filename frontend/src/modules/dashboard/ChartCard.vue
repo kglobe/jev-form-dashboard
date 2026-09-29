@@ -101,6 +101,9 @@ const ratioPeriodNote = computed(() => {
       <v-alert v-else-if="data.error === 'FIELD_MISSING'" type="warning" density="compact" class="tc-fade-in">
         欄位遺失：{{ data.missingField }}
       </v-alert>
+      <v-alert v-else-if="data.error === 'NOT_A_DATE'" type="warning" density="compact" class="tc-fade-in">
+        欄位「{{ data.missingField }}」不是日期，不能按日、月或季分組
+      </v-alert>
       <v-alert v-else-if="data.error === 'SOURCE_FAILED'" type="warning" density="compact" class="tc-fade-in">
         {{ data.source ? `資料來源「${data.source}」載入失敗，請稍後重新整理` : '資料來源載入失敗，請稍後重新整理' }}
       </v-alert>

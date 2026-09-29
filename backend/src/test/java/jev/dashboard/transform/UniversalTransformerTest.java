@@ -274,6 +274,19 @@ class UniversalTransformerTest {
         assertThat(deleted.missingField()).isEqualTo("退貨率");
     }
 
+    @Test
+    void aTimeGrainOnAFieldThatIsNotADateIsACardErrorInsteadOfACrash() {
+        // 手動編的卡片把 timeGrain 配到 region：以前 LocalDate.parse 丟例外，整份 /data 回 500
+        for (ChartData d : List.of(
+                run("line", xv("region", "amount", "sum", "month")),
+                run("bar", new Mapping("region", null, null, null, List.of("amount", "qty"), null, "sum", "month")),
+                ratioChart("bar", xv("region", "退貨率", "sum", "quarter")))) {
+            assertThat(d.error()).isEqualTo("NOT_A_DATE");
+            assertThat(d.missingField()).isEqualTo("region");
+            assertThat(d.rows()).isNull();
+        }
+    }
+
     /** 對照來源的樣子：銷售 1～9 月，退貨 8～9 月；return_date 只有退貨列有，最後一列退貨沒有日期。 */
     static final List<Map<String, Object>> MISALIGNED = List.of(
         Map.of("date", "2026-01-08", "region", "北區", "sales", 100.0),
