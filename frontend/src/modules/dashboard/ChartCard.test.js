@@ -7,7 +7,7 @@ import { vuetify } from './test-vuetify.js'
 import commandDark from './charts/themes/command-dark.json'
 import commandLight from './charts/themes/command-light.json'
 
-vi.mock('echarts', () => ({}))
+vi.mock('./charts/echarts.js', () => ({}))
 vi.mock('vue-echarts', () => ({
   default: {
     name: 'VChart',
