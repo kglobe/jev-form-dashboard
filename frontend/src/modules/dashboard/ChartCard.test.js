@@ -276,4 +276,15 @@ describe('ChartCard', () => {
     const option = chartOf(mountCard({ spec: { ...barSpec, type: 'line' }, data, highlight: null })).props('option')
     expect(option.dataset).toEqual({ dimensions: ['date', '退貨率'], source: [['2026-01', null], ['2026-07', 0.035]], sourceHeader: false })
   })
+
+  it('ratioPeriod: a caption under the chart says which months the ratio counts; none without it', () => {
+    const spec = { ...barSpec, title: '退貨率 依 product' }
+    const data = { ...barData, dimensions: ['product', '退貨率'], rows: [['A', 0.04]], percent: true }
+    const caption = (ratioPeriod) => mountCard({ spec, data: { ...data, ratioPeriod }, highlight: null }).find('.tc-ratio-period')
+
+    expect(caption({ from: '2026-07', to: '2026-09' }).text()).toBe('只算 2026-07～2026-09（分子、分母都有資料的月份）')
+    expect(caption({ from: '2026-07', to: '2026-07' }).text()).toBe('只算 2026-07（分子、分母都有資料的月份）')
+    expect(caption({ from: '2026-08', to: '2026-01' }).text()).toBe('分子、分母的資料期間沒有重疊')
+    expect(caption(undefined).exists()).toBe(false)
+  })
 })
