@@ -167,6 +167,7 @@ class DatasourceControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.kind").value("merged"))
             .andExpect(jsonPath("$.merge.op").value("union"))
+            .andExpect(jsonPath("$.rowCount").value(3))
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(created, "$.id");
 

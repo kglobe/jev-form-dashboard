@@ -66,7 +66,8 @@ public class DatasourceService {
         }
         checkRows(table.rows().size());
         List<FieldSchema> schema = SchemaInference.infer(table.headers(), table.rows());
-        Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null);
+        Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null)
+            .withRowCount(table.rows().size());
         repo.insertWithRows(ds, SchemaInference.normalize(table.rows(), schema));
         return get(userId, ds.id());
     }
@@ -78,7 +79,8 @@ public class DatasourceService {
         Datasource draft = new Datasource(UUID.randomUUID(), name, "api", List.of(), url, h, userId, null);
         List<Map<String, Object>> raw = provider("api").fetchRows(draft);
         checkRows(raw.size());
-        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(SchemaInference.fieldNames(raw)), raw));
+        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(SchemaInference.fieldNames(raw)), raw))
+            .withRowCount(raw.size());
         repo.insert(ds);
         return get(userId, ds.id());
     }
@@ -229,7 +231,7 @@ public class DatasourceService {
         if (name == null || name.isBlank()) throw new ApiException(BAD_REQUEST, "請輸入名稱");
         MergeEngine.Result r = build(userId, def);
         Datasource ds = new Datasource(UUID.randomUUID(), name.strip(), "merged", MergeEngine.schema(r), null, Map.of(),
-            userId, null, def);
+            userId, null, def).withRowCount(r.rows().size());
         repo.insert(ds);
         return get(userId, ds.id());
     }

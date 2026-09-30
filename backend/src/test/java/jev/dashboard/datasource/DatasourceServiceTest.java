@@ -43,5 +43,6 @@ class DatasourceServiceTest {
         Datasource ds = service.registerApi("u1", "erp", "http://10.0.0.5/sales", Map.of());
 
         assertThat(ds.schema()).extracting(FieldSchema::name).containsExactly("amount", "region", "memo");
+        assertThat(ds.rowCount()).isEqualTo(3);
     }
 }

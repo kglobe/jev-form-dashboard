@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.AfterAll;
@@ -77,6 +78,19 @@ class JevControllerTest {
             .andExpect(jsonPath("$.layout[0].mapping.timeGrain").value("month"));
         assertThat(jdbc.sql("select count(*) from dashboard").query(Long.class).single()).isZero();
         assertThat(JEV.bodies).hasSize(2);
+    }
+
+    @Test
+    void analyzeUsesTheRowCountRecordedAtUploadWithoutReadingTheRows() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        // 資料列拿掉了還送出 12 筆，代表 analyze 沒有為了算筆數去讀資料列（外部 API 就不用整批抓回來）
+        jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
+            .andExpect(status().isOk());
+
+        assertThat(JEV.bodies.get(0)).contains("\"rowCount\":12");
     }
 
     @Test

@@ -63,11 +63,12 @@ public class JevController {
             if (intents.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "請輸入想怎麼調整");
             DashboardService.requireValidCards(body.current());
         }
-        DatasourceService.Loaded loaded = datasources.load(userId, body.datasourceId());
-        return analyzer.analyze(loaded.datasource().name() + " 總覽", loaded.datasource().id(),
-            loaded.datasource().schema(), loaded.rows().size(), intents, body.current(),
+        Datasource ds = datasources.get(userId, body.datasourceId());
+        // 筆數用建立時記下來的，外部 API 不用為了算筆數整批抓回來；V5 之前的外部 API、合併來源沒記，才載入來算
+        long rowCount = ds.rowCount() != null ? ds.rowCount() : datasources.load(userId, ds.id()).rows().size();
+        return analyzer.analyze(ds.name() + " 總覽", ds.id(), ds.schema(), rowCount, intents, body.current(),
             body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()),
-            MergeEngine.comparison(loaded.datasource()), loaded.datasource().ratios());
+            MergeEngine.comparison(ds), ds.ratios());
     }
 
     /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */
