@@ -20,7 +20,6 @@ import jev.dashboard.JevProperties;
 import jev.dashboard.datasource.MergeDefinition.Lookup;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -47,7 +46,7 @@ public class DatasourceService {
         this.guard = guard;
     }
 
-    @Transactional
+    /** 解析在交易外面做，解析大檔案時不占資料庫連線；只有寫入是一個交易。 */
     public Datasource upload(String userId, String name, MultipartFile file, String sheet) {
         String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
         ParsedTable table;
@@ -61,8 +60,7 @@ public class DatasourceService {
         checkRows(table.rows().size());
         List<FieldSchema> schema = SchemaInference.infer(table.headers(), table.rows());
         Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null);
-        repo.insert(ds);
-        repo.insertRows(ds.id(), SchemaInference.normalize(table.rows(), schema));
+        repo.insertWithRows(ds, SchemaInference.normalize(table.rows(), schema));
         return get(userId, ds.id());
     }
 

@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class DatasourceRepository {
@@ -76,6 +77,13 @@ public class DatasourceRepository {
         jdbc.sql("update datasource set ratios_json = cast(:ratios as jsonb) where id = :id")
             .param("ratios", write(ratios)).param("id", id)
             .update();
+    }
+
+    /** 上傳：來源和資料列在同一個交易裡寫，資料列寫失敗時來源也不留。 */
+    @Transactional
+    public void insertWithRows(Datasource d, List<Map<String, Object>> rows) {
+        insert(d);
+        insertRows(d.id(), rows);
     }
 
     public void insertRows(UUID id, List<Map<String, Object>> rows) {
