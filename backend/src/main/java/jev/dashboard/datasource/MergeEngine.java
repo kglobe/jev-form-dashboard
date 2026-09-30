@@ -51,14 +51,19 @@ public final class MergeEngine {
         }
     }
 
-    /** spec 第 9 節。input 依 id 取輸入來源，找不到或不是這位使用者的，由 input 自己丟 404。 */
-    public static void validateUnion(Union u, Function<UUID, Datasource> input) {
-        List<UUID> ids = u.inputs() == null ? List.of() : u.inputs();
+    /** 疊加、對照的輸入來源：2～5 個、不能重複；JEV 建議欄位對應時也照這個規則（C2 spec 第 4 節）。 */
+    public static void requireUnionInputs(List<UUID> inputs) {
+        List<UUID> ids = inputs == null ? List.of() : inputs;
         if (ids.size() < 2 || ids.size() > MAX_UNION_INPUTS) throw bad("疊加要選 2 到 5 個來源");
         // List.of 的 contains(null) 會丟 NPE，用 anyMatch 檢查
         if (ids.stream().anyMatch(Objects::isNull) || new HashSet<>(ids).size() != ids.size()) throw bad("疊加的來源不能重複");
+    }
+
+    /** spec 第 9 節。input 依 id 取輸入來源，找不到或不是這位使用者的，由 input 自己丟 404。 */
+    public static void validateUnion(Union u, Function<UUID, Datasource> input) {
+        requireUnionInputs(u.inputs());
         Map<UUID, Datasource> byId = new LinkedHashMap<>();
-        for (UUID id : ids) byId.put(id, input.apply(id));
+        for (UUID id : u.inputs()) byId.put(id, input.apply(id));
         if (u.columns() == null || u.columns().isEmpty()) throw bad("至少要有一個輸出欄位");
         Set<String> taken = new HashSet<>();
         Set<UUID> numberSources = new HashSet<>(); // 對照：提供數字欄位的來源

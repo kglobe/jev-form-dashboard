@@ -161,19 +161,22 @@ public class AnalyzeService {
         return state(schema, List.of(), rowCount, intents, current);
     }
 
+    /** 第一輪 state 的一個欄位；敏感欄位只有名稱和型別。欄位對應（MappingService）也用這個。 */
+    static Map<String, Object> field(FieldSchema f) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", f.name());
+        m.put("type", f.type());
+        if (!f.sensitive()) {
+            m.put("distinctCount", f.distinctCount());
+            m.put("samples", f.samples() == null ? null : f.samples().stream().map(AnalyzeService::clip).toList());
+        }
+        return m;
+    }
+
     static Map<String, Object> state(List<FieldSchema> schema, List<Ratio> ratios, long rowCount, List<String> intents,
                                      List<ChartSpec> current) {
         List<Map<String, Object>> fields = new ArrayList<>();
-        for (FieldSchema f : schema) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("name", f.name());
-            m.put("type", f.type());
-            if (!f.sensitive()) {
-                m.put("distinctCount", f.distinctCount());
-                m.put("samples", f.samples() == null ? null : f.samples().stream().map(AnalyzeService::clip).toList());
-            }
-            fields.add(m);
-        }
+        for (FieldSchema f : schema) fields.add(field(f));
         // B3 spec 5.3：比率接在欄位後面，只有名稱和公式，沒有樣本值和相異值數量
         for (Ratio r : ratios) {
             Map<String, Object> m = new LinkedHashMap<>();
