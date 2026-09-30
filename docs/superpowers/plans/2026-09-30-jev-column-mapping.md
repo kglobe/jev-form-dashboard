@@ -542,6 +542,33 @@ Create `backend/src/test/resources/jev/mapping.json`（對 `訂單`＋`銷售`�
     }
 
     @Test
+    void mappingAMergedSourceKeepsInheritedSensitiveSamplesAwayFromJev() throws Exception {
+        String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
+        String sales = TestData.uploadSales(mvc, "u1");
+        String products = TestData.uploadCsv(mvc, "u1", "產品主檔", "code,category,owner\nA,家電,王小明\nB,文具,李小華\nC,食品,陳大文\n");
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
+            .andExpect(status().isOk());
+        mvc.perform(patch("/api/datasources/" + products + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"owner\"]}"))
+            .andExpect(status().isOk());
+        String merge = """
+            {"op":"lookup","main":"%s","lookup":"%s","keys":[{"main":"product","lookup":"code"}],
+             "bring":[{"name":"category","from":"category"},{"name":"owner","from":"owner"}]}""".formatted(sales, products);
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售（補產品主檔）\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String merged = JsonPath.read(created, "$.id");
+
+        mapping("u1", "{\"inputs\":[\"" + orders + "\",\"" + merged + "\"]}").andExpect(status().isOk());
+
+        // 合併來源的 memo、owner 是從 sales、產品主檔繼承來的敏感欄位，只送名稱和型別；category 照常有樣本
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("家電").doesNotContain("首購").doesNotContain("王小明");
+    }
+
+    @Test
     void mappingWithNothingToAskReturnsNoMatchesWithoutCallingJev() throws Exception {
         String a = TestData.uploadSales(mvc, "u1");
         String b = TestData.uploadSales(mvc, "u1");
@@ -573,7 +600,7 @@ Create `backend/src/test/resources/jev/mapping.json`（對 `訂單`＋`銷售`�
 - [ ] **Step 3: 跑測試確認失敗**
 
 Run: `./mvnw test -Dtest=JevControllerTest`
-Expected: 三個新測試 FAIL（404「找不到這個 API」），其他照舊 PASS。
+Expected: 四個新測試 FAIL（404「找不到這個 API」），其他照舊 PASS。
 
 - [ ] **Step 4: 實作 `JevController`**
 
