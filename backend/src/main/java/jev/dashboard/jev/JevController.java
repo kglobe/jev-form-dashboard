@@ -2,7 +2,6 @@ package jev.dashboard.jev;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -80,27 +79,22 @@ public class JevController {
     @GetMapping("/highlight/{dashboardId}")
     public List<Highlight> highlight(@RequestHeader("X-User-Id") String userId, @PathVariable UUID dashboardId) {
         DashboardConfig c = dashboards.get(userId, dashboardId);
-        List<ChartData> data = dashboardData.load(userId, c);
         // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
         Map<UUID, Set<String>> sensitive = datasources.list(userId).stream().collect(Collectors.toMap(Datasource::id,
             ds -> Stream.concat(ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name),
                 ds.ratios().stream().filter(Ratio::sensitive).map(Ratio::name)).collect(Collectors.toSet())));
 
         // 卡片只要用到它自己來源裡任何被標記敏感的欄位就整張跳過，不送進異常檢查；
-        // 清單裡找不到的來源查不到敏感設定，也不送
-        List<ChartSpec> eligibleSpecs = new ArrayList<>();
-        List<ChartData> eligibleData = new ArrayList<>();
-        List<ChartSpec> layout = c.layout();
-        for (int i = 0; i < layout.size(); i++) {
-            ChartSpec spec = layout.get(i);
+        // 清單裡找不到的來源查不到敏感設定，也不送。摘要不了的卡片也先拿掉，只為它們用到的來源就不必載入
+        List<ChartSpec> eligible = c.layout().stream().filter(spec -> {
             Set<String> fields = sensitive.get(spec.datasourceId());
-            if (fields != null && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains)) {
-                eligibleSpecs.add(spec);
-                eligibleData.add(data.get(i));
-            }
-        }
+            return fields != null && HighlightSummarizer.summarizable(spec)
+                && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
+        }).toList();
+        if (eligible.isEmpty()) return List.of();
+        List<ChartData> data = dashboardData.load(userId, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
 
-        List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligibleSpecs, eligibleData);
+        List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
         return result == null ? List.of() : result;
     }
 }

@@ -128,6 +128,24 @@ class JevControllerTest {
     }
 
     @Test
+    void highlightRightAfterDataUsesTheRowsDataAlreadyRead() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1")).andExpect(status().isOk());
+        // 資料列拿掉了還標得出來，代表異常檢查用的是 /data 剛讀的資料，沒有再讀一次來源
+        jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].chartId").value("c1"));
+    }
+
+    @Test
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """
