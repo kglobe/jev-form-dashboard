@@ -252,20 +252,19 @@ async function suggest() {
                 />
               </td>
               <td v-for="id in inputs" :key="id">
-                <div class="d-flex align-center ga-1">
-                  <v-select
-                    v-model="c.from[id]"
-                    :items="fieldItems(id)"
-                    item-props
-                    :aria-label="`第 ${i + 1} 欄在${nameOf(id)}的欄位`"
-                    placeholder="（無）"
-                    persistent-placeholder
-                    clearable
-                    density="compact"
-                    hide-details
-                  />
-                  <v-chip v-if="jevPicked(c, id)" size="x-small" label>JEV 建議</v-chip>
-                </div>
+                <v-select
+                  v-model="c.from[id]"
+                  :items="fieldItems(id)"
+                  item-props
+                  :aria-label="`第 ${i + 1} 欄在${nameOf(id)}的欄位`"
+                  placeholder="（無）"
+                  persistent-placeholder
+                  clearable
+                  density="compact"
+                  hide-details
+                />
+                <!-- 標籤放在下拉選單下面：放旁邊時，三個以上來源會把欄位擠到看不到字 -->
+                <v-chip v-if="jevPicked(c, id)" size="x-small" label class="mt-1">JEV 建議</v-chip>
               </td>
               <td>
                 <v-btn icon="mdi-close" variant="text" size="small" :aria-label="`刪除第 ${i + 1} 欄`" @click="columns.splice(i, 1)" />
