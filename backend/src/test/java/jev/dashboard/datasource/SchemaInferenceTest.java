@@ -66,6 +66,35 @@ class SchemaInferenceTest {
     }
 
     @Test
+    void rocYearsAreDatesPlus1911() {
+        List<Map<String, Object>> rows = List.of(Map.of("d", "113/09/24"), Map.of("d", "99-1-5"), Map.of("d", "113/10/01 08:30"));
+        List<FieldSchema> s = SchemaInference.infer(List.of("d"), rows);
+        assertThat(s.get(0).type()).isEqualTo(DATE);
+        assertThat(s.get(0).min()).isEqualTo("2010-01-05");
+        assertThat(SchemaInference.normalize(rows, s)).extracting(r -> r.get("d"))
+            .containsExactly("2024-09-24", "2010-01-05", "2024-10-01");
+    }
+
+    @Test
+    void eightDigitDatesAreDatesNotNumbers() {
+        // 文字、外部 API 的整數、Excel 的數字儲存格（Double）都算
+        List<Map<String, Object>> rows = List.of(Map.of("d", "20240924"), Map.of("d", 20241001), Map.of("d", 20241102.0));
+        List<FieldSchema> s = SchemaInference.infer(List.of("d"), rows);
+        assertThat(s.get(0).type()).isEqualTo(DATE);
+        assertThat(SchemaInference.normalize(rows, s)).extracting(r -> r.get("d"))
+            .containsExactly("2024-09-24", "2024-10-01", "2024-11-02");
+    }
+
+    @Test
+    void eightDigitNumbersThatAreNotAllDatesStayNumbers() {
+        // 20241399 沒有 13 月；25000000 年份超出範圍；15 不是 8 碼
+        for (Object other : List.of("20241399", "25000000", "15")) {
+            List<Map<String, Object>> rows = List.of(Map.of("a", "20240924"), Map.of("a", other));
+            assertThat(SchemaInference.infer(List.of("a"), rows).get(0).type()).as(String.valueOf(other)).isEqualTo(NUMBER);
+        }
+    }
+
+    @Test
     void plainNumbersStillParseAsNumbers() {
         List<Map<String, Object>> rows = List.of(Map.of("a", "0"), Map.of("a", "0.5"), Map.of("a", "-12"), Map.of("a", "1,200"));
         List<FieldSchema> s = SchemaInference.infer(List.of("a"), rows);

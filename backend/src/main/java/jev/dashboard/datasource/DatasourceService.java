@@ -13,6 +13,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
@@ -20,7 +25,6 @@ import jev.dashboard.JevProperties;
 import jev.dashboard.datasource.MergeDefinition.Lookup;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
@@ -33,6 +37,8 @@ public class DatasourceService {
 
     static final int MAX_DEPTH = 3;
     static final int PREVIEW_ROWS = 20;
+    // 合併來源等輸入來源載入時會卡住執行緒，用 virtual thread 就不會把有限的執行緒池等光
+    private static final ExecutorService LOADS = Executors.newVirtualThreadPerTaskExecutor();
 
     private final DatasourceRepository repo;
     private final List<DataSourceProvider> providers;
@@ -47,7 +53,7 @@ public class DatasourceService {
         this.guard = guard;
     }
 
-    @Transactional
+    /** 解析在交易外面做，解析大檔案時不占資料庫連線；只有寫入是一個交易。 */
     public Datasource upload(String userId, String name, MultipartFile file, String sheet) {
         String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
         ParsedTable table;
@@ -60,9 +66,9 @@ public class DatasourceService {
         }
         checkRows(table.rows().size());
         List<FieldSchema> schema = SchemaInference.infer(table.headers(), table.rows());
-        Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null);
-        repo.insert(ds);
-        repo.insertRows(ds.id(), SchemaInference.normalize(table.rows(), schema));
+        Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null)
+            .withRowCount(table.rows().size());
+        repo.insertWithRows(ds, SchemaInference.normalize(table.rows(), schema));
         return get(userId, ds.id());
     }
 
@@ -73,7 +79,8 @@ public class DatasourceService {
         Datasource draft = new Datasource(UUID.randomUUID(), name, "api", List.of(), url, h, userId, null);
         List<Map<String, Object>> raw = provider("api").fetchRows(draft);
         checkRows(raw.size());
-        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(SchemaInference.fieldNames(raw)), raw));
+        Datasource ds = draft.withSchema(SchemaInference.infer(new ArrayList<>(SchemaInference.fieldNames(raw)), raw))
+            .withRowCount(raw.size());
         repo.insert(ds);
         return get(userId, ds.id());
     }
@@ -163,30 +170,43 @@ public class DatasourceService {
         return loader(userId).apply(id);
     }
 
+    public Function<UUID, Loaded> loader(String userId) {
+        return new Loader(userId);
+    }
+
     /**
      * 同一個 loader 裡每個來源只載入一次，合併來源裡的輸入來源也算在內，外部 API 不會被重複打；
      * 載入失敗也只試一次，之後用到它的地方都拿到同一個錯誤。一次請求用一個，不跨請求。
+     * 合併來源的輸入來源同時開始載入，好幾個外部 API 不必一個等完才換下一個。
      */
-    public Function<UUID, Loaded> loader(String userId) {
-        Map<UUID, Loaded> loaded = new HashMap<>();
-        Map<UUID, ApiException> failed = new HashMap<>();
-        return new Function<>() {
-            @Override
-            public Loaded apply(UUID id) {
-                if (failed.containsKey(id)) throw failed.get(id);
-                if (loaded.containsKey(id)) return loaded.get(id);
-                try {
-                    loaded.put(id, fetch(userId, id, this));
-                } catch (ApiException e) {
-                    failed.put(id, e);
-                    throw e;
-                }
-                return loaded.get(id);
+    private final class Loader implements Function<UUID, Loaded> {
+        private final String userId;
+        private final Map<UUID, CompletableFuture<Loaded>> loads = new ConcurrentHashMap<>();
+
+        Loader(String userId) {
+            this.userId = userId;
+        }
+
+        /** 讓這些來源同時開始載入，不等結果。 */
+        void prefetch(List<UUID> ids) {
+            ids.forEach(this::start);
+        }
+
+        @Override
+        public Loaded apply(UUID id) {
+            try {
+                return start(id).join();
+            } catch (CompletionException e) {
+                throw e.getCause() instanceof RuntimeException cause ? cause : e;
             }
-        };
+        }
+
+        private CompletableFuture<Loaded> start(UUID id) {
+            return loads.computeIfAbsent(id, i -> CompletableFuture.supplyAsync(() -> fetch(userId, i, this), LOADS));
+        }
     }
 
-    private Loaded fetch(String userId, UUID id, Function<UUID, Loaded> load) {
+    private Loaded fetch(String userId, UUID id, Loader load) {
         Datasource ds = get(userId, id);
         if ("merged".equals(ds.kind())) {
             List<Map<String, Object>> rows = merge(ds.merge(), load).rows();
@@ -211,7 +231,7 @@ public class DatasourceService {
         if (name == null || name.isBlank()) throw new ApiException(BAD_REQUEST, "請輸入名稱");
         MergeEngine.Result r = build(userId, def);
         Datasource ds = new Datasource(UUID.randomUUID(), name.strip(), "merged", MergeEngine.schema(r), null, Map.of(),
-            userId, null, def);
+            userId, null, def).withRowCount(r.rows().size());
         repo.insert(ds);
         return get(userId, ds.id());
     }
@@ -222,7 +242,7 @@ public class DatasourceService {
         Map<UUID, Datasource> depthCache = new HashMap<>();
         int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id, depthCache)).max().orElse(0);
         if (depth > MAX_DEPTH) throw new ApiException(BAD_REQUEST, "合併最多 3 層");
-        MergeEngine.Result r = merge(def, loader(userId));
+        MergeEngine.Result r = merge(def, new Loader(userId));
         checkRows(r.rows().size());
         return r;
     }
@@ -234,7 +254,8 @@ public class DatasourceService {
         return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i, cache)).max().orElse(0);
     }
 
-    private static MergeEngine.Result merge(MergeDefinition def, Function<UUID, Loaded> load) {
+    private static MergeEngine.Result merge(MergeDefinition def, Loader load) {
+        load.prefetch(MergeDefinition.inputIds(def));
         return switch (def) {
             case Union u -> MergeEngine.union(u, u.inputs().stream().map(load).toList());
             case Lookup l -> MergeEngine.lookup(l, load.apply(l.main()), load.apply(l.lookup()));

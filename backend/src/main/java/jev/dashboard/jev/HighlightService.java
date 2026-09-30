@@ -2,6 +2,7 @@ package jev.dashboard.jev;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -12,7 +13,6 @@ import jev.dashboard.transform.ChartSpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -28,11 +28,22 @@ public class HighlightService {
         this.jev = jev;
     }
 
-    // ponytail: 預設的 ConcurrentMapCache 沒有上限也不會過期；儀表板 × 資料版本變多時換 Caffeine 加 TTL
-    // today 也放進 key：哪一期還沒結束會隨日期變，資料沒變也要重算
-    @Cacheable(cacheNames = "highlights", key = "#dashboardId + ':' + #fingerprint + ':' + #today", unless = "#result == null")
-    public List<Highlight> check(UUID dashboardId, int fingerprint, LocalDate today, List<ChartSpec> specs,
-                                 List<ChartData> data) {
+    /**
+     * 快取的 key 是儀表板加上實際送給 JEV 的內容（每張圖的摘要和題目）：標題、資料、今天算到哪一期變了就重問；
+     * 沒被摘要的卡片、資料列的順序不影響。內容一樣，JEV 的答案就一樣，所以不設過期。
+     * ponytail: 單機、最多 CACHE_MAX 份的 LRU；後端多台時各自一份，要共用再換 Redis
+     */
+    static final int CACHE_MAX = 500;
+    private final Map<List<Object>, List<Highlight>> cache = Collections.synchronizedMap(
+        new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<List<Object>, List<Highlight>> eldest) {
+                return size() > CACHE_MAX;
+            }
+        });
+
+    /** JEV 失敗時回傳 null，不快取，下次再問。 */
+    public List<Highlight> check(UUID dashboardId, LocalDate today, List<ChartSpec> specs, List<ChartData> data) {
         Map<String, Object> state = new LinkedHashMap<>();
         Map<String, Question> questions = new LinkedHashMap<>();
         for (int i = 0; i < specs.size(); i++) {
@@ -45,6 +56,9 @@ public class HighlightService {
             questions.put("severity_" + id, Question.score("圖表「" + spec.title() + "」這次變化的嚴重程度？", SEVERITY));
         }
         if (questions.isEmpty()) return List.of();
+        List<Object> key = List.of(dashboardId, state, questions);
+        List<Highlight> cached = cache.get(key);
+        if (cached != null) return cached;
 
         Map<String, Answer> answers;
         try {
@@ -62,6 +76,7 @@ public class HighlightService {
             int level = s == null || s.score() == null ? 1 : (int) Math.max(0, Math.min(3, Math.round(s.score())));
             out.add(new Highlight(id, SEVERITY.get(level), a.noul()));
         }
+        cache.put(key, out);
         return out;
     }
 }

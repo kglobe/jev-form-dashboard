@@ -1,9 +1,11 @@
 package jev.dashboard.datasource;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -13,14 +15,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @ActiveProfiles("test")
 class DatasourceRepositoryTest {
     @Autowired DatasourceRepository repo;
+    @Autowired DatasourceService service;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -70,5 +76,31 @@ class DatasourceRepositoryTest {
         jdbc.sql("insert into datasource (id, name, kind, schema_json, created_by) values (:id, '舊的', 'upload', '[]', 'u1')")
             .param("id", old).update();
         assertThat(repo.find(old, "u1").orElseThrow().ratios()).isEmpty();
+    }
+
+    @Test
+    void uploadReadsTheFileOutsideAnyTransaction() {
+        // 讀檔、解析的時候還沒開交易，大檔案解析期間不會占著資料庫連線
+        boolean[] inTransaction = {true};
+        MockMultipartFile file = new MockMultipartFile("file", "sales.csv", "text/csv", "region,amount\n北區,100\n".getBytes(UTF_8)) {
+            @Override
+            public byte[] getBytes() throws IOException {
+                inTransaction[0] = TransactionSynchronizationManager.isActualTransactionActive();
+                return super.getBytes();
+            }
+        };
+
+        Datasource ds = service.upload("u1", "銷售", file, null);
+
+        assertThat(inTransaction[0]).isFalse();
+        assertThat(repo.rows(ds.id())).hasSize(1);
+    }
+
+    @Test
+    void aFailedRowWriteLeavesNoHalfUploadedSource() {
+        Datasource ds = new Datasource(UUID.randomUUID(), "銷售", "upload", List.of(), null, Map.of(), "u1", null);
+        // PostgreSQL 的 jsonb 不收 \u0000，第二步寫資料列時才失敗
+        assertThatThrownBy(() -> repo.insertWithRows(ds, List.of(Map.of("memo", "a\u0000b")))).isInstanceOf(DataAccessException.class);
+        assertThat(repo.find(ds.id(), "u1")).isEmpty();
     }
 }

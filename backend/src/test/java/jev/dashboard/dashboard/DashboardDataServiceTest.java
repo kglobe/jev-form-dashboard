@@ -234,4 +234,65 @@ class DashboardDataServiceTest {
         assertThat(shown.ratioPeriod()).isEqualTo(new ChartData.RatioPeriod("2026-07", "2026-07"));
         assertThat(shown.source()).isEqualTo("對照");
     }
+
+    static final UUID MONTHLY = UUID.randomUUID();
+    static final ChartSpec LINE = new ChartSpec("c1", "line", "amount 依 d", POS,
+        new Mapping("d", null, null, "amount", null, null, "sum", "month"), Map.of(), MONTHLY);
+
+    static DashboardDataService monthly(Map<UUID, Integer> loads) {
+        Datasource ds = new Datasource(MONTHLY, "銷售", "upload",
+            List.of(new FieldSchema("amount", FieldType.NUMBER, 1, List.of(), false, null, null, "金額")), null, Map.of(), "u1", null);
+        List<Map<String, Object>> rows = List.of(Map.of("d", "2026-07-01", "amount", 5.0));
+        return new DashboardDataService(sources(Map.of(MONTHLY, ds), Map.of(MONTHLY, rows), Set.of(), loads));
+    }
+
+    static DashboardConfig saved(UUID id, ChartSpec... layout) {
+        return new DashboardConfig(id, "x", "u1", List.of(layout));
+    }
+
+    @Test
+    void theHighlightRightAfterDataReusesWhatDataLoadedOnce() {
+        Map<UUID, Integer> loads = new HashMap<>();
+        DashboardDataService service = monthly(loads);
+        ChartSpec table = new ChartSpec("c2", "table", "明細", POS,
+            new Mapping(null, null, null, null, null, List.of("d"), null, null), Map.of(), MONTHLY);
+        UUID dashboard = UUID.randomUUID();
+
+        service.display("u1", saved(dashboard, LINE, table));
+        // 異常檢查只要摘要得了的卡片，/data 剛讀過來源，不再讀一次；拿到的是原始欄位名稱
+        List<ChartData> raw = service.load("u1", saved(dashboard, LINE));
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 1));
+        assertThat(raw).hasSize(1);
+        assertThat(raw.get(0).dimensions()).isEqualTo(List.of("d", "amount"));
+        assertThat(raw.get(0).rows()).isEqualTo(List.of(List.of("2026-07", 5.0)));
+
+        // 只用一次，再問就重讀
+        service.load("u1", saved(dashboard, LINE));
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 2));
+    }
+
+    @Test
+    void onlyTheSameUserAndDashboardWithTheSameCardsReuseTheData() {
+        Map<UUID, Integer> loads = new HashMap<>();
+        DashboardDataService service = monthly(loads);
+        UUID dashboard = UUID.randomUUID();
+        ChartSpec quarterly = new ChartSpec("c1", "line", "amount 依 d", POS,
+            new Mapping("d", null, null, "amount", null, null, "sum", "quarter"), Map.of(), MONTHLY);
+
+        // 預覽沒有 id，不留
+        service.display("u1", config(LINE));
+        service.load("u1", saved(dashboard, LINE));
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 2));
+
+        // 卡片在兩次請求之間改了
+        service.display("u1", saved(dashboard, LINE));
+        service.load("u1", saved(dashboard, quarterly));
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 4));
+
+        // 別的使用者、別的儀表板
+        service.display("u1", saved(dashboard, LINE));
+        service.load("u2", saved(dashboard, LINE));
+        service.load("u1", saved(UUID.randomUUID(), LINE));
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 7));
+    }
 }

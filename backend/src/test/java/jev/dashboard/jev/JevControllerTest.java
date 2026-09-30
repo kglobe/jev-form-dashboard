@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.UUID;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.AfterAll;
@@ -80,6 +81,19 @@ class JevControllerTest {
     }
 
     @Test
+    void analyzeUsesTheRowCountRecordedAtUploadWithoutReadingTheRows() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        // 資料列拿掉了還送出 12 筆，代表 analyze 沒有為了算筆數去讀資料列（外部 API 就不用整批抓回來）
+        jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
+
+        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
+            .andExpect(status().isOk());
+
+        assertThat(JEV.bodies.get(0)).contains("\"rowCount\":12");
+    }
+
+    @Test
     void analyzeOtherUsersDatasourceIs404() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u2")
@@ -111,6 +125,24 @@ class JevControllerTest {
         mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
+    }
+
+    @Test
+    void highlightRightAfterDataUsesTheRowsDataAlreadyRead() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1")).andExpect(status().isOk());
+        // 資料列拿掉了還標得出來，代表異常檢查用的是 /data 剛讀的資料，沒有再讀一次來源
+        jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
+
+        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].chartId").value("c1"));
     }
 
     @Test

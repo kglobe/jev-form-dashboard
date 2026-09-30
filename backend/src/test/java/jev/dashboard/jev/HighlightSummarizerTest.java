@@ -143,11 +143,12 @@ class HighlightSummarizerTest {
     }
 
     @Test
-    void tenSeriesOrFewerAreSentAsIs() {
+    void tenSeriesOrFewerAreAllSentSortedByName() {
+        // 照名稱排，跟資料列的順序無關：外部 API 每次給的順序不同，送出去的內容還是一樣
         List<List<Object>> rows = new ArrayList<>();
-        for (int i = 1; i <= 10; i++) addSeries(rows, "s" + i, 100, 100 + i);
+        for (int i = 10; i >= 1; i--) addSeries(rows, "s" + i, 100, 100 + i);
         assertThat(series(rows)).extracting(s -> s.get("name"))
-            .containsExactly("s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10");
+            .containsExactly("s1", "s10", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9");
     }
 
     @Test

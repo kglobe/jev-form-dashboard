@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class DatasourceRepository {
@@ -38,9 +39,10 @@ public class DatasourceRepository {
     /** ratios_json 不寫，用欄位預設的空清單：新建的來源一律沒有比率（B3 spec 第 7 節）。 */
     public void insert(Datasource d) {
         jdbc.sql("""
-                insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by, merge_json)
+                insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by, merge_json,
+                                        row_count)
                 values (:id, :name, :kind, cast(:schema as jsonb), :apiUrl, cast(:headers as jsonb), :createdBy,
-                        cast(:merge as jsonb))""")
+                        cast(:merge as jsonb), :rowCount)""")
             .param("id", d.id())
             .param("name", d.name())
             .param("kind", d.kind())
@@ -51,6 +53,7 @@ public class DatasourceRepository {
             // 一般來源要存 SQL 的 NULL，不能存 JSON 的 null，否則過不了 datasource_merge_json_check；
             // 指定 VARCHAR，null 才會跟其他 jsonb 參數一樣走 varchar → jsonb 的轉型
             .param("merge", d.merge() == null ? null : writeMerge(d.merge()), Types.VARCHAR)
+            .param("rowCount", d.rowCount(), Types.INTEGER)
             .update();
     }
 
@@ -76,6 +79,13 @@ public class DatasourceRepository {
         jdbc.sql("update datasource set ratios_json = cast(:ratios as jsonb) where id = :id")
             .param("ratios", write(ratios)).param("id", id)
             .update();
+    }
+
+    /** 上傳：來源和資料列在同一個交易裡寫，資料列寫失敗時來源也不留。 */
+    @Transactional
+    public void insertWithRows(Datasource d, List<Map<String, Object>> rows) {
+        insert(d);
+        insertRows(d.id(), rows);
     }
 
     public void insertRows(UUID id, List<Map<String, Object>> rows) {
@@ -104,7 +114,8 @@ public class DatasourceRepository {
             rs.getString("created_by"),
             rs.getObject("created_at", OffsetDateTime.class),
             merge == null ? null : read(merge, MERGE),
-            read(rs.getString("ratios_json"), RATIOS));
+            read(rs.getString("ratios_json"), RATIOS),
+            rs.getObject("row_count", Integer.class));
     }
 
     private String write(Object value) {

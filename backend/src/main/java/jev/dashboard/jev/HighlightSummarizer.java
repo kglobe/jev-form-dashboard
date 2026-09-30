@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.TimeBucket;
@@ -20,11 +21,14 @@ public final class HighlightSummarizer {
 
     private HighlightSummarizer() {}
 
+    /** 只看卡片設定，這張圖摘要得了嗎；還沒讀資料就能判斷要不要為它載入來源。 */
+    public static boolean summarizable(ChartSpec spec) {
+        return spec.mapping() != null && spec.mapping().timeGrain() != null && SUMMARIZABLE_TYPES.contains(spec.type())
+            && !"none".equals(spec.mapping().aggregate());
+    }
+
     public static Map<String, Object> summarize(ChartSpec spec, ChartData data, LocalDate today) {
-        if (data.error() != null || data.rows() == null || spec.mapping() == null || spec.mapping().timeGrain() == null
-                || !SUMMARIZABLE_TYPES.contains(spec.type()) || "none".equals(spec.mapping().aggregate())) {
-            return null;
-        }
+        if (!summarizable(spec) || data.error() != null || data.rows() == null) return null;
         // 接 ERP 的即時資料時，最後一期通常還沒結束（例如月初到今天），拿去比完整的前一期會一直被標成大跌；
         // 所以只比已經結束的期：今天所在的那一期和之後的期都不算。期的 key 和 TimeBucket 一樣，字串排序就是時間順序
         String inProgress = TimeBucket.of(today, spec.mapping().timeGrain());
@@ -38,7 +42,9 @@ public final class HighlightSummarizer {
         // B3 spec 5.4：比率的圖比百分點；沒有值不代表比率是 0，不能當 0
         boolean percent = Boolean.TRUE.equals(data.percent());
 
-        Map<String, double[]> bySeries = new LinkedHashMap<>(); // [前一期, 最後一期]
+        // [前一期, 最後一期]。系列照名稱排，跟資料列的順序無關（外部 API 每次給的順序可能不同），
+        // 送給 JEV 的內容才會一樣、快取得到；兩個數值的圖照 mapping 的順序
+        Map<String, double[]> bySeries = measures != null ? new LinkedHashMap<>() : new TreeMap<>();
         for (List<Object> row : data.rows()) {
             String period = String.valueOf(row.get(0));
             int slot = period.equals(current) ? 1 : period.equals(previous) ? 0 : -1;

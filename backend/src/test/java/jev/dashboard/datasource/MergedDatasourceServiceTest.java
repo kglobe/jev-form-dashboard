@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
@@ -29,7 +32,7 @@ class MergedDatasourceServiceTest {
     static class MemoryRepo extends DatasourceRepository {
         final Map<UUID, Datasource> sources = new LinkedHashMap<>();
         final Map<UUID, List<Map<String, Object>>> rows = new HashMap<>();
-        final Map<UUID, Integer> findCalls = new HashMap<>();
+        final Map<UUID, Integer> findCalls = new ConcurrentHashMap<>();
 
         MemoryRepo() {
             super(null, null, null);
@@ -317,7 +320,7 @@ class MergedDatasourceServiceTest {
     @Test
     void oneLoaderFetchesEachApiSourceOnceEvenWhenMergedSourcesUseItAgainAndFailuresAreNotRetried() {
         // 外部 API 來源 erp：每次抓都記在 fetches，down[0] 是 true 時抓取丟 502
-        Map<UUID, Integer> fetches = new HashMap<>();
+        Map<UUID, Integer> fetches = new ConcurrentHashMap<>();
         boolean[] down = {false};
         DataSourceProvider api = new DataSourceProvider() {
             @Override
@@ -363,5 +366,39 @@ class MergedDatasourceServiceTest {
                 e -> assertThat(e.status()).isEqualTo(BAD_GATEWAY));
         }
         assertThat(fetches).isEqualTo(Map.of(erp, 1));
+    }
+
+    @Test
+    void theInputsOfAMergedSourceAreFetchedAtTheSameTime() {
+        // 兩個外部 API 都開始抓了才放行：一個抓完才抓下一個的話，第一個會等到逾時
+        CyclicBarrier bothFetching = new CyclicBarrier(2);
+        DataSourceProvider api = new DataSourceProvider() {
+            @Override
+            public boolean supports(String kind) {
+                return "api".equals(kind);
+            }
+
+            @Override
+            public List<Map<String, Object>> fetchRows(Datasource ds) {
+                try {
+                    bothFetching.await(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    throw new ApiException(BAD_GATEWAY, "沒有同時抓：" + e);
+                }
+                return List.of(Map.of("region", ds.name(), "amount", "100"));
+            }
+        };
+        List<FieldSchema> schema = CsvSources.csv("erp", "region,amount", "北區,100").datasource().schema();
+        UUID north = UUID.randomUUID();
+        UUID south = UUID.randomUUID();
+        repo.insert(new Datasource(north, "北區", "api", schema, "http://10.0.0.5/n", Map.of(), "u1", null));
+        repo.insert(new Datasource(south, "南區", "api", schema, "http://10.0.0.5/s", Map.of(), "u1", null));
+        DatasourceService service = new DatasourceService(repo, List.of(new UploadDataSourceProvider(repo), api),
+            new JevProperties(null, null, null, new JevProperties.Upload(20), null), new ApiUrlGuard(List.of()));
+
+        UUID m = service.createMerged("u1", "全區", union(List.of(north, south), "region", "amount")).id();
+
+        // 同時抓，合併後的順序還是照輸入來源的順序
+        assertThat(service.load("u1", m).rows()).extracting(r -> r.get("region")).containsExactly("北區", "南區");
     }
 }
