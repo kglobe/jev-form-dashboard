@@ -175,7 +175,7 @@ export DS_ERP_AUTH="Bearer xxx"
 
 敏感設定從輸入來源繼承：輸入來源標成敏感的欄位，在合併來源上也是敏感的，而且關不掉，要改得回到那個來源。顯示名稱在建立時沿用輸入來源的設定，之後可以自己改。
 
-合併定義建立之後不能編輯，也不能刪除（其他來源目前也不能刪），定義錯了就另建一個。完整規則見 [`docs/superpowers/specs/2026-09-27-merged-datasource-design.md`](docs/superpowers/specs/2026-09-27-merged-datasource-design.md)。
+合併定義建立之後不能編輯，定義錯了就刪掉重建。完整規則見 [`docs/superpowers/specs/2026-09-27-merged-datasource-design.md`](docs/superpowers/specs/2026-09-27-merged-datasource-design.md)。
 
 對照的規則見 [`docs/superpowers/specs/2026-09-28-compare-datasource-design.md`](docs/superpowers/specs/2026-09-28-compare-datasource-design.md)。計數（`count`）只算有值的列，對照來源裡一邊沒有數值的列不會被算進去。
 
@@ -198,6 +198,16 @@ export DS_ERP_AUTH="Bearer xxx"
 已存的儀表板每張卡片（包括明細表）右上角都有「✕」。按下去會先確認，確認後馬上存檔，不能復原，要加回來得重新分析。某個來源的圖全部移除後，那個來源的依據也會跟著拿掉。最後一張圖也可以移除，之後再用「加到既有儀表板」把圖加回來。
 
 舊的儀表板會在後端啟動時由 Flyway 的 `V2__per_chart_datasource.sql` 自動轉成新格式，不用重建。完整規則見 [`docs/superpowers/specs/2026-09-27-multi-source-dashboard-design.md`](docs/superpowers/specs/2026-09-27-multi-source-dashboard-design.md)。
+
+## 刪除來源
+
+資料頁選好來源後，右上角「用這個來源製圖」旁邊有「刪除來源」。按下去會先查這個來源有誰在用。
+
+- 被合併來源當輸入：不能刪，對話框會列出那些合併來源，要先刪掉它們。
+- 被儀表板的圖用到：對話框列出儀表板和圖的張數，確認後照刪。那些卡片會顯示「資料來源已刪除」，可以按右上角 ✕ 移除，版面照樣能存。
+- 沒有人用：確認後直接刪。
+
+刪除後無法復原。合併來源的輸入被刪掉後，繼承來的欄位一律當作敏感（`sensitiveFrom` 顯示「（已刪除的來源）」）。完整規則見 [`docs/superpowers/specs/2026-09-30-delete-datasource-design.md`](docs/superpowers/specs/2026-09-30-delete-datasource-design.md)。
 
 ## 測試
 
