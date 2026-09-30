@@ -38,11 +38,11 @@
 ## 穩定度與效能
 
 - ~~P2 · 手動編出的卡片，把 `timeGrain` 指到不是日期型別的 `x` 欄位，`/data` 仍會回 500——卡片存檔驗證只查必填和型別合法性，沒有對照資料源 schema 檢查欄位真正的型別（`DashboardService.java` 的 `requireComplete`／`cardProblem`，錯誤來自 `TimeBucket.java` 的 `LocalDate.parse`）。（final-fix-backend-report.md「Concerns and open points」）~~ 已修正：`/data` 不再回 500，只有那張卡是 `NOT_A_DATE`，畫面寫「欄位「region」不是日期，不能按日、月或季分組」，其他卡照常畫。存檔時還是沒有對照 schema 檢查；這種卡只有用 API 手動編才會出現。
-- P2 · 每次載入儀表板做異常檢查，都會重新讀一次資料源，沒有重用同一次 `/data` 已經抓過的資料。（backend ledger，pre-flight）
-- P2 · analyze 要算資料筆數時用 `loaded.rows().size()`，外部 API 資料源等於要整批把資料抓回來才能算出筆數。（backend ledger，Task 9）
+- ~~P2 · 每次載入儀表板做異常檢查，都會重新讀一次資料源，沒有重用同一次 `/data` 已經抓過的資料。（backend ledger，pre-flight）~~ 已修正：打開已存儀表板時，`/data` 把異常檢查用得到的卡片原始資料留 1 分鐘，緊接著的 `/highlight` 直接拿來用，用一次就丟（`DashboardDataService.recent`）。`/highlight` 也只載入要檢查的卡片用到的來源，沒有卡片要檢查就一個都不讀。實測「七種圖 E2E」打開一次（`/data`＋`/highlight`）掃 `datasource_rows` 3 次，跟只打 `/data` 一樣；單獨打 `/highlight` 是 2 次。後端多台時，`/highlight` 打到另一台還是會重讀。
+- ~~P2 · analyze 要算資料筆數時用 `loaded.rows().size()`，外部 API 資料源等於要整批把資料抓回來才能算出筆數。（backend ledger，Task 9）~~ 已修正：建立來源時把筆數記在 `datasource.row_count`（Flyway V5），分析直接用。上傳的舊來源在 V5 裡補上了；V5 之前建立的外部 API、合併來源沒有記，分析時照舊載入來算，重新註冊或重建就會有。外部 API 的筆數停在註冊當時，跟 schema、樣本值一樣。
 - ~~P2 · `ChartCard.vue` 整包 `import 'echarts'`，主要輸出 chunk 高達 1.59 MB（gzip 後約 528 KB），沒有照實際用到的圖表類型做分包。（frontend ledger，Task 4）~~ 已修正：改成按需引入，只註冊用得到的 6 種圖和 6 個元件（`charts/echarts.js`）。主要 chunk 從 1,659.84 kB（gzip 549 kB）降到 1,154.91 kB（gzip 384 kB）。`charts/echarts.test.js` 會用 SSR 把每種圖畫一次，有東西漏註冊，測試就會失敗。主要 chunk 還是超過 Vite 500 kB 的警告門檻，剩下的是 Vue、Vuetify、ECharts 核心和 grid-layout-plus；要再降，可以讓圖表元件延後載入。
-- P2 · 異常檢查快取的「資料指紋」是所有沒用到敏感欄位的卡片 ChartData 雜湊值：改標題不會讓快取失效（太窄），沒被摘要的圖表型別、外部 API 資料順序不穩定都會讓快取失效（太寬），而且快取沒有上限也不會過期。（backend ledger，Task 11）
-- P2 · 上傳解析整段包在 `@Transactional` 裡，解析大檔案時會一直占著資料庫連線。（backend ledger，Task 5）
+- ~~P2 · 異常檢查快取的「資料指紋」是所有沒用到敏感欄位的卡片 ChartData 雜湊值：改標題不會讓快取失效（太窄），沒被摘要的圖表型別、外部 API 資料順序不穩定都會讓快取失效（太寬），而且快取沒有上限也不會過期。（backend ledger，Task 11）~~ 已修正：key 改成儀表板 id 加上實際送給 JEV 的摘要和題目，改標題會重問，沒被摘要的卡片、資料列順序都不影響（摘要裡的系列改成照名稱排）；存在最多 500 份的 LRU 裡。內容一樣答案就一樣，不必設過期。金額帶小數時，資料列順序不同可能讓加總差在最後幾位數，這時還是會多問一次 JEV。
+- ~~P2 · 上傳解析整段包在 `@Transactional` 裡，解析大檔案時會一直占著資料庫連線。（backend ledger，Task 5）~~ 已修正：解析移到交易外面，只有寫入來源和資料列是同一個交易（`DatasourceRepository.insertWithRows`），資料列寫失敗時，來源也不會留下來。
 - ~~P2 · JEV 掛掉或連不上時，`JevClient` 和 `HighlightService` 每次都把整條 WARN stack trace 寫進 log；失敗又不快取，等於每次載入儀表板都重複噴一次。（backend ledger，Task 11）~~ 已修正：`JevClient` 不再印 stack trace，每次失敗只寫一行原因（例如「JEV 無法連線：java.net.ConnectException」），`HighlightService` 再寫一行「略過標註」。失敗還是不快取，每次載入儀表板仍會多這兩行。如果 JEV 常掛，又想省下每次載入等它失敗的時間，再考慮短暫記住失敗結果。
 - P3 · `bar`／`line`／`pie`／`radar`／`heatmap`／`stacked_bar` 的前端 `toOption` 目前忽略 mapping 參數，靠資料欄位的既定順序對應。（frontend ledger，Task 1、Task 2，plan 既有程式碼）
 - P3 · heatmap 拿到空資料時 `visualMap` 會變成 0/0，這個邊界沒有實際驗證過。（frontend ledger，Task 2）
@@ -68,7 +68,8 @@
 
 - ~~P3 · 巢狀合併時，同一個輸入來源在結構裡出現兩次，就會被載入兩次（`DatasourceService.merge` 沒有在同一次載入裡去重），外部 API 輸入也會被打兩次。等巢狀合併常見、載入變慢時，再在同一次 `load` 裡加快取。（B1 spec 5.3）~~ 已修正，見下一項。
 - ~~P2 · 一張卡用某個 API 來源、另一張卡用到同一個 API 來源的合併來源，兩張卡都會讓這個 API 來源被重複抓一次（`/data` 抓兩次、`highlight` 又各再抓一次）。（B1 final review）~~ 已修正：同一個請求（`/data`、`highlight` 或分析）裡，每個來源只載入一次。不管是卡片直接用，還是透過合併來源間接用到，都共用同一份結果，巢狀結構裡重複出現的輸入來源也一樣（`DatasourceService.loader`）。載入失敗也只試一次，後面用到它的卡片直接拿同一個錯誤，不會每張卡各等一次逾時。`/data` 和 `highlight` 是兩個請求，打開儀表板時 API 來源還是會抓兩次；要省掉第二次，見上面「異常檢查重新讀一次資料源」那一項。
-- P2 · 同一個合併來源裡有多個外部 API 輸入時，會一個接一個抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）
+- ~~P2 · 同一個合併來源裡有多個外部 API 輸入時，會一個接一個抓，不是平行抓，每個最多可以等到 15 秒。（B1 final review）~~ 已修正：合併前讓所有輸入來源同時開始載入（`DatasourceService.Loader`，跑在 virtual thread 上），同一個來源只載入一次、失敗只試一次的規則照舊。
+- P3 · 一份儀表板的卡片各自用不同的外部 API 來源時，`/data` 還是一個來源載完才載下一個（`DashboardDataService.sources`）。合併來源的輸入已經改成同時載入，這裡可以沿用同一套 prefetch。（P2 效能修正，2026-09-30）
 - P3 · PUT 儀表板時，`basis` 裡 `intents` 是 null 或空陣列的分組也會通過驗證、被存下來（`DashboardService.requireValidBasis`）。前端顯示時會過濾掉，看不出來，只是資料不乾淨。（A final review）
 - P3 · 手動組一個預覽請求，把自己的來源和別人的來源混在一起送 `/preview/data`，別人來源的卡片會回 `SOURCE_FAILED`，名稱是 null，不會洩漏資料；只有全部來源都失敗時才回 404。行為跟 spec 寫的「載入時 404」不完全一樣。（A final review）
 - P3 · 已存儀表板移除卡片後，「不重抓資料」靠的是只生效一次的旗標 `ownUpdatePending`（`DashboardView.vue`）。如果 App 在同一個 Vue 更新週期裡連續換兩次設定（移除卡片後 PUT 回傳的設定，以及重新打開同一份儀表板），可能把重新打開誤判成移除而沒有重抓。現在的畫面流程不會觸發這種情況。（A final fix re-review）
@@ -80,7 +81,7 @@
 
 ## 資料品質
 
-- P2 · 民國年日期（例如 `113/09/24`）和不帶分隔符號的 8 碼日期（例如 `20240924`）目前都不會被判斷成日期欄位：前者年份不是 4 碼，正則比對不到；後者會先被數字規則吃掉，變成 `NUMBER`。（`SchemaInference.java` 的 `DATE`／`NUMBER` pattern 與型別判斷順序）
+- ~~P2 · 民國年日期（例如 `113/09/24`）和不帶分隔符號的 8 碼日期（例如 `20240924`）目前都不會被判斷成日期欄位：前者年份不是 4 碼，正則比對不到；後者會先被數字規則吃掉，變成 `NUMBER`。（`SchemaInference.java` 的 `DATE`／`NUMBER` pattern 與型別判斷順序）~~ 已修正：年份 2～3 碼當民國年加 1911；8 碼日期要比數字先判斷，年份限 1900～2099，整欄都是合法日期才算。之前上傳的民國年、8 碼日期來源要重新上傳（外部 API 要重新註冊）才會變成日期。7 碼民國年（`1130924`）還是認不得，因為跟 7 位數的數字分不開；只有一兩筆的小檔，如果 8 位數的金額剛好都是合法日期，金額欄會被當成日期。
 - P3 · `distinctCount` 和樣本值都是拿原始字串去算，不是先照欄位型別正規化再算；同一個值的不同寫法（日期 `2024-1-1` 跟 `2024/01/01`，或代碼欄位補零與否）可能被當成兩個不同值。（backend ledger，Task 3）
 - P3 · 非敏感但幾乎每筆都不同的欄位（例如備註），如果被選成 series 或 y，等於間接把接近逐筆的明細送給 JEV，目前沒有這類欄位的偵測或筆數上限，屬於設計層級的問題。（backend ledger，Task 11）
 - P3 · 合併來源裡整欄都是空值的欄位，會被當成「欄位不見了」：合併時空值不放 key（spec 5.1），而 `DashboardDataService` 是從資料列的 key 判斷欄位在不在。上傳檔案的全空欄位會保留 key，不會有這個問題。（B1 final review）
