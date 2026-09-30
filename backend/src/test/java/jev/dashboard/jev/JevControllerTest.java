@@ -428,6 +428,18 @@ class JevControllerTest {
     }
 
     @Test
+    void mappingInCompareModeNeverAsksAboutNumberFields() throws Exception {
+        String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
+        String sales = TestData.uploadSales(mvc, "u1");
+
+        // mapping.json 有 amount、qty 的答案，但對照時沒問，不採用
+        mapping("u1", "{\"inputs\":[\"" + orders + "\",\"" + sales + "\"],\"compare\":true}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.matches[*].field").value(contains("order_date", "region")));
+        assertThat(JEV.bodies.get(0)).doesNotContain("\"map_1_1\"").doesNotContain("\"map_1_4\"");
+    }
+
+    @Test
     void mappingChecksTheInputsBeforeCallingJev() throws Exception {
         String a = TestData.uploadSales(mvc, "u1");
         String b = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
@@ -437,8 +449,11 @@ class JevControllerTest {
             mapping("u1", body).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("疊加要選 2 到 5 個來源"));
         }
-        mapping("u1", "{\"inputs\":[\"" + a + "\",\"" + a + "\"]}").andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error").value("疊加的來源不能重複"));
+        // null 元素跟建立合併來源一樣，當成重複
+        for (String body : List.of("{\"inputs\":[\"" + a + "\",\"" + a + "\"]}", "{\"inputs\":[null,\"" + a + "\"]}")) {
+            mapping("u1", body).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("疊加的來源不能重複"));
+        }
         mapping("u2", "{\"inputs\":[\"" + b + "\",\"" + a + "\"]}").andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
         assertThat(JEV.bodies).isEmpty();
