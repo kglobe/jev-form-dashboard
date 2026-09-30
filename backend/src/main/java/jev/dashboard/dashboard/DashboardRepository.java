@@ -19,6 +19,9 @@ import org.springframework.stereotype.Repository;
 public class DashboardRepository {
     public record DashboardSummary(UUID id, String name, OffsetDateTime updatedAt) {}
 
+    /** 這份儀表板有 charts 張圖用到某個來源。 */
+    public record DatasourceUse(UUID id, String name, int charts) {}
+
     /** config_json 的內容。basis 是 null 時不寫出來，沒有依據的儀表板就只有 layout。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record Stored(List<ChartSpec> layout, List<Basis> basis) {}
@@ -62,6 +65,19 @@ public class DashboardRepository {
             .param("by", userId)
             .query((rs, n) -> new DashboardSummary(rs.getObject("id", UUID.class), rs.getString("name"),
                 rs.getObject("updated_at", OffsetDateTime.class)))
+            .list();
+    }
+
+    /** 有圖用到這個來源的儀表板，和各自用到的張數；照清單的順序。 */
+    public List<DatasourceUse> usingDatasource(String userId, UUID datasourceId) {
+        return jdbc.sql("""
+                select d.id, d.name, count(*) as charts
+                from dashboard d, jsonb_array_elements(d.config_json -> 'layout') card
+                where d.created_by = :by and card ->> 'datasourceId' = :ds
+                group by d.id, d.name, d.updated_at
+                order by d.updated_at desc""")
+            .param("by", userId).param("ds", datasourceId.toString())
+            .query((rs, n) -> new DatasourceUse(rs.getObject("id", UUID.class), rs.getString("name"), rs.getInt("charts")))
             .list();
     }
 

@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig.Basis;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
+import jev.dashboard.dashboard.DashboardRepository.DatasourceUse;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartSpec;
@@ -50,13 +51,19 @@ public class DashboardService {
         return repo.list(userId);
     }
 
+    public List<DatasourceUse> usingDatasource(String userId, UUID datasourceId) {
+        return repo.usingDatasource(userId, datasourceId);
+    }
+
     /** 拖拉版面、移除單張圖都走這裡：layout 可以是空的、可以混著不同來源；body 帶了 intents 也不理。 */
     public DashboardConfig update(String userId, UUID id, DashboardConfig c) {
         requireComplete(c);
         requireValidBasis(c.basis());
-        get(userId, id); // 別人的儀表板先回「找不到儀表板」，才輪到查來源
+        DashboardConfig stored = get(userId, id); // 別人的儀表板先回「找不到儀表板」，才輪到查來源
         Set<UUID> used = c.layout().stream().map(ChartSpec::datasourceId).collect(Collectors.toSet());
-        for (UUID ds : used) datasources.get(userId, ds);
+        // 刪除來源 spec 4.2：原本版面裡的來源可能已經刪掉，只檢查這次新帶進來的
+        Set<UUID> existing = stored.layout().stream().map(ChartSpec::datasourceId).collect(Collectors.toSet());
+        for (UUID ds : used) if (!existing.contains(ds)) datasources.get(userId, ds);
         // 已經沒有任何圖的來源，它的依據分組跟著刪掉
         List<Basis> basis = c.basis() == null ? List.of()
             : c.basis().stream().filter(b -> used.contains(b.datasourceId())).toList();

@@ -272,6 +272,18 @@ describe('ChartCard', () => {
     expect(failed().text()).toContain('資料來源載入失敗，請稍後重新整理')
   })
 
+  it('SOURCE_DELETED: a warning tells the user to remove the card, the ✕ stays, no chart is drawn', () => {
+    const card = mountCard({
+      spec: barSpec,
+      data: { chartId: 'c1', type: 'bar', error: 'SOURCE_DELETED' },
+      highlight: null,
+      removable: true,
+    })
+    expect(card.text()).toContain('資料來源已刪除，可以按右上角 ✕ 移除這張圖')
+    expect(card.find('button[aria-label="移除這張圖"]').exists()).toBe(true)
+    expect(card.find('.v-chart-stub').exists()).toBe(false)
+  })
+
   it('a percent Y axis keeps its percent labels instead of the compact number form', () => {
     const data = { chartId: 'c1', type: 'line', dimensions: ['date', '退貨率'], rows: [['2026-07', 0.052]], percent: true }
     const option = chartOf(mountCard({ spec: { ...barSpec, type: 'line' }, data, highlight: null })).props('option')

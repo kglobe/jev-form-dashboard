@@ -223,6 +223,46 @@ async function removeRatio(ds, ratio) {
     ratioError.value = e.message
   }
 }
+
+// ---------- 刪除來源（對話框） ----------
+
+const deleteOpen = ref(false)
+const deleteTarget = ref(null) // 按下「刪除來源」時的來源；之後切換選取不影響要刪哪個
+const deleteUsage = ref({ mergedBy: [], dashboards: [] })
+const deleteError = ref('')
+const checking = ref(false) // 查 usage 中
+const deleting = ref(false)
+
+async function openDelete(ds) {
+  if (checking.value) return
+  checking.value = true
+  try {
+    deleteUsage.value = await api.datasourceUsage(ds.id)
+    error.value = ''
+    deleteTarget.value = { id: ds.id, name: ds.name }
+    deleteError.value = ''
+    deleteOpen.value = true
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    checking.value = false
+  }
+}
+
+async function removeDatasource(ds) {
+  if (deleting.value) return
+  deleting.value = true
+  deleteError.value = ''
+  try {
+    await api.deleteDatasource(ds.id)
+    deleteOpen.value = false
+    await refresh()
+  } catch (e) {
+    deleteError.value = e.message
+  } finally {
+    deleting.value = false
+  }
+}
 </script>
 
 <template>
@@ -278,6 +318,7 @@ async function removeRatio(ds, ratio) {
               <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template><template v-else-if="selected.merge">{{ mergeSummary(selected) }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
             </div>
           </div>
+          <v-btn prepend-icon="mdi-delete-outline" :loading="checking" @click="openDelete(selected)">刪除來源</v-btn>
           <v-btn append-icon="mdi-arrow-right" @click="emit('build', selected.id)">用這個來源製圖</v-btn>
         </header>
         <v-table class="ds-fields">
@@ -434,6 +475,38 @@ async function removeRatio(ds, ratio) {
           <v-btn variant="flat" @click="ratioOpen = false">取消</v-btn>
           <v-btn variant="flat" color="primary" :disabled="!canAddRatio" :loading="busy" @click="addRatio(selected)">新增</v-btn>
         </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="deleteOpen" max-width="480" transition="tc-sheet">
+      <v-card v-if="deleteTarget">
+        <template v-if="deleteUsage.mergedBy.length">
+          <v-card-title class="pt-5 px-6">無法刪除</v-card-title>
+          <v-card-text class="px-6">
+            <p>「{{ deleteTarget.name }}」是下面這些合併來源的輸入，要先刪掉它們：</p>
+            <div v-for="m in deleteUsage.mergedBy" :key="m.id">{{ m.name }}</div>
+          </v-card-text>
+          <v-card-actions class="px-6 pb-5">
+            <v-spacer />
+            <v-btn variant="flat" @click="deleteOpen = false">知道了</v-btn>
+          </v-card-actions>
+        </template>
+        <template v-else>
+          <v-card-title class="pt-5 px-6">刪除資料來源</v-card-title>
+          <v-card-text class="px-6">
+            <p>確定刪除「{{ deleteTarget.name }}」？刪除後無法復原。</p>
+            <template v-if="deleteUsage.dashboards.length">
+              <p class="mt-3">下面這些儀表板有用到它的圖，刪除後會顯示「資料來源已刪除」，可以再按 ✕ 移除：</p>
+              <div v-for="d in deleteUsage.dashboards" :key="d.id">{{ d.name }}（{{ d.charts }} 張圖）</div>
+            </template>
+            <v-alert v-if="deleteError" type="error" density="compact" class="mt-3">{{ deleteError }}</v-alert>
+          </v-card-text>
+          <v-card-actions class="px-6 pb-5">
+            <v-spacer />
+            <v-btn variant="flat" @click="deleteOpen = false">取消</v-btn>
+            <v-btn variant="flat" color="error" :loading="deleting" @click="removeDatasource(deleteTarget)">刪除</v-btn>
+          </v-card-actions>
+        </template>
       </v-card>
     </v-dialog>
   </section>

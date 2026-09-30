@@ -69,6 +69,12 @@ public class DatasourceRepository {
             .query(this::map).list();
     }
 
+    public boolean delete(UUID id, String userId) {
+        return jdbc.sql("delete from datasource where id = :id and created_by = :by")
+            .param("id", id).param("by", userId)
+            .update() == 1;
+    }
+
     public void updateSchema(UUID id, List<FieldSchema> schema) {
         jdbc.sql("update datasource set schema_json = cast(:schema as jsonb) where id = :id")
             .param("schema", write(schema)).param("id", id)

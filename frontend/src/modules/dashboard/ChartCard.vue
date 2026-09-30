@@ -107,6 +107,9 @@ const ratioPeriodNote = computed(() => {
       <v-alert v-else-if="data.error === 'SOURCE_FAILED'" type="warning" density="compact" class="tc-fade-in">
         {{ data.source ? `資料來源「${data.source}」載入失敗，請稍後重新整理` : '資料來源載入失敗，請稍後重新整理' }}
       </v-alert>
+      <v-alert v-else-if="data.error === 'SOURCE_DELETED'" type="warning" density="compact" class="tc-fade-in">
+        資料來源已刪除，可以按右上角 ✕ 移除這張圖
+      </v-alert>
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
       </v-alert>

@@ -108,4 +108,16 @@ describe('api', () => {
     fetch.mockResolvedValueOnce(jsonResponse({ error: '找不到儀表板' }, { status: 404 }))
     await expect(api.getDashboard('d1')).rejects.toMatchObject({ message: '找不到儀表板', status: 404 })
   })
+
+  it('datasourceUsage GETs /usage; deleteDatasource DELETEs and resolves null on 204', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ mergedBy: [], dashboards: [] }))
+    await expect(api.datasourceUsage('ds1')).resolves.toEqual({ mergedBy: [], dashboards: [] })
+    expect(fetch.mock.calls[0][0]).toBe('/api/datasources/ds1/usage')
+    expect(fetch.mock.calls[0][1].method).toBe('GET')
+
+    fetch.mockResolvedValueOnce(jsonResponse(null, { status: 204 }))
+    await expect(api.deleteDatasource('ds1')).resolves.toBeNull()
+    expect(fetch.mock.calls[1][0]).toBe('/api/datasources/ds1')
+    expect(fetch.mock.calls[1][1].method).toBe('DELETE')
+  })
 })

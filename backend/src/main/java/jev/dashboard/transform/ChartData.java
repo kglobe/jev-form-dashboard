@@ -64,4 +64,9 @@ public record ChartData(String chartId, String type, List<String> dimensions, Li
     public static ChartData sourceFailed(String chartId, String type, String source) {
         return new ChartData(chartId, type, null, null, "SOURCE_FAILED", null, null, null, source);
     }
+
+    /** 刪除來源 spec 4.1：這張圖的來源已經刪掉。 */
+    public static ChartData sourceDeleted(String chartId, String type) {
+        return new ChartData(chartId, type, null, null, "SOURCE_DELETED", null, null, null, null);
+    }
 }

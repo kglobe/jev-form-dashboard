@@ -164,10 +164,12 @@ class DashboardControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].rows.length()").value(6));
+        // 別人的來源跟已刪除的一樣查不到，只回 SOURCE_DELETED，不會拿到資料（刪除來源 spec 4.1）
         mvc.perform(post("/api/dashboards/preview/data").header("X-User-Id", "u2")
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
-            .andExpect(status().isNotFound())
-            .andExpect(jsonPath("$.error").value("找不到資料源"));
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].error").value("SOURCE_DELETED"))
+            .andExpect(jsonPath("$[0].rows").doesNotExist());
     }
 
     @Test
@@ -260,6 +262,49 @@ class DashboardControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout.length()").value(0))
             .andExpect(jsonPath("$.basis").doesNotExist());
+    }
+
+    @Test
+    void aDashboardKeepsWorkingAfterOneOfItsSourcesIsDeleted() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String returns = TestData.uploadSales(mvc, "u1");
+        String id = create("u1", "{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "]}");
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", returns, 4) + "]}"))
+            .andExpect(status().isOk());
+        mvc.perform(delete("/api/datasources/" + returns).header("X-User-Id", "u1")).andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].error").doesNotExist())
+            .andExpect(jsonPath("$[1].error").value("SOURCE_DELETED"));
+
+        // 拖拉照樣存得進去
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "," + card("c2", returns, 4) + "]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout[0].gridPos.y").value(2));
+        // 移除已刪除的卡片
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "]}"))
+            .andExpect(status().isOk());
+        // 新帶進來的來源照舊要檢查
+        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "," + card("c3", UUID.randomUUID().toString(), 6) + "]}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+    }
+
+    @Test
+    void aDashboardWhoseSourcesAreAllDeletedStillOpens() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String id = create("u1", "{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", sales, 4) + "]}");
+        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1")).andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].error").value("SOURCE_DELETED"))
+            .andExpect(jsonPath("$[1].error").value("SOURCE_DELETED"));
     }
 
     @Test

@@ -25,6 +25,7 @@ import jev.dashboard.transform.Mapping;
 import jev.dashboard.transform.UniversalTransformer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,13 +35,18 @@ public class DashboardDataService {
     private final DatasourceService datasources;
 
     /**
-     * 一個來源載入一次的結果。載入失敗時 rows 是 null；name 是查得到的來源名稱，查不到是 null。
+     * 一個來源載入一次的結果。載入失敗時 rows 是 null；name 是查得到的來源名稱，查不到是 null；
+     * deleted 是來源本身已經不在（刪除來源 spec 4.1）。
      * ratios 是這個來源的比率定義（B3），dates 是日期欄位（比率的期間對齊用），都交給轉換器。
      */
     private record Source(String name, List<Map<String, Object>> rows, Set<String> available, Map<String, String> labels,
-                          List<Ratio> ratios, List<String> dates) {
+                          List<Ratio> ratios, List<String> dates, boolean deleted) {
         static Source failed(String name) {
-            return new Source(name, null, null, null, null, null);
+            return new Source(name, null, null, null, null, null, false);
+        }
+
+        static Source ofDeleted() {
+            return new Source(null, null, null, null, null, null, true);
         }
     }
 
@@ -92,6 +98,10 @@ public class DashboardDataService {
         List<Built> out = new ArrayList<>();
         for (ChartSpec s : layout) {
             Source src = sources.get(s.datasourceId());
+            if (src.deleted()) {
+                out.add(new Built(s, ChartData.sourceDeleted(s.chartId(), s.type()), Map.of()));
+                continue;
+            }
             if (src.rows() == null) {
                 out.add(new Built(s, ChartData.sourceFailed(s.chartId(), s.type(), src.name()), Map.of()));
                 continue;
@@ -105,7 +115,7 @@ public class DashboardDataService {
     /**
      * 每個來源只載入一次，卡片直接用的和合併來源裡用到的共用同一份（同一個 loader）。
      * 有來源載入失敗（外部 API 掛掉、超過筆數上限等）時，只有用到它的卡片是 SOURCE_FAILED；
-     * 全部來源都失敗就丟出第一個錯誤，單一來源的儀表板和預覽跟以前一樣整份報錯。
+     * 全部來源都失敗（而且沒有一個是已刪除）就丟出第一個錯誤，單一來源的儀表板和預覽跟以前一樣整份報錯。
      */
     private Map<UUID, Source> sources(String userId, List<ChartSpec> layout) {
         Function<UUID, DatasourceService.Loaded> load = datasources.loader(userId);
@@ -119,10 +129,10 @@ public class DashboardDataService {
             } catch (ApiException e) {
                 if (first == null) first = e;
                 log.warn("資料來源 {} 載入失敗：{}", id, e.getMessage());
-                out.put(id, Source.failed(nameOf(userId, id)));
+                out.put(id, failedSource(userId, id));
             }
         }
-        if (first != null && out.values().stream().allMatch(src -> src.rows() == null)) throw first;
+        if (first != null && out.values().stream().allMatch(src -> src.rows() == null && !src.deleted())) throw first;
         return out;
     }
 
@@ -135,15 +145,15 @@ public class DashboardDataService {
         Map<String, String> labels = schema.stream().filter(f -> f.label() != null)
             .collect(Collectors.toMap(FieldSchema::name, FieldSchema::label));
         List<String> dates = schema.stream().filter(f -> f.type() == FieldType.DATE).map(FieldSchema::name).toList();
-        return new Source(loaded.datasource().name(), loaded.rows(), available, labels, loaded.datasource().ratios(), dates);
+        return new Source(loaded.datasource().name(), loaded.rows(), available, labels, loaded.datasource().ratios(), dates, false);
     }
 
-    /** 載入失敗時才查名稱給卡片顯示；來源本身找不到就沒有名稱。 */
-    private String nameOf(String userId, UUID id) {
+    /** 載入失敗時才查名稱給卡片顯示；來源本身找不到（NOT_FOUND）就是已刪除，其他錯誤只是沒有名稱。 */
+    private Source failedSource(String userId, UUID id) {
         try {
-            return datasources.get(userId, id).name();
+            return Source.failed(datasources.get(userId, id).name());
         } catch (ApiException e) {
-            return null;
+            return e.status() == HttpStatus.NOT_FOUND ? Source.ofDeleted() : Source.failed(null);
         }
     }
 
