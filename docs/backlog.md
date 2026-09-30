@@ -52,9 +52,13 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - ~~P2 · 比率的期間對齊：分子、分母的資料期間不一樣時（例如對照來源上退貨只有 7～9 月、銷售有 1～9 月），依分類的比率會被沒有分子的期間稀釋。B3 的 E2E 看到「退貨率 依 product」只有 1.3%～1.8%，按月看卻是 3.5%～4.3%。可以考慮只算分子、分母都有資料的期間，或在對照來源上不讓比率配分類欄位。（B3 手動驗證，2026-09-29）~~ 已完成：比率只算分子、分母都有資料的月份，圖下方寫出算的是哪幾個月，見 spec `docs/superpowers/specs/2026-09-29-ratio-period-alignment-design.md`。
 - P3 · 比率太多會擠掉時間、分類欄位：比率一定進候選，還排在一般欄位前面，候選上限依舊是 8 個。焦點欄位加比率湊滿 8 個時，就沒有時間或分類欄位能配，分析只剩明細表。可以考慮至少留一個位置給時間或分類欄位。（B3 最終審查，2026-09-29）
 
-- P2 · 送給 JEV 的題目和選項改成英文：jevai.wiki 的 state 頁寫「英文是主要訓練語言；其他語言（包括中日韓文字）雖可使用，但準確度較低」，現在的 instructions 和 criteria 全是中文（`AnalyzeService`、`HighlightService`）。使用者的需求和欄位名照原樣送。改完之後挑圖結果會變，要重新實測。（JEV 官方文件對照，2026-09-27）
+- P2 · 送給 JEV 的題目和選項改成英文：jevai.wiki 的 state 頁寫「英文是主要訓練語言；其他語言（包括中日韓文字）雖可使用，但準確度較低」，現在的 instructions 和 criteria 全是中文（`AnalyzeService`、`HighlightService`、`MappingService`）。使用者的需求和欄位名照原樣送。改完之後挑圖結果會變，要重新實測。（JEV 官方文件對照，2026-09-27）C2 的欄位對應實際呼叫過 JEV，題目是中文（2026-10-01，jev-1.13.0）：民國年訂單.csv＋sales.csv 疊加時，`order_date`→訂單日期、`region`→地區、`amount`→金額三個全對，`product`、`qty`、`memo` 和出貨日各自留成一列；改成對照時只對上日期和地區，數字欄位照規則沒問；再加 E2E-sales 變成三個來源，6 個全對。JEV 在這組資料上沒有答錯。
 - P3 · Score 的內插值不要拿來排序：jevai.wiki 的 primitives 頁說期望值只適合判斷門檻，`ConfigAssembler.candidates` 和組合排序卻直接比小數（2.75 排在 3.0 後面）。可以改成先比 `round(score)`，再比 confidence 或機率。（同上）
 
+- P3 · 查表的對接欄位建議：例如 `product` ↔ `code`；後端可以先算兩邊的值對上幾成。（C2 spec 第 8 節）
+- P3 · 合併方式建議：選好來源之後，建議用疊加、對照還是查表。（C2 spec 第 8 節）
+- P3 · 值的對齊：「北區」和「North」這類寫法不同的值當成同一個。（C2 spec 第 8 節）
+- P3 · 從一句需求直接組出合併定義。（C2 spec 第 8 節）
 - P3 · 編輯合併來源的定義：合併定義建立之後不能改，定義錯了只能刪掉重建。（B1 spec 第 2、11 節）刪除已完成，見 spec `docs/superpowers/specs/2026-09-30-delete-datasource-design.md`。
 - ~~P2 · 承上，刪除資料來源要設計時一起處理：合併來源的 `sensitiveFrom` 現在找不到某個輸入來源就直接跳過（`DatasourceService.java` 的 `sensitiveFrom`，`if (input == null) continue`），沒有 fail closed。來源被刪掉之後，還在引用它的欄位應該變成敏感，不能悄悄當作不敏感。（B1 final review）~~ 已修正：輸入來源找不到時，欄位的 `sensitiveFrom` 是「（已刪除的來源）」，一律當作敏感。見 spec `docs/superpowers/specs/2026-09-30-delete-datasource-design.md`。
 
@@ -105,6 +109,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - P3 · 手動組一個預覽請求，把自己的來源和別人的來源混在一起送 `/preview/data`，別人來源的卡片會回 `SOURCE_FAILED`，名稱是 null，不會洩漏資料；只有全部來源都失敗時才回 404。行為跟 spec 寫的「載入時 404」不完全一樣。（A final review）
 - P3 · 已存儀表板移除卡片後，「不重抓資料」靠的是只生效一次的旗標 `ownUpdatePending`（`DashboardView.vue`）。如果 App 在同一個 Vue 更新週期裡連續換兩次設定（移除卡片後 PUT 回傳的設定，以及重新打開同一份儀表板），可能把重新打開誤判成移除而沒有重抓。現在的畫面流程不會觸發這種情況。（A final fix re-review）
 - ~~P3 · 合併表單的「來源」選單寫著 2～5 個，但畫面沒有擋第 6 個，要等按預覽時才由後端回 400。（B1 Task 7 review）~~ 已修正：選滿 5 個之後，其他來源停用（B2）。
+- P3 · 三個以上來源時，合併的對應表太窄：對話框內容寬約 760px，每個來源欄只有 160～185px，下拉選單裡的欄位名稱被截成「order···」「amo···」，輸出欄位也只看得到兩三個字。可以依來源數加寬對話框，或讓對應表橫向捲動。（C2 瀏覽器驗證，2026-10-01）
 - P3 · 對照來源的數值欄位可能看不出來自哪個來源：兩個輸入來源都把 `amount` 的顯示名稱設成「金額」時，`銷售·amount` 繼承「金額」，`退貨·amount` 因為名稱重複不繼承，圖例變成「金額」和「退貨·amount」。可以讓拆開的數字欄位不繼承顯示名稱，或自動加上「來源名·」。（B2 final review）
 - P3 · 製圖頁的欄位標籤會列出對照來源的「來源」欄。勾了它也不會有任何圖用到，因為分析時這欄一律當成 ignore，畫面上又沒有說明。可以對對照來源隱藏這個標籤。（B2 final review）
 - P3 · 調整模式保留下來的圖，不會再檢查畫不畫得出東西，`ConfigAssembler.drawable` 只擋新產生的組合。這種圖只會出現在 B2 修正前的預覽裡，main 上不會有。（B2 final fix re-review）

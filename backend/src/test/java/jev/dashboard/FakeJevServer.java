@@ -41,8 +41,9 @@ public final class FakeJevServer implements AutoCloseable {
         }
     }
 
-    /** 依請求內容挑 fixture：異常檢查、第二輪、第一輪。 */
+    /** 依請求內容挑 fixture：欄位對應、異常檢查、第二輪、第一輪。 */
     public static String route(String body) {
+        if (body.contains("\"map_1_")) return Fixtures.json("mapping.json");
         if (body.contains("\"anomaly_")) return Fixtures.json("highlight.json");
         if (body.contains("\"combo_0\"")) return Fixtures.json("round2.json");
         return Fixtures.json("round1.json");

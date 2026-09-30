@@ -1,0 +1,11 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "map_1_0": {"type": "choice", "choice": "f0", "confidence": 0.9},
+    "map_1_1": {"type": "choice", "choice": "f2", "confidence": 0.85},
+    "map_1_2": {"type": "choice", "choice": "f1", "confidence": 0.9},
+    "map_1_3": {"type": "choice", "choice": "none", "confidence": 0.8},
+    "map_1_4": {"type": "choice", "choice": "f2", "confidence": 0.6},
+    "map_1_5": {"type": "choice", "choice": "f1", "confidence": 0.3}
+  }
+}

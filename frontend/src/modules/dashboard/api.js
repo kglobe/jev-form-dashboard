@@ -36,6 +36,8 @@ export const api = {
   createMerged: (body) => request('POST', '/api/datasources/merged', body),
   // intents、current、fields 沒給時 JSON.stringify 會略過，body 跟原本一樣只有 datasourceId
   analyze: (datasourceId, intents, current, fields) => request('POST', '/api/jev/analyze', { datasourceId, intents, current, fields }),
+  // C2 spec 第 4 節：inputs 的第一個是基準；compare 是對照
+  suggestMapping: (inputs, compare) => request('POST', '/api/jev/mapping', { inputs, compare }),
   listDashboards: () => request('GET', '/api/dashboards'),
   getDashboard: (id) => request('GET', `/api/dashboards/${id}`),
   createDashboard: (config) => request('POST', '/api/dashboards', config),
