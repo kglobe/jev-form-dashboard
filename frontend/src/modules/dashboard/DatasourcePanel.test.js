@@ -718,4 +718,19 @@ describe('DatasourcePanel', () => {
     expect(wrapper.find('.v-alert').text()).toBe('找不到資料源')
     expect(deleteDialog(wrapper).props('modelValue')).toBe(false)
   })
+
+  it('usage 查詢失敗後再查成功，頁面上的舊錯誤會清掉並打開對話框', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.datasourceUsage.mockRejectedValueOnce(new Error('找不到資料源'))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await deleteBtn(wrapper).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.v-alert').text()).toBe('找不到資料源')
+
+    await openDelete(wrapper, { mergedBy: [], dashboards: [] })
+
+    expect(wrapper.find('.v-alert').exists()).toBe(false)
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(true)
+  })
 })

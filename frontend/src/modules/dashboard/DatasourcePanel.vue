@@ -234,9 +234,11 @@ const checking = ref(false) // 查 usage 中
 const deleting = ref(false)
 
 async function openDelete(ds) {
+  if (checking.value) return
   checking.value = true
   try {
     deleteUsage.value = await api.datasourceUsage(ds.id)
+    error.value = ''
     deleteTarget.value = { id: ds.id, name: ds.name }
     deleteError.value = ''
     deleteOpen.value = true
