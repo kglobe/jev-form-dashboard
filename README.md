@@ -207,7 +207,7 @@ export DS_ERP_AUTH="Bearer xxx"
 - 被儀表板的圖用到：對話框列出儀表板和圖的張數，確認後照刪。那些卡片會顯示「資料來源已刪除」，可以按右上角 ✕ 移除，版面照樣能存。
 - 沒有人用：確認後直接刪。
 
-刪除後無法復原。合併來源的輸入被刪掉後，繼承來的欄位一律當作敏感（`sensitiveFrom` 顯示「（已刪除的來源）」）。完整規則見 [`docs/superpowers/specs/2026-09-30-delete-datasource-design.md`](docs/superpowers/specs/2026-09-30-delete-datasource-design.md)。
+刪除後無法復原。萬一合併來源的輸入還是被刪掉了（例如刪除的同時，有人拿它建了新的合併來源），繼承來的欄位一律當作敏感，`sensitiveFrom` 會顯示「（已刪除的來源）」。完整規則見 [`docs/superpowers/specs/2026-09-30-delete-datasource-design.md`](docs/superpowers/specs/2026-09-30-delete-datasource-design.md)。
 
 ## 測試
 
