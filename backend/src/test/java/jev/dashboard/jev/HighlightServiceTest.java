@@ -40,7 +40,7 @@ class HighlightServiceTest {
     @Test
     void flagsCardsAboveThresholdWithSeverityLabel() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            List<Highlight> result = service(server).check(UUID.randomUUID(), 1, TODAY, List.of(LINE, BAR, PIE), DATA);
+            List<Highlight> result = service(server).check(UUID.randomUUID(), TODAY, List.of(LINE, BAR, PIE), DATA);
             assertThat(result).containsExactly(new Highlight("c1", "需要關注", 0.85));
             assertThat(server.bodies).hasSize(1);
             assertThat(server.bodies.get(0))
@@ -52,15 +52,69 @@ class HighlightServiceTest {
     @Test
     void jevFailureReturnsNullSoTheResultIsNotCached() {
         try (FakeJevServer server = FakeJevServer.start(body -> null)) {
-            assertThat(service(server).check(UUID.randomUUID(), 1, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNull();
+            assertThat(service(server).check(UUID.randomUUID(), TODAY, List.of(LINE), List.of(DATA.get(0)))).isNull();
         }
     }
 
     @Test
     void noTimeAxisCardsSkipsJev() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            assertThat(service(server).check(UUID.randomUUID(), 1, TODAY, List.of(PIE), List.of(DATA.get(2)))).isEmpty();
+            assertThat(service(server).check(UUID.randomUUID(), TODAY, List.of(PIE), List.of(DATA.get(2)))).isEmpty();
             assertThat(server.bodies).isEmpty();
+        }
+    }
+
+    @Test
+    void theSameContentAsksJevOnceButANewTitleAsksAgain() {
+        try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
+            HighlightService service = service(server);
+            UUID dashboard = UUID.randomUUID();
+            service.check(dashboard, TODAY, List.of(LINE, PIE), List.of(DATA.get(0), DATA.get(2)));
+            // 圓餅圖沒被摘要，不算在送出去的內容裡；少了它還是同一份內容
+            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0))))
+                .containsExactly(new Highlight("c1", "需要關注", 0.85));
+            assertThat(server.bodies).hasSize(1);
+
+            // 標題會送給 JEV，改了就要重問
+            ChartSpec renamed = new ChartSpec("c1", "line", "每月營收", LINE.gridPos(), LINE.mapping(), Map.of());
+            service.check(dashboard, TODAY, List.of(renamed), List.of(DATA.get(0)));
+            assertThat(server.bodies).hasSize(2);
+
+            // 快取是每份儀表板各自的
+            service.check(UUID.randomUUID(), TODAY, List.of(LINE), List.of(DATA.get(0)));
+            assertThat(server.bodies).hasSize(3);
+        }
+    }
+
+    @Test
+    void rowOrderDoesNotChangeWhatIsSentSoTheCacheStillHits() {
+        ChartSpec bySeries = new ChartSpec("c4", "stacked_bar", "分區月銷售額", new GridPos(0, 0, 6, 4),
+            new Mapping("order_date", null, "region", "amount", null, null, "sum", "month"), Map.of());
+        List<String> dims = List.of("order_date", "region", "amount");
+        // 外部 API 每次給的順序可能不同，同一期裡各區的先後跟著變
+        ChartData a = new ChartData("c4", "stacked_bar", dims, List.of(
+            r("2024-05", "北", 10.0), r("2024-05", "南", 20.0), r("2024-06", "北", 12.0), r("2024-06", "南", 21.0)), null, null);
+        ChartData b = new ChartData("c4", "stacked_bar", dims, List.of(
+            r("2024-05", "南", 20.0), r("2024-05", "北", 10.0), r("2024-06", "南", 21.0), r("2024-06", "北", 12.0)), null, null);
+        try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
+            HighlightService service = service(server);
+            UUID dashboard = UUID.randomUUID();
+            service.check(dashboard, TODAY, List.of(bySeries), List.of(a));
+            service.check(dashboard, TODAY, List.of(bySeries), List.of(b));
+            assertThat(server.bodies).hasSize(1);
+        }
+    }
+
+    @Test
+    void aFailedCheckIsAskedAgainNextTime() {
+        String[] reply = {null};
+        try (FakeJevServer server = FakeJevServer.start(body -> reply[0])) {
+            HighlightService service = service(server);
+            UUID dashboard = UUID.randomUUID();
+            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNull();
+            reply[0] = FakeJevServer.route("\"anomaly_");
+            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNotEmpty();
+            assertThat(server.bodies).hasSize(2);
         }
     }
 }

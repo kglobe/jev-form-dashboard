@@ -100,8 +100,7 @@ public class JevController {
             }
         }
 
-        List<Highlight> result = highlights.check(dashboardId, eligibleData.hashCode(), LocalDate.now(clock),
-            eligibleSpecs, eligibleData);
+        List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligibleSpecs, eligibleData);
         return result == null ? List.of() : result;
     }
 }

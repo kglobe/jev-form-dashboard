@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.TimeBucket;
@@ -38,7 +39,9 @@ public final class HighlightSummarizer {
         // B3 spec 5.4：比率的圖比百分點；沒有值不代表比率是 0，不能當 0
         boolean percent = Boolean.TRUE.equals(data.percent());
 
-        Map<String, double[]> bySeries = new LinkedHashMap<>(); // [前一期, 最後一期]
+        // [前一期, 最後一期]。系列照名稱排，跟資料列的順序無關（外部 API 每次給的順序可能不同），
+        // 送給 JEV 的內容才會一樣、快取得到；兩個數值的圖照 mapping 的順序
+        Map<String, double[]> bySeries = measures != null ? new LinkedHashMap<>() : new TreeMap<>();
         for (List<Object> row : data.rows()) {
             String period = String.valueOf(row.get(0));
             int slot = period.equals(current) ? 1 : period.equals(previous) ? 0 : -1;
