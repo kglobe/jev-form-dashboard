@@ -282,7 +282,8 @@ class DashboardControllerTest {
         // 拖拉照樣存得進去
         mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "," + card("c2", returns, 4) + "]}"))
-            .andExpect(status().isOk());
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout[0].gridPos.y").value(2));
         // 移除已刪除的卡片
         mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "]}"))
