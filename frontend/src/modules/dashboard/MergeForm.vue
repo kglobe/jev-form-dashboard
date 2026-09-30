@@ -164,15 +164,19 @@ async function create() {
 // C2 spec 5.3：格子的值還是 JEV 填的那個，才標「JEV 建議」
 const jevPicked = (c, id) => !!c.suggested?.[id] && c.suggested[id] === c.from[id]
 
-// C2 spec 5.2：基準欄位 to 那一列的 input 格子是空的，field 自己那一列只有 input 格子有值，兩列都在才套用；
-// 任何一列找不到，就是使用者已經改過，跳過
+// C2 spec 5.2：基準欄位 to 那一列的 input 格子是空的；field 自己那一列還是照名稱自動對上的樣子
+// （輸出名稱是 field、基準格子空的、其他格子不是空的就是 field）。兩列都在才把 input 那一格搬過去，
+// 搬完那一列空了就刪掉；任何一列找不到，就是使用者已經改過，跳過
 function applyMatch({ input, field, to }) {
-  const target = columns.value.find((c) => c.from[inputs.value[0]] === to && !c.from[input])
-  const own = columns.value.find((c) => c.from[input] === field && inputs.value.every((id) => id === input || !c.from[id]))
+  const base = inputs.value[0]
+  const target = columns.value.find((c) => c.from[base] === to && !c.from[input])
+  const own = columns.value.find((c) => c.name === field && !c.from[base] && c.from[input] === field
+    && inputs.value.every((id) => !c.from[id] || c.from[id] === field))
   if (!target || !own) return false
   target.from[input] = field
   target.suggested = { ...target.suggested, [input]: field }
-  columns.value.splice(columns.value.indexOf(own), 1)
+  own.from[input] = null
+  if (inputs.value.every((id) => !own.from[id])) columns.value.splice(columns.value.indexOf(own), 1)
   return true
 }
 
@@ -226,7 +230,7 @@ async function suggest() {
           <v-btn variant="tonal" size="small" prepend-icon="mdi-auto-fix" :loading="suggesting" @click="suggest">
             請 JEV 對欄位
           </v-btn>
-          <div v-if="suggestNote" class="text-caption mt-1">{{ suggestNote }}</div>
+          <div role="status" class="text-caption mt-1">{{ suggestNote }}</div>
         </div>
         <v-table density="compact" class="mf-map mt-3">
           <thead>

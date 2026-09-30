@@ -360,6 +360,7 @@ describe('MergeForm（JEV 對欄位）', () => {
     expect(api.suggestMapping).toHaveBeenLastCalledWith(['o', 'sa'], false)
 
     await way(w, 'compare')
+    expect(w.text()).not.toContain('JEV 沒有找到')
     await ask(w)
     expect(api.suggestMapping).toHaveBeenLastCalledWith(['o', 'sa'], true)
 
@@ -444,5 +445,83 @@ describe('MergeForm（JEV 對欄位）', () => {
     expect(w.text()).toContain('JEV 呼叫失敗（HTTP 500）')
     expect(w.text()).not.toContain('JEV 沒有找到')
     expect(columnNames(w)).toHaveLength(8)
+  })
+
+  it('never overwrites a cell the user already filled', async () => {
+    api.suggestMapping.mockResolvedValue({ matches: [{ input: 'sa', field: 'region', to: '地區' }] })
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await pick(w, '第 2 欄在sales的欄位', 'product')
+
+    await ask(w)
+
+    expect(select(w, '第 2 欄在sales的欄位').props('modelValue')).toBe('product')
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toContain('region')
+    expect(w.text()).toContain('JEV 沒有找到可以對上的欄位')
+  })
+
+  it('drops a response that comes back after switching to 對照', async () => {
+    let resolve
+    api.suggestMapping.mockReturnValue(new Promise((r) => { resolve = r }))
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await btn(w, '請 JEV 對欄位').trigger('click')
+    await way(w, 'compare')
+    resolve(THREE)
+    await flushPromises()
+
+    const names = columnNames(w).map((c) => c.props('modelValue'))
+    expect(names).toHaveLength(8)
+    expect(names).toContain('region')
+    expect(names).toContain('sales·amount')
+    expect(tags(w)).toHaveLength(0)
+    expect(w.text()).not.toContain('JEV 對上了')
+  })
+
+  it('with 3 sources, moves each matched cell and drops the shared row once it is empty', async () => {
+    api.suggestMapping.mockResolvedValue({
+      matches: [
+        { input: 'sa', field: 'region', to: '地區' },
+        { input: 'n', field: 'region', to: '地區' },
+      ],
+    })
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa', 'n'])
+
+    await ask(w)
+
+    expect(select(w, '第 2 欄在sales的欄位').props('modelValue')).toBe('region')
+    expect(select(w, '第 2 欄在北區的欄位').props('modelValue')).toBe('region')
+    expect(columnNames(w).map((c) => c.props('modelValue'))).not.toContain('region')
+    expect(tags(w)).toHaveLength(2)
+    expect(w.text()).toContain('JEV 對上了 2 個欄位')
+  })
+
+  it('with 3 sources, keeps the shared row while another source still uses it', async () => {
+    api.suggestMapping.mockResolvedValue({ matches: [{ input: 'sa', field: 'region', to: '地區' }] })
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa', 'n'])
+
+    await ask(w)
+
+    expect(select(w, '第 2 欄在sales的欄位').props('modelValue')).toBe('region')
+    const row = columnNames(w).map((c) => c.props('modelValue')).indexOf('region') + 1
+    expect(row).toBeGreaterThan(0)
+    expect(select(w, `第 ${row} 欄在北區的欄位`).props('modelValue')).toBe('region')
+    expect(select(w, `第 ${row} 欄在sales的欄位`).props('modelValue')).toBeNull()
+  })
+
+  it('leaves a renamed row alone', async () => {
+    api.suggestMapping.mockResolvedValue(THREE)
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await columnNames(w)[4].vm.$emit('update:modelValue', '銷售日期')
+    await flushPromises()
+
+    await ask(w)
+
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toEqual(['訂單日期', '地區', '金額', '出貨日', '銷售日期', 'product'])
+    expect(select(w, '第 1 欄在sales的欄位').props('modelValue')).toBeNull()
+    expect(w.text()).toContain('JEV 對上了 2 個欄位')
   })
 })
