@@ -13,8 +13,11 @@ import java.util.regex.Pattern;
 
 public final class SchemaInference {
     // ponytail: 只取日期部分，時間捨去；分桶最細到 day，夠用
+    // 年份 2～3 碼是民國年（113/09/24、99-1-5），加 1911
     private static final Pattern DATE = Pattern.compile(
-        "(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})([ T]\\d{1,2}:\\d{2}(:\\d{2}(\\.\\d+)?)?)?(Z|[+-]\\d{2}:?\\d{2})?");
+        "(\\d{4}|\\d{2,3})[-/](\\d{1,2})[-/](\\d{1,2})([ T]\\d{1,2}:\\d{2}(:\\d{2}(\\.\\d+)?)?)?(Z|[+-]\\d{2}:?\\d{2})?");
+    // 不帶分隔符號的 8 碼日期（20240924）；年份限 1900～2099，少把 8 位數的金額、編號誤判成日期
+    private static final Pattern COMPACT_DATE = Pattern.compile("((?:19|20)\\d{2})(\\d{2})(\\d{2})");
     // 0 開頭又接數字的（手機 0912…、統編 04595257、工號 007）是代碼不是數字，當數字會掉前導零
     private static final Pattern NUMBER = Pattern.compile("[-+]?(0|[1-9]\\d*)(\\.\\d+)?");
 
@@ -25,6 +28,8 @@ public final class SchemaInference {
         for (String h : headers) {
             List<Object> values = rows.stream().map(r -> r.get(h)).filter(v -> !isBlank(v)).toList();
             FieldType type = values.isEmpty() ? FieldType.STRING
+                // 8 碼日期也是合法的數字，要比數字先判斷
+                : values.stream().allMatch(v -> compactDate(v) != null) ? FieldType.DATE
                 : values.stream().allMatch(v -> parseNumber(v) != null) ? FieldType.NUMBER
                 : values.stream().allMatch(v -> parseDate(v) != null) ? FieldType.DATE
                 : FieldType.STRING;
@@ -81,10 +86,25 @@ public final class SchemaInference {
     }
 
     static LocalDate parseDate(Object v) {
+        LocalDate compact = compactDate(v);
+        if (compact != null) return compact;
         Matcher m = DATE.matcher(String.valueOf(v).trim());
         if (!m.matches()) return null;
+        int year = Integer.parseInt(m.group(1));
+        return date(m.group(1).length() < 4 ? year + 1911 : year, m.group(2), m.group(3));
+    }
+
+    /** 8 碼日期；外部 API 的整數、Excel 的數字儲存格（Double）也算。 */
+    private static LocalDate compactDate(Object v) {
+        String s = v instanceof Number n && n.doubleValue() == Math.rint(n.doubleValue())
+            ? String.valueOf(n.longValue()) : String.valueOf(v).trim();
+        Matcher m = COMPACT_DATE.matcher(s);
+        return m.matches() ? date(Integer.parseInt(m.group(1)), m.group(2), m.group(3)) : null;
+    }
+
+    private static LocalDate date(int year, String month, String day) {
         try {
-            return LocalDate.of(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)));
+            return LocalDate.of(year, Integer.parseInt(month), Integer.parseInt(day));
         } catch (DateTimeException e) {
             return null;
         }
