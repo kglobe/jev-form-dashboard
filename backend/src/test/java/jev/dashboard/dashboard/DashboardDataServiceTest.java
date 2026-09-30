@@ -173,7 +173,28 @@ class DashboardDataServiceTest {
         assertThat(shown.get(0).error()).isNull();
         assertThat(shown.get(0).rows()).isEqualTo(List.of(List.of("北區", 5.0)));
         assertThat(shown.get(1)).isEqualTo(ChartData.sourceFailed("c2", "bar", "退貨"));
-        assertThat(shown.get(2)).isEqualTo(ChartData.sourceFailed("c3", "bar", null)); // 來源本身找不到，沒有名稱
+        assertThat(shown.get(2)).isEqualTo(ChartData.sourceDeleted("c3", "bar")); // 來源本身找不到，當作已刪除
+    }
+
+    @Test
+    void whenEverySourceIsDeletedEachCardSaysSoInsteadOfThrowing() {
+        DashboardDataService service = new DashboardDataService(sources(TWO, ROWS, Set.of(), new HashMap<>()));
+
+        List<ChartData> shown = service.display("u1", config(
+            bar("c1", UUID.randomUUID(), "region", "amount"), bar("c2", UUID.randomUUID(), "region", "amount")));
+
+        assertThat(shown).containsExactly(ChartData.sourceDeleted("c1", "bar"), ChartData.sourceDeleted("c2", "bar"));
+    }
+
+    @Test
+    void aDeletedSourceDoesNotCountTowardsEverySourceFailing() {
+        DashboardDataService service = new DashboardDataService(sources(TWO, ROWS, Set.of(SALES), new HashMap<>()));
+
+        List<ChartData> shown = service.display("u1", config(
+            bar("c1", SALES, "region", "amount"), bar("c2", UUID.randomUUID(), "region", "amount")));
+
+        assertThat(shown.get(0)).isEqualTo(ChartData.sourceFailed("c1", "bar", "銷售"));
+        assertThat(shown.get(1)).isEqualTo(ChartData.sourceDeleted("c2", "bar"));
     }
 
     @Test
