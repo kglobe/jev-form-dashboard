@@ -36,21 +36,27 @@ public class JevController {
     /** intents：需求紀錄（選填），最後一句是這次的需求。current：有值就是調整模式，放目前預覽裡的圖（含明細表）。 */
     /** fields 是使用者勾選想看的欄位，分析時當成焦點欄位優先出圖；沒勾就是空的。 */
     public record AnalyzeRequest(UUID datasourceId, List<String> intents, List<ChartSpec> current, List<String> fields) {}
+    /** C2 spec 第 4 節：inputs 的第一個是基準；compare 是對照，JSON 沒寫就是 false。 */
+    public record MappingRequest(List<UUID> inputs, boolean compare) {}
+    public record MappingResult(List<MappingService.Match> matches) {}
 
     private final DatasourceService datasources;
     private final AnalyzeService analyzer;
     private final DashboardService dashboards;
     private final DashboardDataService dashboardData;
     private final HighlightService highlights;
+    private final MappingService mappings;
     private final Clock clock;
 
     public JevController(DatasourceService datasources, AnalyzeService analyzer, DashboardService dashboards,
-                         DashboardDataService dashboardData, HighlightService highlights, Clock clock) {
+                         DashboardDataService dashboardData, HighlightService highlights, MappingService mappings,
+                         Clock clock) {
         this.datasources = datasources;
         this.analyzer = analyzer;
         this.dashboards = dashboards;
         this.dashboardData = dashboardData;
         this.highlights = highlights;
+        this.mappings = mappings;
         this.clock = clock;
     }
 
@@ -68,6 +74,14 @@ public class JevController {
         return analyzer.analyze(ds.name() + " 總覽", ds.id(), ds.schema(), rowCount, intents, body.current(),
             body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()),
             MergeEngine.comparison(ds), ds.ratios());
+    }
+
+    /** 不快取：同樣的來源再按一次，就再問一次（C2 spec 第 4 節）。 */
+    @PostMapping("/mapping")
+    public MappingResult mapping(@RequestHeader("X-User-Id") String userId, @RequestBody MappingRequest body) {
+        MergeEngine.requireUnionInputs(body.inputs());
+        List<Datasource> inputs = body.inputs().stream().map(id -> datasources.get(userId, id)).toList();
+        return new MappingResult(mappings.suggest(inputs, body.compare()));
     }
 
     /** spec 4：每句去掉頭尾空白（含全形空白），空白的句子直接丟掉。 */

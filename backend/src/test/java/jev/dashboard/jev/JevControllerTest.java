@@ -11,7 +11,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import jev.dashboard.FakeJevServer;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.AfterAll;
@@ -26,6 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -356,5 +360,87 @@ class JevControllerTest {
         // sales.csv 有 6 個欄位，比率是第 7 個（imp_6），不問角色
         assertThat(JEV.bodies.get(0)).contains("{\"name\":\"單價\",\"type\":\"ratio\",\"formula\":\"amount ÷ qty\"}")
             .contains("\"imp_6\"").doesNotContain("\"role_6\"");
+    }
+
+    static final String ORDERS_CSV = "訂單日期,地區,金額,出貨日\n2024-07-05,北區,1200,2024-07-08\n2024-07-20,南區,800,2024-07-22\n";
+
+    ResultActions mapping(String userId, String body) throws Exception {
+        return mvc.perform(post("/api/jev/mapping").header("X-User-Id", userId)
+            .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    @Test
+    void mappingAsksJevOnceAndReturnsOnlyTheMatchesThatPassTheRules() throws Exception {
+        String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
+        String sales = TestData.uploadSales(mvc, "u1");
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
+            .andExpect(status().isOk());
+
+        // mapping.json：product 答 none；qty 也選金額，但比 amount 沒把握；memo 信心只有 0.3
+        mapping("u1", "{\"inputs\":[\"" + orders + "\",\"" + sales + "\"]}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.matches[*].input").value(contains(sales, sales, sales)))
+            .andExpect(jsonPath("$.matches[*].field").value(contains("order_date", "amount", "region")))
+            .andExpect(jsonPath("$.matches[*].to").value(contains("訂單日期", "金額", "地區")));
+
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("\"map_1_0\"").contains("\"map_1_5\"")
+            .contains("\"rowCount\":2").contains("\"rowCount\":12").doesNotContain("首購");
+    }
+
+    @Test
+    void mappingAMergedSourceKeepsInheritedSensitiveSamplesAwayFromJev() throws Exception {
+        String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
+        String sales = TestData.uploadSales(mvc, "u1");
+        String products = TestData.uploadCsv(mvc, "u1", "產品主檔", "code,category,owner\nA,家電,王小明\nB,文具,李小華\nC,食品,陳大文\n");
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
+            .andExpect(status().isOk());
+        mvc.perform(patch("/api/datasources/" + products + "/sensitive").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"owner\"]}"))
+            .andExpect(status().isOk());
+        String merge = """
+            {"op":"lookup","main":"%s","lookup":"%s","keys":[{"main":"product","lookup":"code"}],
+             "bring":[{"name":"category","from":"category"},{"name":"owner","from":"owner"}]}""".formatted(sales, products);
+        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售（補產品主檔）\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String merged = JsonPath.read(created, "$.id");
+
+        mapping("u1", "{\"inputs\":[\"" + orders + "\",\"" + merged + "\"]}").andExpect(status().isOk());
+
+        // 合併來源的 memo、owner 是從 sales、產品主檔繼承來的敏感欄位，只送名稱和型別；category 照常有樣本
+        assertThat(JEV.bodies).hasSize(1);
+        assertThat(JEV.bodies.get(0)).contains("家電").doesNotContain("首購").doesNotContain("王小明");
+    }
+
+    @Test
+    void mappingWithNothingToAskReturnsNoMatchesWithoutCallingJev() throws Exception {
+        String a = TestData.uploadSales(mvc, "u1");
+        String b = TestData.uploadSales(mvc, "u1");
+
+        mapping("u1", "{\"inputs\":[\"" + a + "\",\"" + b + "\"],\"compare\":true}")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.matches.length()").value(0));
+        assertThat(JEV.bodies).isEmpty();
+    }
+
+    @Test
+    void mappingChecksTheInputsBeforeCallingJev() throws Exception {
+        String a = TestData.uploadSales(mvc, "u1");
+        String b = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
+        String six = IntStream.range(0, 6).mapToObj(i -> "\"" + UUID.randomUUID() + "\"").collect(Collectors.joining(","));
+
+        for (String body : List.of("{}", "{\"inputs\":[\"" + a + "\"]}", "{\"inputs\":[" + six + "]}")) {
+            mapping("u1", body).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("疊加要選 2 到 5 個來源"));
+        }
+        mapping("u1", "{\"inputs\":[\"" + a + "\",\"" + a + "\"]}").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("疊加的來源不能重複"));
+        mapping("u2", "{\"inputs\":[\"" + b + "\",\"" + a + "\"]}").andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+        assertThat(JEV.bodies).isEmpty();
     }
 }
