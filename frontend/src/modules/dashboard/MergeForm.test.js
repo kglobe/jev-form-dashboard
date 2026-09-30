@@ -524,4 +524,19 @@ describe('MergeForm（JEV 對欄位）', () => {
     expect(select(w, '第 1 欄在sales的欄位').props('modelValue')).toBeNull()
     expect(w.text()).toContain('JEV 對上了 2 個欄位')
   })
+
+  it('skips a match when the user changed another source\'s cell in that row', async () => {
+    api.suggestMapping.mockResolvedValue({ matches: [{ input: 'sa', field: 'region', to: '地區' }] })
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa', 'n'])
+    const row = columnNames(w).map((c) => c.props('modelValue')).indexOf('region') + 1
+    // region 那一列已經不是照名稱自動對上的樣子：北區那格被手動改成 amount
+    await pick(w, `第 ${row} 欄在北區的欄位`, 'amount')
+
+    await ask(w)
+
+    expect(select(w, '第 2 欄在sales的欄位').props('modelValue')).toBeNull()
+    expect(select(w, `第 ${row} 欄在sales的欄位`).props('modelValue')).toBe('region')
+    expect(w.text()).toContain('JEV 沒有找到可以對上的欄位')
+  })
 })
