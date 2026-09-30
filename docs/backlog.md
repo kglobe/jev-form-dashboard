@@ -24,6 +24,10 @@
 - P2 · 送給 JEV 的題目和選項改成英文：jevai.wiki 的 state 頁寫「英文是主要訓練語言；其他語言（包括中日韓文字）雖可使用，但準確度較低」，現在的 instructions 和 criteria 全是中文（`AnalyzeService`、`HighlightService`）。使用者的需求和欄位名照原樣送。改完之後挑圖結果會變，要重新實測。（JEV 官方文件對照，2026-09-27）
 - P3 · Score 的內插值不要拿來排序：jevai.wiki 的 primitives 頁說期望值只適合判斷門檻，`ConfigAssembler.candidates` 和組合排序卻直接比小數（2.75 排在 3.0 後面）。可以改成先比 `round(score)`，再比 confidence 或機率。（同上）
 
+- P3 · 查表的對接欄位建議：例如 `product` ↔ `code`；後端可以先算兩邊的值對上幾成。（C2 spec 第 8 節）
+- P3 · 合併方式建議：選好來源之後，建議用疊加、對照還是查表。（C2 spec 第 8 節）
+- P3 · 值的對齊：「北區」和「North」這類寫法不同的值當成同一個。（C2 spec 第 8 節）
+- P3 · 從一句需求直接組出合併定義。（C2 spec 第 8 節）
 - P3 · 編輯合併來源的定義：合併定義建立之後不能改，定義錯了只能刪掉重建。（B1 spec 第 2、11 節）刪除已完成，見 spec `docs/superpowers/specs/2026-09-30-delete-datasource-design.md`。
 - ~~P2 · 承上，刪除資料來源要設計時一起處理：合併來源的 `sensitiveFrom` 現在找不到某個輸入來源就直接跳過（`DatasourceService.java` 的 `sensitiveFrom`，`if (input == null) continue`），沒有 fail closed。來源被刪掉之後，還在引用它的欄位應該變成敏感，不能悄悄當作不敏感。（B1 final review）~~ 已修正：輸入來源找不到時，欄位的 `sensitiveFrom` 是「（已刪除的來源）」，一律當作敏感。見 spec `docs/superpowers/specs/2026-09-30-delete-datasource-design.md`。
 
