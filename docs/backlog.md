@@ -16,7 +16,7 @@
 
 2026-10-01 拿 [best-etl.tools](https://best-etl.tools/zh/) 評比的六款 ETL 工具（MapForce、AWS Glue、IBM DataStage、Informatica、Oracle Data Integrator、Talend Open Studio）和 Grafana 對照這個專案，整理出下面兩類。同一天又拿 Google AI 模式列出的 BI 工具（Power BI、Tableau、Looker、FineBI、Metabase）和 ETL 工具（Fivetran、Airbyte、Kettle、SSIS、Azure Data Factory、Kafka、dbt）再對一次，補上寬表轉長表、匯出 Excel／CSV、共用指標定義、列層級權限四項。ETL 工具偏資料工程，這裡只收對「資料」頁有用的項目；EDI、XBRL、PDF 擷取、寫入資料倉儲、大數據平行處理、即時串流，還有 Salesforce、GA4 這類 SaaS 連接器都不做。
 
-Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用一句話建儀表板、改面板，所以「AI 會做圖」已經不算差異。這個專案的差異在四點：使用者不用寫查詢，丟 Excel 就能出圖；原始資料列不送 JEV；JEV 只做判斷、配置由後端規則組出來，同一份資料永遠得到同一份配置；比率先加總再相除、分子分母期間對齊、異常只比已結束的期間，這些商業算法都已經內建。
+Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用一句話建儀表板、改面板。Power BI 的 Copilot、Metabase 的 Metabot、Looker 的 Gemini 也做得到，「AI 會做圖」已經不算差異。這個專案的差異在四點：使用者不用寫查詢，丟 Excel 就能出圖；原始資料列不送 JEV；JEV 只做判斷、配置由後端規則組出來，同一份資料永遠得到同一份配置；比率先加總再相除、分子分母期間對齊、異常只比已結束的期間，這些商業算法都已經內建。
 
 ### 補齊
 
@@ -26,6 +26,8 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - P2 · 更新既有來源的資料：上傳新檔時可以整份覆蓋或接在後面，用到它的圖和合併來源跟著更新。現在每次上傳都會變成新來源，合併定義又不能改，每月一個檔就得整串重建。（對標 ETL 的全量／增量載入）
 - P2 · 寬表轉長表：Excel 裡「1月、2月…12月」各占一欄的表，上傳時可以轉成「月份」「金額」兩欄。公司內部的 Excel 很常這樣排，現在卻會被當成 12 個數字欄位，畫不出按月趨勢。（對標 Power Query 的取消樞紐）
 - P2 · 匯出 Excel／CSV：每張圖背後的數字和明細表都能下載。現在只能在畫面上看；「匯出 PDF 與定期寄送」那項是整份儀表板的報表，跟這個不同。（對標 Power BI、Tableau 的匯出資料）
+- P2 · 異常歸因：卡片被標成異常時，後端算出每個分類對變化的貢獻，JEV 挑出主因，卡片上寫「營收下滑主要來自南區（−18%）」。跟 Tableau Pulse 比，差別只剩數字由後端算、原始資料列不送 JEV。（對標 Tableau Pulse 的 Top Drivers、Power BI 的 Key Influencers）
+- P2 · 本期重點：JEV 替每張卡這一期的變化打重要性分數，儀表板最上面列出前三名。可以跟 KPI 大數字卡一起做。（對標 Tableau Pulse 的 digest）
 - P3 · 資料庫直連：Oracle、MSSQL、PostgreSQL。允許清單和 `DS_` 密鑰的規則要一起沿用。（對標 ETL 與 Grafana 的資料來源）
 - P3 · 計算欄位與列篩選：例如毛利＝營收－成本，或在來源層排除測試單。現在只能加比率。（對標 ETL 的轉換）
 - P3 · 共用指標定義：「退貨率」這類比率定義一次，每個來源都能用。現在比率綁在單一來源上，合併來源也不會帶著輸入來源的比率，每個來源都得自己再加一次。（對標 Looker 的 LookML、Metabase 的 metrics）
@@ -42,8 +44,8 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 原則照舊：數字由後端算，JEV 只負責選和打分數。
 
-- P2 · 異常歸因：卡片被標成異常時，後端算出每個分類對變化的貢獻，JEV 挑出主因，卡片上寫「營收下滑主要來自南區（−18%）」。
-- P2 · 本期重點：JEV 替每張卡這一期的變化打重要性分數，儀表板最上面列出前三名。可以跟 KPI 大數字卡一起做。
+異常歸因和本期重點原本列在這裡，2026-10-01 移到「補齊」。Tableau Pulse 已經有 Top Drivers 和每個指標的 digest，Power BI 也有 Key Influencers，這兩項還是要做，只是算追上。
+
 - P3 · 比率建議：看到「銷售金額」「退貨金額」這類欄位，建議加「退貨率」。現在比率要自己加。
 - P3 · 一句話篩選：「只看北區上一季」，JEV 從欄位和相異值裡選出篩選條件。要先有儀表板篩選器。
 
