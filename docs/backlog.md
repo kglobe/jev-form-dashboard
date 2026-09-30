@@ -14,7 +14,7 @@
 
 ## 對標 ETL 工具與 Grafana
 
-2026-10-01 拿 [best-etl.tools](https://best-etl.tools/zh/) 評比的六款 ETL 工具（MapForce、AWS Glue、IBM DataStage、Informatica、Oracle Data Integrator、Talend Open Studio）和 Grafana 對照這個專案，整理出下面兩類。ETL 工具偏資料工程，這裡只收對「資料」頁有用的項目；EDI、XBRL、PDF 擷取、寫入資料倉儲、大數據平行處理不做。
+2026-10-01 拿 [best-etl.tools](https://best-etl.tools/zh/) 評比的六款 ETL 工具（MapForce、AWS Glue、IBM DataStage、Informatica、Oracle Data Integrator、Talend Open Studio）和 Grafana 對照這個專案，整理出下面兩類。同一天又拿 Google AI 模式列出的 BI 工具（Power BI、Tableau、Looker、FineBI、Metabase）和 ETL 工具（Fivetran、Airbyte、Kettle、SSIS、Azure Data Factory、Kafka、dbt）再對一次，補上寬表轉長表、匯出 Excel／CSV、共用指標定義、列層級權限四項。ETL 工具偏資料工程，這裡只收對「資料」頁有用的項目；EDI、XBRL、PDF 擷取、寫入資料倉儲、大數據平行處理、即時串流，還有 Salesforce、GA4 這類 SaaS 連接器都不做。
 
 Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用一句話建儀表板、改面板，所以「AI 會做圖」已經不算差異。這個專案的差異在四點：使用者不用寫查詢，丟 Excel 就能出圖；原始資料列不送 JEV；JEV 只做判斷、配置由後端規則組出來，同一份資料永遠得到同一份配置；比率先加總再相除、分子分母期間對齊、異常只比已結束的期間，這些商業算法都已經內建。
 
@@ -24,8 +24,11 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - P2 · 儀表板篩選器：整份儀表板共用的分類篩選（例如「北區」）和期間（例如「本季」），選了之後每張圖一起變。現在每張圖的範圍是固定的。（對標 Grafana 的 variables 與時間範圍）
 - P2 · KPI 大數字卡：顯示本期數字、跟上期比的變化，超過門檻就變色，例如「本月營收 1.2 億，+5%」。現有的圖型都沒有這種呈現。（對標 Grafana 的 Stat／Gauge）
 - P2 · 更新既有來源的資料：上傳新檔時可以整份覆蓋或接在後面，用到它的圖和合併來源跟著更新。現在每次上傳都會變成新來源，合併定義又不能改，每月一個檔就得整串重建。（對標 ETL 的全量／增量載入）
+- P2 · 寬表轉長表：Excel 裡「1月、2月…12月」各占一欄的表，上傳時可以轉成「月份」「金額」兩欄。公司內部的 Excel 很常這樣排，現在卻會被當成 12 個數字欄位，畫不出按月趨勢。（對標 Power Query 的取消樞紐）
+- P2 · 匯出 Excel／CSV：每張圖背後的數字和明細表都能下載。現在只能在畫面上看；「匯出 PDF 與定期寄送」那項是整份儀表板的報表，跟這個不同。（對標 Power BI、Tableau 的匯出資料）
 - P3 · 資料庫直連：Oracle、MSSQL、PostgreSQL。允許清單和 `DS_` 密鑰的規則要一起沿用。（對標 ETL 與 Grafana 的資料來源）
 - P3 · 計算欄位與列篩選：例如毛利＝營收－成本，或在來源層排除測試單。現在只能加比率。（對標 ETL 的轉換）
+- P3 · 共用指標定義：「退貨率」這類比率定義一次，每個來源都能用。現在比率綁在單一來源上，合併來源也不會帶著輸入來源的比率，每個來源都得自己再加一次。（對標 Looker 的 LookML、Metabase 的 metrics）
 - P3 · 上傳時略過格式錯的列：列出是哪幾列、為什麼錯，其他列照常匯入。現在一列錯就整份退回。（對標 ETL 的錯誤處理）
 - P3 · 編輯已存的卡片：改標題、圖型或欄位，不用重新分析。現在已存的卡片只能拖拉、縮放、移除。可以跟「功能構想」裡「已存儀表板的對話式修改」一起設計；Grafana Assistant 已經做得到對話式修改，那一項只是追上它。（對標 Grafana 的面板編輯器）
 - P3 · 告警通知：異常檢查判定「需要關注」以上時寄 Email 或 Teams。現在要打開儀表板才看得到標註。（對標 Grafana alerting）
@@ -33,6 +36,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - P3 · 下鑽：點圖上的長條或點，看那一組的明細。（對標 Grafana data links）
 - P3 · 版本紀錄：可以還原到之前的版本。現在按 ✕ 移除卡片會直接存檔，無法復原。（對標 Grafana）
 - P3 · 自動重新整理與輪播：隔一段時間重抓資料，多份儀表板輪流顯示在會議室電視上。（對標 Grafana 的 refresh、playlist）
+- P3 · 列層級權限：分享時限定對方能看哪些資料列，例如北區主管只看得到北區。要先有唯讀分享。（對標 Power BI、Tableau 的 RLS）
 
 ### JEV 差異化
 
