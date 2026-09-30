@@ -9,6 +9,7 @@ vi.mock('./api.js', () => ({
   api: {
     previewMerged: vi.fn(),
     createMerged: vi.fn(),
+    suggestMapping: vi.fn(),
   },
 }))
 
@@ -295,5 +296,153 @@ describe('MergeForm（對照）', () => {
     const itemProps = select(w, '來源').props('itemProps')
     expect(itemProps(six[5])).toEqual({ disabled: true })
     expect(itemProps(six[0])).toEqual({ disabled: false })
+  })
+})
+
+describe('MergeForm（JEV 對欄位）', () => {
+  const orders = {
+    id: 'o',
+    name: '民國年訂單',
+    kind: 'upload',
+    schema: [
+      { name: '訂單日期', type: 'date' },
+      { name: '地區', type: 'string' },
+      { name: '金額', type: 'number' },
+      { name: '出貨日', type: 'date' },
+    ],
+  }
+  const sales = {
+    id: 'sa',
+    name: 'sales',
+    kind: 'upload',
+    schema: [
+      { name: 'order_date', type: 'date' },
+      { name: 'region', type: 'string' },
+      { name: 'amount', type: 'number' },
+      { name: 'product', type: 'string' },
+    ],
+  }
+  const THREE = {
+    matches: [
+      { input: 'sa', field: 'order_date', to: '訂單日期' },
+      { input: 'sa', field: 'region', to: '地區' },
+      { input: 'sa', field: 'amount', to: '金額' },
+    ],
+  }
+  const mountJev = () => mount(MergeForm, { props: { sources: [orders, sales, north] }, global: { plugins: [vuetify] } })
+  const tags = (w) => w.findAll('.v-chip').filter((c) => c.text() === 'JEV 建議')
+  const way = async (w, value) => {
+    await w.findComponent({ name: 'VRadioGroup' }).vm.$emit('update:modelValue', value)
+    await flushPromises()
+  }
+  const ask = async (w) => {
+    await btn(w, '請 JEV 對欄位').trigger('click')
+    await flushPromises()
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+  })
+
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('the button shows for 疊加 and 對照 with 2+ sources only, and sends the compare flag', async () => {
+    api.suggestMapping.mockResolvedValue({ matches: [] })
+    const w = mountJev()
+    expect(btn(w, '請 JEV 對欄位')).toBeUndefined()
+    await pick(w, '來源', ['o'])
+    expect(btn(w, '請 JEV 對欄位')).toBeUndefined()
+
+    await pick(w, '來源', ['o', 'sa'])
+    await ask(w)
+    expect(api.suggestMapping).toHaveBeenLastCalledWith(['o', 'sa'], false)
+
+    await way(w, 'compare')
+    await ask(w)
+    expect(api.suggestMapping).toHaveBeenLastCalledWith(['o', 'sa'], true)
+
+    await way(w, 'lookup')
+    expect(btn(w, '請 JEV 對欄位')).toBeUndefined()
+  })
+
+  it('fills the base row, removes the extra row, tags the cell, and drops the old preview', async () => {
+    api.previewMerged.mockResolvedValue({ schema: [], rows: [], rowCount: 10, warnings: [] })
+    api.suggestMapping.mockResolvedValue(THREE)
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await btn(w, '預覽').trigger('click')
+    await flushPromises()
+    expect(w.text()).toContain('預覽 · 共 10 筆')
+
+    await ask(w)
+
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toEqual(['訂單日期', '地區', '金額', '出貨日', 'product'])
+    expect(select(w, '第 1 欄在sales的欄位').props('modelValue')).toBe('order_date')
+    expect(select(w, '第 2 欄在sales的欄位').props('modelValue')).toBe('region')
+    expect(select(w, '第 3 欄在sales的欄位').props('modelValue')).toBe('amount')
+    expect(tags(w)).toHaveLength(3)
+    expect(w.text()).toContain('JEV 對上了 3 個欄位，建立前請先預覽確認')
+    expect(w.text()).not.toContain('共 10 筆')
+    expect(btn(w, '建立').attributes('disabled')).toBeDefined()
+  })
+
+  it('skips a match the user already changed by hand', async () => {
+    api.suggestMapping.mockResolvedValue(THREE)
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    // 手動把 order_date 對到出貨日，刪掉 order_date 自己那一列：訂單日期那格還空著，但 order_date 那列已經不在了
+    await pick(w, '第 4 欄在sales的欄位', 'order_date')
+    await btn(w, '刪除第 5 欄').trigger('click')
+
+    await ask(w)
+
+    expect(columnNames(w).map((c) => c.props('modelValue'))).toEqual(['訂單日期', '地區', '金額', '出貨日', 'product'])
+    expect(select(w, '第 1 欄在sales的欄位').props('modelValue')).toBeNull()
+    expect(select(w, '第 4 欄在sales的欄位').props('modelValue')).toBe('order_date')
+    expect(tags(w)).toHaveLength(2)
+    expect(w.text()).toContain('JEV 對上了 2 個欄位')
+  })
+
+  it('ignores a second click while waiting, and drops a response that comes back after the sources changed', async () => {
+    let resolve
+    api.suggestMapping.mockReturnValue(new Promise((r) => { resolve = r }))
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await btn(w, '請 JEV 對欄位').trigger('click')
+    await btn(w, '請 JEV 對欄位').trigger('click')
+    expect(api.suggestMapping).toHaveBeenCalledTimes(1)
+
+    await pick(w, '來源', ['o', 'sa', 'n']) // 基準沒變，但來源換了，對應表已經重排
+    resolve(THREE)
+    await flushPromises()
+
+    expect(columnNames(w)).toHaveLength(8)
+    expect(tags(w)).toHaveLength(0)
+    expect(w.text()).not.toContain('JEV 對上了')
+  })
+
+  it('the JEV 建議 tag goes away once the user changes that cell', async () => {
+    api.suggestMapping.mockResolvedValue(THREE)
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await ask(w)
+    await pick(w, '第 1 欄在sales的欄位', null)
+    expect(tags(w)).toHaveLength(2)
+  })
+
+  it('says so when JEV finds nothing, and shows a failure in the error area without touching the table', async () => {
+    api.suggestMapping.mockResolvedValueOnce({ matches: [] })
+    const w = mountJev()
+    await pick(w, '來源', ['o', 'sa'])
+    await ask(w)
+    expect(w.text()).toContain('JEV 沒有找到可以對上的欄位')
+
+    api.suggestMapping.mockRejectedValueOnce(new Error('JEV 呼叫失敗（HTTP 500）'))
+    await ask(w)
+    expect(w.text()).toContain('JEV 呼叫失敗（HTTP 500）')
+    expect(w.text()).not.toContain('JEV 沒有找到')
+    expect(columnNames(w)).toHaveLength(8)
   })
 })

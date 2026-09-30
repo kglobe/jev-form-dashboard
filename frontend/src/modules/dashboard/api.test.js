@@ -120,4 +120,13 @@ describe('api', () => {
     expect(fetch.mock.calls[1][0]).toBe('/api/datasources/ds1')
     expect(fetch.mock.calls[1][1].method).toBe('DELETE')
   })
+
+  it('suggestMapping POSTs the inputs and the compare flag to /api/jev/mapping', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ matches: [] }))
+    await api.suggestMapping(['a', 'b'], true)
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toBe('/api/jev/mapping')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(JSON.stringify({ inputs: ['a', 'b'], compare: true }))
+  })
 })

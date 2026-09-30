@@ -25,6 +25,8 @@ const bring = ref([]) // 主檔每個欄位一列：{ from, name, on }
 const preview = ref(null)
 const error = ref('')
 const busy = ref(false)
+const suggesting = ref(false)
+const suggestNote = ref('')
 
 let nextKey = 0
 const byId = computed(() => Object.fromEntries(props.sources.map((ds) => [ds.id, ds])))
@@ -51,6 +53,7 @@ function splitNumbers(ids) {
 
 // ponytail: 選的來源或方式一變就重排對應表，手動改過的對應會不見；要保留再比對新舊來源。切到查表時不動
 watch([inputs, op], ([ids, mode]) => {
+  suggestNote.value = ''
   if (mode === 'union') columns.value = matchByName(ids)
   if (mode === 'compare') columns.value = [...matchByName(ids, (f) => f.type !== 'number'), ...splitNumbers(ids)]
 })
@@ -157,6 +160,43 @@ async function create() {
     busy.value = false
   }
 }
+
+// C2 spec 5.3：格子的值還是 JEV 填的那個，才標「JEV 建議」
+const jevPicked = (c, id) => !!c.suggested?.[id] && c.suggested[id] === c.from[id]
+
+// C2 spec 5.2：基準欄位 to 那一列的 input 格子是空的，field 自己那一列只有 input 格子有值，兩列都在才套用；
+// 任何一列找不到，就是使用者已經改過，跳過
+function applyMatch({ input, field, to }) {
+  const target = columns.value.find((c) => c.from[inputs.value[0]] === to && !c.from[input])
+  const own = columns.value.find((c) => c.from[input] === field && inputs.value.every((id) => id === input || !c.from[id]))
+  if (!target || !own) return false
+  target.from[input] = field
+  target.suggested = { ...target.suggested, [input]: field }
+  columns.value.splice(columns.value.indexOf(own), 1)
+  return true
+}
+
+const sourcesKey = computed(() => JSON.stringify([op.value, inputs.value]))
+
+async function suggest() {
+  if (suggesting.value) return // v-btn 的 loading 不會擋點擊
+  const key = sourcesKey.value
+  suggesting.value = true
+  suggestNote.value = ''
+  error.value = ''
+  try {
+    const { matches } = await api.suggestMapping(inputs.value, op.value === 'compare')
+    // 等回應的時候來源或方式換了，對應表已經重排過，這份結果丟掉
+    if (key !== sourcesKey.value) return
+    let n = 0
+    for (const m of matches) if (applyMatch(m)) n++
+    suggestNote.value = n ? `JEV 對上了 ${n} 個欄位，建立前請先預覽確認` : 'JEV 沒有找到可以對上的欄位'
+  } catch (e) {
+    if (key === sourcesKey.value) error.value = e.message
+  } finally {
+    suggesting.value = false
+  }
+}
 </script>
 
 <template>
@@ -182,6 +222,12 @@ async function create() {
         persistent-hint
       />
       <template v-if="inputs.length">
+        <div v-if="inputs.length >= 2" class="mt-3">
+          <v-btn variant="tonal" size="small" prepend-icon="mdi-auto-fix" :loading="suggesting" @click="suggest">
+            請 JEV 對欄位
+          </v-btn>
+          <div v-if="suggestNote" class="text-caption mt-1">{{ suggestNote }}</div>
+        </div>
         <v-table density="compact" class="mf-map mt-3">
           <thead>
             <tr>
@@ -202,17 +248,20 @@ async function create() {
                 />
               </td>
               <td v-for="id in inputs" :key="id">
-                <v-select
-                  v-model="c.from[id]"
-                  :items="fieldItems(id)"
-                  item-props
-                  :aria-label="`第 ${i + 1} 欄在${nameOf(id)}的欄位`"
-                  placeholder="（無）"
-                  persistent-placeholder
-                  clearable
-                  density="compact"
-                  hide-details
-                />
+                <div class="d-flex align-center ga-1">
+                  <v-select
+                    v-model="c.from[id]"
+                    :items="fieldItems(id)"
+                    item-props
+                    :aria-label="`第 ${i + 1} 欄在${nameOf(id)}的欄位`"
+                    placeholder="（無）"
+                    persistent-placeholder
+                    clearable
+                    density="compact"
+                    hide-details
+                  />
+                  <v-chip v-if="jevPicked(c, id)" size="x-small" label>JEV 建議</v-chip>
+                </div>
               </td>
               <td>
                 <v-btn icon="mdi-close" variant="text" size="small" :aria-label="`刪除第 ${i + 1} 欄`" @click="columns.splice(i, 1)" />
