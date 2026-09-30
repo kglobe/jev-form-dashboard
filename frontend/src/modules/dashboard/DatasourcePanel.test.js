@@ -688,4 +688,34 @@ describe('DatasourcePanel', () => {
 
     expect(api.deleteDatasource).toHaveBeenCalledTimes(1)
   })
+
+  it('usage 查詢中切換選取，刪除的還是按下按鈕時的那個來源', async () => {
+    api.listDatasources.mockResolvedValue([ds1, ds2])
+    api.deleteDatasource.mockResolvedValue(null)
+    const wrapper = mountPanel('ds1')
+    await flushPromises()
+    let resolveUsage
+    api.datasourceUsage.mockReturnValue(new Promise((r) => (resolveUsage = r)))
+    await deleteBtn(wrapper).trigger('click')
+    await wrapper.setProps({ selectedId: 'ds2' })
+    resolveUsage({ mergedBy: [], dashboards: [] })
+    await flushPromises()
+
+    expect(dialogText()).toContain('確定刪除「sales.csv」？')
+    await click('刪除')
+    expect(api.deleteDatasource).toHaveBeenCalledWith('ds1')
+  })
+
+  it('usage 查詢失敗時訊息顯示在頁面的錯誤列，對話框不打開', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.datasourceUsage.mockRejectedValue(new Error('找不到資料源'))
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await deleteBtn(wrapper).trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.v-alert').text()).toBe('找不到資料源')
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(false)
+  })
 })

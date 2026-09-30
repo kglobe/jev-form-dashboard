@@ -227,6 +227,7 @@ async function removeRatio(ds, ratio) {
 // ---------- 刪除來源（對話框） ----------
 
 const deleteOpen = ref(false)
+const deleteTarget = ref(null) // 按下「刪除來源」時的來源；之後切換選取不影響要刪哪個
 const deleteUsage = ref({ mergedBy: [], dashboards: [] })
 const deleteError = ref('')
 const checking = ref(false) // 查 usage 中
@@ -236,6 +237,7 @@ async function openDelete(ds) {
   checking.value = true
   try {
     deleteUsage.value = await api.datasourceUsage(ds.id)
+    deleteTarget.value = { id: ds.id, name: ds.name }
     deleteError.value = ''
     deleteOpen.value = true
   } catch (e) {
@@ -475,11 +477,11 @@ async function removeDatasource(ds) {
     </v-dialog>
 
     <v-dialog v-model="deleteOpen" max-width="480" transition="tc-sheet">
-      <v-card v-if="selected">
+      <v-card v-if="deleteTarget">
         <template v-if="deleteUsage.mergedBy.length">
           <v-card-title class="pt-5 px-6">無法刪除</v-card-title>
           <v-card-text class="px-6">
-            <p>「{{ selected.name }}」是下面這些合併來源的輸入，要先刪掉它們：</p>
+            <p>「{{ deleteTarget.name }}」是下面這些合併來源的輸入，要先刪掉它們：</p>
             <div v-for="m in deleteUsage.mergedBy" :key="m.id">{{ m.name }}</div>
           </v-card-text>
           <v-card-actions class="px-6 pb-5">
@@ -490,7 +492,7 @@ async function removeDatasource(ds) {
         <template v-else>
           <v-card-title class="pt-5 px-6">刪除資料來源</v-card-title>
           <v-card-text class="px-6">
-            <p>確定刪除「{{ selected.name }}」？刪除後無法復原。</p>
+            <p>確定刪除「{{ deleteTarget.name }}」？刪除後無法復原。</p>
             <template v-if="deleteUsage.dashboards.length">
               <p class="mt-3">下面這些儀表板有用到它的圖，刪除後會顯示「資料來源已刪除」，可以再按 ✕ 移除：</p>
               <div v-for="d in deleteUsage.dashboards" :key="d.id">{{ d.name }}（{{ d.charts }} 張圖）</div>
@@ -500,7 +502,7 @@ async function removeDatasource(ds) {
           <v-card-actions class="px-6 pb-5">
             <v-spacer />
             <v-btn variant="flat" @click="deleteOpen = false">取消</v-btn>
-            <v-btn variant="flat" color="error" :loading="deleting" @click="removeDatasource(selected)">刪除</v-btn>
+            <v-btn variant="flat" color="error" :loading="deleting" @click="removeDatasource(deleteTarget)">刪除</v-btn>
           </v-card-actions>
         </template>
       </v-card>
