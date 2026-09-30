@@ -3,6 +3,10 @@ package jev.dashboard.datasource;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import jev.dashboard.dashboard.DashboardRepository.DatasourceUse;
+import jev.dashboard.dashboard.DashboardService;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -24,10 +29,16 @@ public class DatasourceController {
     /** merge 是合併定義，JSON 用 op 分辨疊加（union）和查表（lookup），見 spec 4.2、4.3。 */
     public record MergeRequest(String name, MergeDefinition merge) {}
 
-    private final DatasourceService service;
+    public record Ref(UUID id, String name) {}
+    /** 刪除前的確認：哪些合併來源直接用它、哪些儀表板有圖用它。 */
+    public record Usage(List<Ref> mergedBy, List<DatasourceUse> dashboards) {}
 
-    public DatasourceController(DatasourceService service) {
+    private final DatasourceService service;
+    private final DashboardService dashboards;
+
+    public DatasourceController(DatasourceService service, DashboardService dashboards) {
         this.service = service;
+        this.dashboards = dashboards;
     }
 
     @PostMapping("/upload")
@@ -57,6 +68,18 @@ public class DatasourceController {
     @GetMapping
     public List<Datasource> list(@RequestHeader("X-User-Id") String userId) {
         return service.list(userId);
+    }
+
+    @GetMapping("/{id}/usage")
+    public Usage usage(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {
+        return new Usage(service.mergedBy(userId, id).stream().map(d -> new Ref(d.id(), d.name())).toList(),
+            dashboards.usingDatasource(userId, id));
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {
+        service.delete(userId, id);
     }
 
     @PatchMapping("/{id}/sensitive")

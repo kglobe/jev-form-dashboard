@@ -1,6 +1,7 @@
 package jev.dashboard.datasource;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 import java.io.IOException;
@@ -35,6 +36,8 @@ public class DatasourceService {
     public record MergePreview(List<FieldSchema> schema, List<Map<String, Object>> rows, int rowCount,
                                List<String> warnings) {}
 
+    /** 輸入來源不見時，欄位當作敏感，來源名稱顯示這個。 */
+    public static final String DELETED_SOURCE = "（已刪除的來源）";
     static final int MAX_DEPTH = 3;
     static final int PREVIEW_ROWS = 20;
     // 合併來源等輸入來源載入時會卡住執行緒，用 virtual thread 就不會把有限的執行緒池等光
@@ -104,6 +107,24 @@ public class DatasourceService {
     /** 資料庫裡存的樣子；改 schema 一律從這裡拿。 */
     private Datasource stored(String userId, UUID id) {
         return repo.find(id, userId).orElseThrow(() -> new ApiException(NOT_FOUND, "找不到資料源"));
+    }
+
+    /** 直接把這個來源當輸入的合併來源（不含再往上一層的）。來源不存在或不是自己的，回 404。 */
+    public List<Datasource> mergedBy(String userId, UUID id) {
+        stored(userId, id);
+        return repo.list(userId).stream()
+            .filter(d -> "merged".equals(d.kind()) && MergeDefinition.inputIds(d.merge()).contains(id)).toList();
+    }
+
+    // ponytail: 檢查和刪除之間沒上鎖，同時建立合併來源可能留下斷掉的定義，由 sensitiveFrom 的 fail closed 兜底；多人同時操作時再包交易、鎖住使用者的來源
+    public void delete(String userId, UUID id) {
+        String name = stored(userId, id).name();
+        List<Datasource> users = mergedBy(userId, id);
+        if (!users.isEmpty()) {
+            throw new ApiException(CONFLICT, "「" + name + "」是這些合併來源的輸入，要先刪掉："
+                + users.stream().map(Datasource::name).collect(Collectors.joining("、")));
+        }
+        repo.delete(id, userId);
     }
 
     public Datasource markSensitive(String userId, UUID id, Collection<String> fields) {
@@ -288,7 +309,8 @@ public class DatasourceService {
     private String sensitiveFrom(MergeDefinition def, String field, Function<UUID, Datasource> find) {
         for (Map.Entry<UUID, String> e : MergeEngine.sources(def, field).entrySet()) {
             Datasource input = find.apply(e.getKey());
-            if (input == null) continue;
+            // fail closed：輸入來源不見了，就不知道它原本敏不敏感，當作敏感
+            if (input == null) return DELETED_SOURCE;
             String deeper = "merged".equals(input.kind()) ? sensitiveFrom(input.merge(), e.getValue(), find) : null;
             if (deeper != null) return deeper;
             if (input.schema().stream().anyMatch(f -> f.name().equals(e.getValue()) && f.sensitive())) return input.name();

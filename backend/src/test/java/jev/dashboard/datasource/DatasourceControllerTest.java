@@ -3,6 +3,7 @@ package jev.dashboard.datasource;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -254,5 +255,99 @@ class DatasourceControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ratios.length()").value(0));
+    }
+
+    /** 用 region、amount 兩欄疊加這些來源（每個來源都要有這兩欄），回傳新來源的 id。 */
+    String union(String name, String... inputs) throws Exception {
+        String ids = String.join("\",\"", inputs);
+        String from = java.util.Arrays.stream(inputs).map(i -> "\"" + i + "\":\"%s\"").collect(java.util.stream.Collectors.joining(","));
+        String merge = "{\"op\":\"union\",\"inputs\":[\"" + ids + "\"],\"columns\":["
+            + "{\"name\":\"region\",\"from\":{" + from.formatted((Object[]) java.util.Collections.nCopies(inputs.length, "region").toArray()) + "}},"
+            + "{\"name\":\"amount\",\"from\":{" + from.formatted((Object[]) java.util.Collections.nCopies(inputs.length, "amount").toArray()) + "}}"
+            + "],\"sourceColumn\":\"來源\"}";
+        String body = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"" + name + "\",\"merge\":" + merge + "}"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8);
+        return JsonPath.read(body, "$.id");
+    }
+
+    static String card(String chartId, String ds, String type, int y) {
+        String mapping = "table".equals(type) ? "{\"columns\":[\"region\"]}"
+            : "{\"x\":\"region\",\"value\":\"amount\",\"aggregate\":\"sum\"}";
+        return "{\"chartId\":\"" + chartId + "\",\"datasourceId\":\"" + ds + "\",\"type\":\"" + type
+            + "\",\"title\":\"t\",\"gridPos\":{\"x\":0,\"y\":" + y + ",\"w\":6,\"h\":4},\"mapping\":" + mapping + "}";
+    }
+
+    void createDashboard(String name, String... cards) throws Exception {
+        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"" + name + "\",\"layout\":[" + String.join(",", cards) + "]}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void usageListsDirectMergedSourcesAndDashboardsWithCardCounts() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String north = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,1\n");
+        String idle = TestData.uploadCsv(mvc, "u1", "沒人用", "region,amount\n北區,1\n");
+        String all = union("全區", sales, north);
+        union("全區二層", all, north);
+        createDashboard("週報", card("c1", sales, "bar", 0), card("c2", sales, "bar", 4), card("c3", sales, "table", 8));
+        createDashboard("月報", card("c1", all, "bar", 0));
+
+        mvc.perform(get("/api/datasources/" + sales + "/usage").header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.mergedBy.length()").value(1))
+            .andExpect(jsonPath("$.mergedBy[0].name").value("全區"))
+            .andExpect(jsonPath("$.mergedBy[0].id").value(all))
+            .andExpect(jsonPath("$.dashboards.length()").value(1))
+            .andExpect(jsonPath("$.dashboards[0].name").value("週報"))
+            .andExpect(jsonPath("$.dashboards[0].charts").value(3));
+        mvc.perform(get("/api/datasources/" + idle + "/usage").header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.mergedBy.length()").value(0))
+            .andExpect(jsonPath("$.dashboards.length()").value(0));
+    }
+
+    @Test
+    void deleteIsBlockedWhileAMergedSourceUsesIt() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String north = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,1\n");
+        union("全區", sales, north);
+        union("全區B", sales, north);
+
+        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error").value("「銷售」是這些合併來源的輸入，要先刪掉：全區B、全區"));
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+            .andExpect(jsonPath("$[?(@.id == '" + sales + "')]").isNotEmpty());
+    }
+
+    @Test
+    void deleteRemovesTheSourceAndItsRowsButLeavesDashboards() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        createDashboard("週報", card("c1", sales, "bar", 0), card("c2", sales, "bar", 4));
+        String dash = JsonPath.read(mvc.perform(get("/api/dashboards").header("X-User-Id", "u1"))
+            .andReturn().getResponse().getContentAsString(UTF_8), "$[0].id");
+
+        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1")).andExpect(status().isNoContent());
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbc.sql("select count(*) from datasource_rows where datasource_id = :id")
+            .param("id", java.util.UUID.fromString(sales)).query(Long.class).single()).isZero();
+        mvc.perform(get("/api/dashboards/" + dash).header("X-User-Id", "u1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout.length()").value(2));
+        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+    }
+
+    @Test
+    void deleteAndUsageAreScopedToTheOwner() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        mvc.perform(get("/api/datasources/" + sales + "/usage").header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到資料源"));
+        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u2"))
+            .andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到資料源"));
+        mvc.perform(get("/api/datasources").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(1));
     }
 }

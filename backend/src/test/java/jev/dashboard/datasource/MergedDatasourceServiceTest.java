@@ -196,6 +196,20 @@ class MergedDatasourceServiceTest {
     }
 
     @Test
+    void aMissingInputMakesItsFieldsSensitive() {
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,memo", "北區,首購");
+        UUID s = upload("南區", "region,memo", "南區,備註");
+        UUID m = service.createMerged("u1", "全區", union(List.of(n, s), "region", "memo")).id();
+        assertThat(field(service.get("u1", m), "region").sensitive()).isFalse();
+
+        repo.sources.remove(s);
+        FieldSchema region = field(service.get("u1", m), "region");
+        assertThat(region.sensitive()).isTrue();
+        assertThat(region.sensitiveFrom()).isEqualTo(DatasourceService.DELETED_SOURCE);
+    }
+
+    @Test
     void sensitivityFollowsTheInputsAndCannotBeTurnedOffOnTheMergedSource() {
         DatasourceService service = service(100);
         UUID n = upload("北區", "region,memo", "北區,首購");

@@ -12,6 +12,7 @@ import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig.Basis;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
+import jev.dashboard.dashboard.DashboardRepository.DatasourceUse;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartSpec;
@@ -48,6 +49,10 @@ public class DashboardService {
 
     public List<DashboardSummary> list(String userId) {
         return repo.list(userId);
+    }
+
+    public List<DatasourceUse> usingDatasource(String userId, UUID datasourceId) {
+        return repo.usingDatasource(userId, datasourceId);
     }
 
     /** 拖拉版面、移除單張圖都走這裡：layout 可以是空的、可以混著不同來源；body 帶了 intents 也不理。 */
