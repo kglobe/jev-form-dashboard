@@ -68,11 +68,11 @@ class MappingServiceTest {
     void everyLaterSourceIsComparedToTheFirstOnly() {
         Datasource orders = ds(ORDERS, "訂單", f("訂單日期", FieldType.DATE));
         Datasource sales = ds(SALES, "銷售", f("order_date", FieldType.DATE), f("owner", FieldType.STRING));
-        Datasource returns = ds(RETURNS, "退貨", f("return_date", FieldType.DATE), f("owner", FieldType.STRING));
+        Datasource returns = ds(RETURNS, "退貨", f("return_date", FieldType.DATE), f("manager", FieldType.STRING));
 
         Map<String, Question> q = MappingService.questions(List.of(orders, sales, returns), false);
 
-        // 銷售和退貨都有 owner，但基準沒有文字欄位，兩邊不會互相對
+        // 基準沒有文字欄位，退貨的 manager 不會拿去跟銷售的 owner 比（逐一累加比對才會問 map_2_1）
         assertThat(q.keySet()).containsExactly("map_1_0", "map_2_0");
         assertThat(q.get("map_2_0").instructions())
             .isEqualTo("來源「退貨」的欄位「return_date」，跟來源「訂單」的哪個欄位是同一種資料？");
@@ -107,13 +107,15 @@ class MappingServiceTest {
         Datasource orders = ds(ORDERS, "訂單", f("訂單日期", FieldType.DATE), f("地區", FieldType.STRING),
             f("金額", FieldType.NUMBER));
         Datasource sales = ds(SALES, "銷售", f("order_date", FieldType.DATE), f("region", FieldType.STRING),
-            f("amount", FieldType.NUMBER), f("ship_date", FieldType.DATE), f("memo", FieldType.STRING));
+            f("amount", FieldType.NUMBER), f("ship_date", FieldType.DATE), f("memo", FieldType.STRING),
+            f("owner", FieldType.STRING));
 
         List<Match> m = MappingService.matches(List.of(orders, sales), false, Map.of(
             "map_1_0", choice("none", 0.9),
             "map_1_1", choice("f1", 0.49),
             "map_1_2", choice("f2", 0.5),
-            "map_1_3", choice("f1", 0.9))); // ship_date 是日期，f1（地區）不在它的選項裡；memo 沒回答
+            "map_1_3", choice("f1", 0.9),   // ship_date 是日期，f1（地區）不在它的選項裡；memo 沒回答
+            "map_1_5", new Answer("choice", "f1", null, null, null))); // owner 沒有信心值
 
         assertThat(m).containsExactly(new Match(SALES, "amount", "金額"));
     }
