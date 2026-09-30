@@ -16,6 +16,8 @@ vi.mock('./api.js', () => ({
     setRatios: vi.fn(),
     previewMerged: vi.fn(),
     createMerged: vi.fn(),
+    datasourceUsage: vi.fn(),
+    deleteDatasource: vi.fn(),
   },
 }))
 
@@ -598,5 +600,92 @@ describe('DatasourcePanel', () => {
     await wrapper.find('button[aria-label="刪除比率 退貨率"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('.ds-ratios .v-alert').text()).toBe('找不到資料源')
+  })
+
+  // 「刪除來源」的對話框是第三個（新增來源、新增比率之後）
+  const deleteDialog = (wrapper) => wrapper.findAllComponents({ name: 'VDialog' })[2]
+  const deleteBtn = (wrapper) => wrapper.findAll('button').find((b) => b.text() === '刪除來源')
+  async function openDelete(wrapper, usage) {
+    api.datasourceUsage.mockResolvedValue(usage)
+    await deleteBtn(wrapper).trigger('click')
+    await flushPromises()
+  }
+  const dialogText = () => document.body.textContent
+
+  it('被合併來源用到時只說明、不能刪', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await openDelete(wrapper, { mergedBy: [{ id: 'mg', name: '全區' }], dashboards: [] })
+
+    expect(api.datasourceUsage).toHaveBeenCalledTimes(1)
+    expect(api.datasourceUsage).toHaveBeenCalledWith('ds1')
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(true)
+    expect(dialogText()).toContain('無法刪除')
+    expect(dialogText()).toContain('「sales.csv」是下面這些合併來源的輸入，要先刪掉它們：')
+    expect(dialogText()).toContain('全區')
+    expect(button('刪除')).toBeUndefined()
+    await click('知道了')
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(false)
+    expect(api.deleteDatasource).not.toHaveBeenCalled()
+  })
+
+  it('被儀表板用到時列出儀表板，確認後刪除並重讀清單', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.deleteDatasource.mockResolvedValue(null)
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await openDelete(wrapper, { mergedBy: [], dashboards: [{ id: 'd1', name: '週報', charts: 3 }] })
+
+    expect(dialogText()).toContain('刪除資料來源')
+    expect(dialogText()).toContain('確定刪除「sales.csv」？刪除後無法復原。')
+    expect(dialogText()).toContain('下面這些儀表板有用到它的圖，刪除後會顯示「資料來源已刪除」，可以再按 ✕ 移除：')
+    expect(dialogText()).toContain('週報（3 張圖）')
+    await click('刪除')
+    expect(api.deleteDatasource).toHaveBeenCalledWith('ds1')
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(false)
+  })
+
+  it('沒有人用到時不列儀表板那一段', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await openDelete(wrapper, { mergedBy: [], dashboards: [] })
+
+    expect(dialogText()).toContain('確定刪除「sales.csv」？刪除後無法復原。')
+    expect(dialogText()).not.toContain('下面這些儀表板')
+  })
+
+  it('刪除失敗時錯誤留在對話框裡', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.deleteDatasource.mockRejectedValue(new Error('「sales.csv」是這些合併來源的輸入，要先刪掉：全區'))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openDelete(wrapper, { mergedBy: [], dashboards: [] })
+
+    await click('刪除')
+
+    expect(deleteDialog(wrapper).props('modelValue')).toBe(true)
+    expect(deleteDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('「sales.csv」是這些合併來源的輸入，要先刪掉：全區')
+  })
+
+  it('刪除請求還沒回來時不能再按一次', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.deleteDatasource.mockReturnValue(new Promise(() => {}))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openDelete(wrapper, { mergedBy: [], dashboards: [] })
+
+    await click('刪除')
+    const btn = deleteDialog(wrapper).findAllComponents({ name: 'VBtn' }).find((b) => b.text() === '刪除')
+    expect(btn.props('loading')).toBe(true)
+    button('刪除').click()
+    await flushPromises()
+
+    expect(api.deleteDatasource).toHaveBeenCalledTimes(1)
   })
 })
