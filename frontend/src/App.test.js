@@ -26,7 +26,7 @@ vi.mock('./modules/dashboard/index.js', () => ({
   DashboardView: { name: 'DashboardView', props: ['config', 'readonly'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
   DatasourcePanel: {
     name: 'DatasourcePanel',
-    props: ['selectedId'],
+    props: ['selectedId', 'admin'],
     emits: ['select', 'build'],
     template: '<div class="datasource-panel-stub" />',
   },
@@ -213,6 +213,23 @@ describe('App', () => {
     const second = wrapper.findComponent({ name: 'ChartBuilder' }).props('request')
     expect(second).toEqual({ id: 'ds1' })
     expect(second).not.toBe(first)
+  })
+
+  it('唯讀分享 spec 2.6：只有管理員的 DatasourcePanel 和空白狀態步驟會提到外部 API', async () => {
+    api.listDashboards.mockResolvedValue([])
+    const user = mountApp()
+    await flushPromises()
+    expect(user.get('.empty-steps li').text()).toBe('到「資料」上傳 CSV / Excel，順手設好欄位的顯示名稱。')
+    await navItem(user, '資料').trigger('click')
+    expect(user.findComponent({ name: 'DatasourcePanel' }).props('admin')).toBe(false)
+    user.unmount()
+
+    api.me.mockResolvedValue({ username: 'boss', admin: true, password: true })
+    const admin = mountApp()
+    await flushPromises()
+    expect(admin.get('.empty-steps li').text()).toBe('到「資料」上傳 CSV / Excel，或註冊外部 API，順手設好欄位的顯示名稱。')
+    await navItem(admin, '資料').trigger('click')
+    expect(admin.findComponent({ name: 'DatasourcePanel' }).props('admin')).toBe(true)
   })
 
   it('ChartBuilder saved switches to the dashboards view, refreshes the list and opens that dashboard', async () => {

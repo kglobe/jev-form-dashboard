@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.DisabledException;
@@ -86,6 +87,7 @@ public class SecurityConfig {
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
                 .requestMatchers("/api/auth/options").permitAll() // spec 4.1：登入頁要先知道有沒有單一登入
                 .requestMatchers("/api/admin/**").hasRole("ADMIN") // spec 4.2
+                .requestMatchers(HttpMethod.POST, "/api/datasources/api").hasRole("ADMIN") // spec 2.6：header 能借用伺服器上的 DS_ 密鑰
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()) // 之後放前端靜態檔
             .csrf(c -> c

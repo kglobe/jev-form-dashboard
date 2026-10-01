@@ -80,6 +80,7 @@ export JEV_DATASOURCE_ALLOWED_HOSTS=erp.example.com,another.example.com
 
 註冊外部 API（`POST /api/datasources/api`）時，後端會做以下檢查：
 
+- 只有管理員能註冊，其他帳號會拿到 403「沒有權限」。已經註冊好的外部 API 來源，擁有者照常能用。
 - 網址只能是 `http` 或 `https`。
 - host 一定要在 `jev.datasource.allowed-hosts` 裡（大小寫不分）；清單是空的就直接拒絕（`未開放註冊外部 API：jev.datasource.allowed-hosts 是空的`）。
 - 解析出來如果是 loopback 位址（例如 `127.0.0.1`）一律拒絕，避免打到後端自己或本機其他服務；私有網段（`10.x`、`192.168.x` 等）不擋，因為 ERP 之類的 API 通常在內網。
@@ -117,7 +118,7 @@ export DS_ERP_AUTH="Bearer xxx"
 開發伺服器（`vite.config.js`）把 `/api`、`/oauth2`、`/login/oauth2` proxy 到 `http://127.0.0.1:8080`（不是 `localhost`：後端現在只聽 `127.0.0.1`，`localhost` 在某些系統會先解析成 `::1`，反而連不到），本機開發不用另外處理 CORS。`/oauth2`、`/login/oauth2` 是單一登入用的，兩條都設成 `changeOrigin: false`，不改 Host，後端算出來的 redirect URI 才會是瀏覽器看到的網址（`http://localhost:5173/login/oauth2/code/oidc`）。
 
 介面分成三個工作區，用頂部導覽列切換，也可以按 Alt+1／2／3：
-- 「資料」：新增來源（上傳 CSV／Excel、註冊外部 API，或把現有的來源合併），右邊的欄位表可以改顯示名稱、設定敏感欄位，下面的「比率」區可以加比率。按「用這個來源製圖」會帶著這個來源切到製圖頁。
+- 「資料」：新增來源（上傳 CSV／Excel、註冊外部 API，或把現有的來源合併；「外部 API」分頁只有管理員看得到），右邊的欄位表可以改顯示名稱、設定敏感欄位，下面的「比率」區可以加比率。按「用這個來源製圖」會帶著這個來源切到製圖頁。
 - 「製圖」：選來源、點選想看的欄位、寫一句需求，按「分析」（或在需求框按 Ctrl+Enter），圖表會出現在右邊。滿意就「存成新儀表板」，或用「加到既有儀表板」接在某份儀表板的最下面。切到別頁再回來，預覽還在。
 - 「儀表板」：列出存好的儀表板，卡片可以拖拉、縮放，版面會自動存。按卡片右上角的「✕」可以移除單張圖，會先跳確認。標題列的「分享」可以把儀表板分享出去（見「分享」）。別人分享給你的儀表板列在左邊的「分享給我的」，只能看。
 

@@ -65,8 +65,8 @@ const withRatio = {
   ratios: [{ name: '退貨率', numerator: 'refund', denominator: 'sales', sensitive: true }],
 }
 
-function mountPanel(selectedId = 'ds1') {
-  return mount(DatasourcePanel, { props: { selectedId }, global: { plugins: [vuetify] } })
+function mountPanel(selectedId = 'ds1', extra = {}) {
+  return mount(DatasourcePanel, { props: { selectedId, ...extra }, global: { plugins: [vuetify] } })
 }
 
 // 對話框的內容會被 teleport 到 document.body，按鈕要從 body 找；元件本身的按鈕從 wrapper 找
@@ -214,6 +214,27 @@ describe('DatasourcePanel', () => {
 
     await wrapper.find('.cc-empty button').trigger('click')
     expect(dialogOpen(wrapper)).toBe(true)
+  })
+
+  // 唯讀分享 spec 2.6：只有管理員能註冊外部 API 來源
+  it('不是管理員：新增來源沒有「外部 API」分頁，空白狀態也不提外部 API', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel(null)
+    await flushPromises()
+    expect(wrapper.find('.cc-empty p').text()).toBe('上傳 CSV / Excel，欄位會自動判斷型別。')
+
+    await openAdd(wrapper)
+    expect(wrapper.findAllComponents({ name: 'VTab' }).map((t) => t.text())).toEqual(['上傳檔案', '合併'])
+  })
+
+  it('管理員：新增來源有「外部 API」分頁，空白狀態提到外部 API', async () => {
+    api.listDatasources.mockResolvedValue([])
+    const wrapper = mountPanel(null, { admin: true })
+    await flushPromises()
+    expect(wrapper.find('.cc-empty p').text()).toBe('上傳 CSV / Excel，或註冊一個外部 API，欄位會自動判斷型別。')
+
+    await openAdd(wrapper)
+    expect(wrapper.findAllComponents({ name: 'VTab' }).map((t) => t.text())).toEqual(['上傳檔案', '外部 API', '合併'])
   })
 
   it('toggling a switch sends the union of sensitive fields, disables every switch and label field while pending, then refreshes and re-enables', async () => {
@@ -403,7 +424,7 @@ describe('DatasourcePanel', () => {
 
   it('shows a JSON hint/example and the DS_-prefixed label on the headers field', async () => {
     api.listDatasources.mockResolvedValue([])
-    const wrapper = mountPanel(null)
+    const wrapper = mountPanel(null, { admin: true })
     await flushPromises()
     await openApiTab(wrapper)
 
@@ -416,7 +437,7 @@ describe('DatasourcePanel', () => {
     api.listDatasources.mockResolvedValue([])
     api.registerApi.mockResolvedValue({ id: 'ds9' })
 
-    const wrapper = mountPanel(null)
+    const wrapper = mountPanel(null, { admin: true })
     await flushPromises()
     await openApiTab(wrapper)
 
@@ -437,7 +458,7 @@ describe('DatasourcePanel', () => {
   it('register(): invalid JSON in headers shows the Chinese error and does not call the API', async () => {
     api.listDatasources.mockResolvedValue([])
 
-    const wrapper = mountPanel(null)
+    const wrapper = mountPanel(null, { admin: true })
     await flushPromises()
     await openApiTab(wrapper)
 
@@ -451,7 +472,7 @@ describe('DatasourcePanel', () => {
   it('register(): valid but non-object JSON in headers (array/string) shows the Chinese error and does not call the API', async () => {
     api.listDatasources.mockResolvedValue([])
 
-    const wrapper = mountPanel(null)
+    const wrapper = mountPanel(null, { admin: true })
     await flushPromises()
     await openApiTab(wrapper)
 

@@ -233,7 +233,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
     </header>
 
     <v-main>
-      <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" @select="(id) => (datasourceId = id)" @build="startBuild" />
+      <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" :admin="me.admin" @select="(id) => (datasourceId = id)" @build="startBuild" />
       <!-- 製圖頁用 v-show 一直掛著：去資料頁改個顯示名稱再回來，預覽和調整紀錄都還在 -->
       <ChartBuilder
         v-show="view === 'build'"
@@ -306,7 +306,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
               <div class="cc-empty__icon"><v-icon icon="mdi-view-dashboard-outline" size="30" /></div>
               <h2>{{ dashboards.length || shared.length ? '從左邊選一份儀表板' : '還沒有儀表板' }}</h2>
               <ol v-if="!dashboards.length && !shared.length" class="empty-steps">
-                <li>到「資料」上傳 CSV / Excel，或註冊外部 API，順手設好欄位的顯示名稱。</li>
+                <li>到「資料」上傳 CSV / Excel，{{ me.admin ? '或註冊外部 API，' : '' }}順手設好欄位的顯示名稱。</li>
                 <li>到「製圖」選來源、挑欄位、寫一句需求，按「分析」。</li>
                 <li>預覽滿意就存成儀表板，會出現在這一頁。</li>
               </ol>

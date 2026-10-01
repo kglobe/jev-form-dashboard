@@ -7,6 +7,8 @@ import './motion.css'
 
 const props = defineProps({
   selectedId: { type: String, default: null },
+  // 唯讀分享 spec 2.6：只有管理員能註冊外部 API 來源
+  admin: { type: Boolean, default: false },
 })
 // build：按「用這個來源製圖」，交給 App 切到製圖頁
 const emit = defineEmits(['select', 'build'])
@@ -413,7 +415,7 @@ async function removeDatasource(ds) {
       <section v-else class="cc-panel cc-empty">
         <div class="cc-empty__icon"><v-icon icon="mdi-database-plus-outline" size="30" /></div>
         <h2>還沒有資料來源</h2>
-        <p>上傳 CSV / Excel，或註冊一個外部 API，欄位會自動判斷型別。</p>
+        <p>上傳 CSV / Excel，{{ admin ? '或註冊一個外部 API，' : '' }}欄位會自動判斷型別。</p>
         <v-btn color="primary" prepend-icon="mdi-plus" @click="openAdd">新增來源</v-btn>
       </section>
     </div>
@@ -423,7 +425,7 @@ async function removeDatasource(ds) {
         <v-card-title class="pt-5 px-6">新增資料來源</v-card-title>
         <v-tabs v-model="addTab" class="px-4">
           <v-tab value="upload" prepend-icon="mdi-file-upload-outline">上傳檔案</v-tab>
-          <v-tab value="api" prepend-icon="mdi-api">外部 API</v-tab>
+          <v-tab v-if="admin" value="api" prepend-icon="mdi-api">外部 API</v-tab>
           <v-tab value="merge" prepend-icon="mdi-set-merge">合併</v-tab>
         </v-tabs>
         <v-card-text class="px-6">
