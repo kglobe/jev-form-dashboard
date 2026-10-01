@@ -224,6 +224,26 @@ describe('ChartCard', () => {
     expect(chartOf(card).props('theme')).toBe(commandLight)
   })
 
+  // 系列色對卡片底（command-center.css 的 --tc-panel）都要 ≥3:1（WCAG 1.4.11），不必靠標籤或明細表才分得出來
+  it.each([
+    ['light', commandLight, '#ffffff'],
+    ['dark', commandDark, '#17181b'],
+  ])('every %s series colour has at least 3:1 contrast against the card surface', (_, theme, surface) => {
+    const luminance = (hex) => {
+      const [r, g, b] = hex.slice(1).match(/../g).map((x) => {
+        const c = parseInt(x, 16) / 255
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const contrast = (a, b) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+      return (hi + 0.05) / (lo + 0.05)
+    }
+    const low = theme.color.filter((c) => contrast(c, surface) < 3)
+    expect(low).toEqual([])
+  })
+
   it('no chart type draws decal patterns; series are told apart by the 8-colour theme', () => {
     expect(optionFor('bar').aria).toBeUndefined()
     expect(optionFor('pie').aria).toBeUndefined()

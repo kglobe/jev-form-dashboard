@@ -18,7 +18,7 @@ function logout() {
 </script>
 
 <template>
-  <v-menu location="end">
+  <v-menu location="bottom end">
     <template #activator="{ props }"><slot name="activator" :props="props" /></template>
     <v-list density="compact">
       <v-list-item :title="me.admin ? `${me.username} · 管理員` : me.username" disabled />

@@ -35,7 +35,13 @@ onMounted(async () => {
       />
       <v-card-text class="pa-8">
         <div class="login-brand">
-          <div class="cc-logo" aria-hidden="true">JEV</div>
+          <div class="cc-logo" aria-hidden="true">
+            <svg viewBox="0 0 16 16" width="26" height="26">
+              <rect width="16" height="16" rx="4" fill="currentColor" />
+              <path d="M4 12V8m4 4V4m4 8V7" stroke="#121315" stroke-width="2" stroke-linecap="round" />
+            </svg>
+            <span>JEV</span>
+          </div>
           <h1 class="login-title">JEV 儀表板</h1>
         </div>
         <template v-if="error">
@@ -72,17 +78,16 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 .login-title { font-size: 20px; font-weight: 600; }
-/* ponytail: 從 App.vue 複製的標誌樣式，M1 合併 feat/industrial-theme 之後換成新的標誌 */
+/* ponytail: 從 App.vue 照抄的標誌樣式，兩邊要一起改 */
 .cc-logo {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  font: 700 12px/1 var(--tc-mono);
-  letter-spacing: 0.04em;
-  color: #031018; /* 標誌兩套主題都用亮色漸層，字固定深色 */
-  background: linear-gradient(135deg, #5ee6f7, #22d3ee 40%, #818cf8);
-  box-shadow: 0 0 28px -6px rgba(var(--tc-accent-rgb), 0.8);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 12px;
+  font: 400 15px/1 var(--tc-display);
+  letter-spacing: 0.06em;
+  color: var(--tc-text);
 }
+/* 標誌兩套主題都用亮橘，長條固定深色 */
+.cc-logo svg { color: rgb(var(--tc-accent-rgb)); }
 </style>

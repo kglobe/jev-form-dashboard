@@ -6,9 +6,9 @@ import { LoginPage, ReloginDialog, ShareDialog, UserMenu } from './modules/auth/
 import { DASHBOARD_HASH, restoreSavedHash } from './modules/auth/session.js'
 
 const VIEWS = [
-  { id: 'data', label: '資料', icon: 'mdi-database-outline' },
-  { id: 'build', label: '製圖', icon: 'mdi-chart-box-plus-outline' },
-  { id: 'dashboards', label: '儀表板', icon: 'mdi-view-dashboard-outline' },
+  { id: 'data', label: '資料' },
+  { id: 'build', label: '製圖' },
+  { id: 'dashboards', label: '儀表板' },
 ]
 const view = ref('dashboards')
 // 資料頁選中的來源
@@ -177,43 +177,48 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
     <div v-if="!me && !needLogin && !bootError" class="boot"><v-progress-circular indeterminate color="primary" /></div>
     <LoginPage v-else-if="!me" :error="bootError" :is-light="isLight" @logged-in="boot" @retry="boot" @toggle-theme="toggleTheme" />
     <template v-else>
-    <v-navigation-drawer permanent width="76" color="transparent" class="cc-rail">
-      <div class="cc-logo" aria-hidden="true">JEV</div>
-      <nav class="cc-rail__nav" aria-label="主要導覽">
+    <header class="cc-topbar">
+      <div class="cc-logo" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="26" height="26">
+          <rect width="16" height="16" rx="4" fill="currentColor" />
+          <path d="M4 12V8m4 4V4m4 8V7" stroke="#121315" stroke-width="2" stroke-linecap="round" />
+        </svg>
+        <span>JEV</span>
+      </div>
+      <nav class="cc-topbar__nav" aria-label="主要導覽">
         <button
           v-for="(v, n) in VIEWS"
           :key="v.id"
           type="button"
-          class="cc-rail__item"
+          class="cc-topbar__item"
           :class="{ 'is-active': view === v.id }"
           :aria-current="view === v.id ? 'page' : undefined"
           :aria-keyshortcuts="`Alt+${n + 1}`"
           :title="`${v.label}（Alt+${n + 1}）`"
           @click="view = v.id"
         >
-          <v-icon :icon="v.icon" size="22" />
-          <span>{{ v.label }}</span>
+          {{ v.label }}
         </button>
       </nav>
       <UserMenu :me="me">
         <template #activator="{ props }">
-          <button type="button" class="cc-rail__item cc-rail__account" v-bind="props" :title="me.username">
-            <v-icon icon="mdi-account-circle-outline" size="22" />
+          <button type="button" class="cc-topbar__item cc-topbar__account" v-bind="props" :title="me.username">
+            <v-icon icon="mdi-account-circle-outline" size="18" />
             <span>帳號</span>
           </button>
         </template>
       </UserMenu>
       <button
         type="button"
-        class="cc-rail__item cc-rail__theme"
+        class="cc-topbar__item cc-topbar__theme"
         :aria-label="isLight ? '切換成深色主題' : '切換成淺色主題'"
         :title="isLight ? '切換成深色主題' : '切換成淺色主題'"
         @click="toggleTheme"
       >
-        <v-icon :icon="isLight ? 'mdi-weather-night' : 'mdi-white-balance-sunny'" size="22" />
+        <v-icon :icon="isLight ? 'mdi-weather-night' : 'mdi-white-balance-sunny'" size="18" />
         <span>{{ isLight ? '深色' : '淺色' }}</span>
       </button>
-    </v-navigation-drawer>
+    </header>
 
     <v-main>
       <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" @select="(id) => (datasourceId = id)" @build="startBuild" />
@@ -322,60 +327,71 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
 </template>
 
 <style scoped>
-/* 左側導覽列：半透明底、右邊一條細線；選中的項目左邊一條發光的線 */
-.cc-rail {
-  border-right: 1px solid var(--tc-border-subtle) !important;
-  background: var(--tc-rail-bg) !important;
-  backdrop-filter: blur(12px);
-}
-.cc-rail :deep(.v-navigation-drawer__content) {
+/* 頂部導覽列：畫布色半透明加霧化，黏在最上面，高度是 --tc-bar-h（sticky 面板照它讓位）。
+   工作區是外框膠囊，選中的換成實心膠囊、前面一顆橘點 */
+.cc-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 24px;
-  padding: 18px 0;
+  gap: 12px;
+  height: var(--tc-bar-h);
+  padding: 0 32px;
+  background: var(--tc-bar-bg);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--tc-border-subtle);
 }
 .cc-logo {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  font: 700 12px/1 var(--tc-mono);
-  letter-spacing: 0.04em;
-  color: #031018; /* 標誌兩套主題都用亮色漸層，字固定深色 */
-  background: linear-gradient(135deg, #5ee6f7, #22d3ee 40%, #818cf8);
-  box-shadow: 0 0 28px -6px rgba(var(--tc-accent-rgb), 0.8);
-}
-.cc-rail__nav { display: flex; flex-direction: column; gap: 6px; }
-/* 帳號鈕和主題鈕放在導覽列最下面（唯讀分享 spec 7.3） */
-.cc-rail__account { margin-top: auto; }
-.cc-rail__item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  width: 60px;
-  padding: 10px 0 8px;
-  border-radius: 10px;
-  font-size: 11.5px;
-  color: var(--tc-muted);
-  transition: color 0.12s ease, background-color 0.12s ease;
+  gap: 10px;
+  margin-right: 12px;
+  font: 400 15px/1 var(--tc-display);
+  letter-spacing: 0.06em;
+  color: var(--tc-text);
 }
-.cc-rail__item:hover { color: var(--tc-text); background: var(--tc-hover); }
-.cc-rail__item:focus-visible { outline: 2px solid var(--tc-ring-color); outline-offset: 2px; }
-.cc-rail__item.is-active { color: var(--tc-primary); background: var(--tc-active); }
-.cc-rail__item.is-active::before {
+/* 標誌兩套主題都用亮橘，長條固定深色 */
+.cc-logo svg { color: rgb(var(--tc-accent-rgb)); }
+.cc-topbar__nav { display: flex; gap: 8px; min-width: 0; overflow-x: auto; }
+/* 帳號鈕和主題鈕放在最右邊（唯讀分享 spec 7.3） */
+.cc-topbar__account { margin-left: auto; }
+.cc-topbar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--tc-border-subtle);
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--tc-text-2);
+  transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+.cc-topbar__item:hover { color: var(--tc-text); background: var(--tc-hover); border-color: var(--tc-border); }
+.cc-topbar__item:focus-visible { outline: 2px solid var(--tc-ring-color); outline-offset: 2px; }
+.cc-topbar__item.is-active { color: var(--tc-on-cta); background: var(--tc-cta); border-color: transparent; }
+.cc-topbar__item.is-active::before {
   content: "";
-  position: absolute;
-  left: -8px;
-  top: 12px;
-  bottom: 12px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--tc-primary);
-  box-shadow: 0 0 12px var(--tc-primary);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(var(--tc-accent-rgb));
+}
+@media (max-width: 960px) {
+  .cc-topbar { padding: 0 16px; }
+}
+/* 手機寬度：收掉標誌文字，主題切換只留圖示（aria-label 還在），三個工作區才放得下 */
+@media (max-width: 600px) {
+  .cc-topbar { gap: 8px; }
+  .cc-logo { margin-right: 0; }
+  .cc-logo span,
+  .cc-topbar__account span,
+  .cc-topbar__theme span { display: none; }
+  .cc-topbar__item { padding: 0 14px; }
+  .cc-topbar__account, .cc-topbar__theme { padding: 0 10px; }
 }
 
 .dash-list { overflow-y: auto; }
