@@ -42,6 +42,7 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
     private final ApiUrlGuard guard;
     private final Environment env;
     private final int maxRows;
+    private final Map<String, List<String>> secretHosts;
 
     public HttpApiDataSourceProvider(ApiUrlGuard guard, Environment env, JevProperties props) {
         // JDK HttpClient 預設不跟隨 redirect，符合 spec
@@ -52,6 +53,9 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
         this.guard = guard;
         this.env = env;
         this.maxRows = props.upload().maxRows();
+        // ponytail: 綁定只在啟動時讀，改 .env 要重啟後端；要不重啟就生效，改成每次從 Environment 綁定
+        Map<String, List<String>> bound = props.datasource() == null ? null : props.datasource().secretHosts();
+        this.secretHosts = bound == null ? Map.of() : bound;
     }
 
     @Override
@@ -62,7 +66,7 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
     @Override
     public List<Map<String, Object>> fetchRows(Datasource ds) {
         URI uri = guard.check(ds.apiUrl());
-        Map<String, String> headers = resolveHeaders(ds.apiHeaders());
+        Map<String, String> headers = resolveHeaders(uri.getHost(), ds.apiHeaders());
         return fetchFrom(uri, headers);
     }
 
@@ -125,7 +129,11 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
         });
     }
 
-    Map<String, String> resolveHeaders(Map<String, String> headers) {
+    /**
+     * 密鑰綁定 spec 3.2：密鑰有開放給這個 host 才讀它的值。註冊和之後每次載入都走這裡，
+     * 所以 .env 拿掉綁定、重啟後端，已經註冊的來源下次載入就會被擋。
+     */
+    Map<String, String> resolveHeaders(String host, Map<String, String> headers) {
         Map<String, String> out = new LinkedHashMap<>();
         if (headers == null) return out;
         validateHeaders(headers);
@@ -133,6 +141,10 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
             Matcher m = ENV_REF.matcher(value);
             m.matches();
             String varName = "DS_" + m.group(1);
+            if (secretHosts.getOrDefault(varName, List.of()).stream().noneMatch(host::equalsIgnoreCase)) {
+                throw new ApiException(BAD_REQUEST, "密鑰 " + varName + " 沒有開放給 " + host
+                    + "：請在 backend/.env 加上 jev.datasource.secret-hosts.[" + varName + "]=" + host);
+            }
             String resolved = env.getProperty(varName);
             if (resolved == null) throw new ApiException(INTERNAL_SERVER_ERROR, "環境變數 " + varName + " 未設定");
             out.put(name, resolved);

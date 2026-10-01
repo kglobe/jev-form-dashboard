@@ -11,6 +11,8 @@ jev:
     max-rows: 20
   datasource:
     allowed-hosts: [10.0.0.5]
+    secret-hosts:
+      "[DS_JEV_TEST_UNSET]": [10.0.0.5]   # 綁好 host，DashboardControllerTest 才走得到「環境變數未設定」
   auth:
     admin-username: test-admin
     admin-password: test-admin-password

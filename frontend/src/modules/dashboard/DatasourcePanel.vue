@@ -442,7 +442,7 @@ async function removeDatasource(ds) {
               <v-textarea
                 v-model="apiHeaders"
                 label="headers（JSON，值只能寫 ${DS_環境變數名}）"
-                hint='範例：{"Authorization":"${DS_ERP_AUTH}"}'
+                hint='範例：{"Authorization":"${DS_ERP_AUTH}"}。密鑰還要在 backend/.env 綁定這個網址的 host'
                 persistent-hint
                 rows="2"
               />

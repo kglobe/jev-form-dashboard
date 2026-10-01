@@ -12,7 +12,14 @@ class ApiUrlGuardTest {
     @Test
     void emptyAllowListRejectsEverything() {
         assertThatThrownBy(() -> new ApiUrlGuard(List.of()).check("http://10.0.0.5/api"))
-            .isInstanceOf(ApiException.class).hasMessageContaining("未開放");
+            .isInstanceOf(ApiException.class).hasMessage("未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS");
+    }
+
+    @Test
+    void allowListIgnoresCase() {
+        // .invalid 保證解析不到：走到 DNS 這步，表示已經過了允許清單
+        assertThatThrownBy(() -> new ApiUrlGuard(List.of("ERP.Corp.invalid")).check("http://erp.corp.INVALID/x"))
+            .hasMessageStartingWith("無法解析 host");
     }
 
     @Test

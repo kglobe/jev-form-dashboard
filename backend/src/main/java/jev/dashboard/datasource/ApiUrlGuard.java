@@ -52,7 +52,7 @@ public class ApiUrlGuard {
         }
         String host = uri.getHost();
         if (host == null) throw bad("網址沒有 host：" + url);
-        if (allowedHosts.isEmpty()) throw bad("未開放註冊外部 API：jev.datasource.allowed-hosts 是空的");
+        if (allowedHosts.isEmpty()) throw bad("未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS");
         if (!allowedHosts.contains(host.toLowerCase(Locale.ROOT))) throw bad("host 不在允許清單：" + host);
         InetAddress[] addresses;
         try {
