@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api } from './api.js'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { api, onUnauthorized } from './api.js'
 
 function jsonResponse(body, { status = 200 } = {}) {
   return {
@@ -14,14 +14,91 @@ describe('api', () => {
     vi.stubGlobal('fetch', vi.fn())
   })
 
-  it('sends X-User-Id: demo-user on a GET and on a JSON POST', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    onUnauthorized(() => {})
+  })
+
+  it('非 GET 請求從 cookie 帶 X-XSRF-TOKEN，GET 不帶，也不再有 X-User-Id', async () => {
+    vi.stubGlobal('document', { cookie: 'a=1; XSRF-TOKEN=t%3D1' })
     fetch.mockResolvedValueOnce(jsonResponse([]))
     await api.listDatasources()
-    expect(fetch.mock.calls[0][1].headers['X-User-Id']).toBe('demo-user')
+    const getHeaders = fetch.mock.calls[0][1].headers
+    expect(getHeaders['X-XSRF-TOKEN']).toBeUndefined()
+    expect(getHeaders['X-User-Id']).toBeUndefined()
 
     fetch.mockResolvedValueOnce(jsonResponse({}))
     await api.analyze('ds1')
-    expect(fetch.mock.calls[1][1].headers['X-User-Id']).toBe('demo-user')
+    const postHeaders = fetch.mock.calls[1][1].headers
+    expect(postHeaders['X-XSRF-TOKEN']).toBe('t=1')
+    expect(postHeaders['X-User-Id']).toBeUndefined()
+  })
+
+  it('沒有 document 的時候（vitest 的 node 環境）照樣送出，不帶 token', async () => {
+    expect(typeof document).toBe('undefined')
+    fetch.mockResolvedValueOnce(jsonResponse({}))
+    await api.analyze('ds1')
+    expect(fetch.mock.calls[0][1].headers['X-XSRF-TOKEN']).toBeUndefined()
+  })
+
+  it('401 先呼叫 onUnauthorized，再丟「登入逾時，重新登入後請再操作一次」，status 是 401', async () => {
+    const handler = vi.fn()
+    onUnauthorized(handler)
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '請先登入' }, { status: 401 }))
+    await expect(api.listDashboards()).rejects.toMatchObject({
+      message: '登入逾時，重新登入後請再操作一次',
+      status: 401,
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('/api/auth/login、/api/auth/me 的 401 不呼叫 onUnauthorized，訊息照後端', async () => {
+    const handler = vi.fn()
+    onUnauthorized(handler)
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '帳號或密碼錯誤' }, { status: 401 }))
+    await expect(api.login('u1', 'pw')).rejects.toMatchObject({ message: '帳號或密碼錯誤', status: 401 })
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '請先登入' }, { status: 401 }))
+    await expect(api.me()).rejects.toMatchObject({ message: '請先登入', status: 401 })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('login 用 URLSearchParams 原樣送出，不設 Content-Type', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(null, { status: 204 }))
+    await api.login('u1', 'pw')
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toBe('/api/auth/login')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeInstanceOf(URLSearchParams)
+    expect(init.body.toString()).toBe('username=u1&password=pw')
+    expect(init.headers['Content-Type']).toBeUndefined()
+  })
+
+  it('帳號和分享的 API 用對 method 和網址', async () => {
+    fetch.mockImplementation(async () => jsonResponse({}))
+    await api.me()
+    await api.authOptions()
+    await api.logout()
+    await api.changePassword('old', 'new-password-1')
+    await api.listAccounts()
+    await api.createAccount({ username: 'alice', password: 'init-password', admin: false })
+    await api.updateAccount('a@b', { admin: true })
+    await api.setAccountPassword('a@b', 'new-password-1')
+    await api.getShare('d1')
+    await api.setShare('d1', { publicLink: true, users: ['alice'] })
+    await api.sharedDashboards()
+    expect(fetch.mock.calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
+      ['/api/auth/me', 'GET', undefined],
+      ['/api/auth/options', 'GET', undefined],
+      ['/api/auth/logout', 'POST', undefined],
+      ['/api/auth/password', 'POST', JSON.stringify({ current: 'old', password: 'new-password-1' })],
+      ['/api/admin/accounts', 'GET', undefined],
+      ['/api/admin/accounts', 'POST', JSON.stringify({ username: 'alice', password: 'init-password', admin: false })],
+      ['/api/admin/accounts/a%40b', 'PATCH', JSON.stringify({ admin: true })],
+      ['/api/admin/accounts/a%40b/password', 'PUT', JSON.stringify({ password: 'new-password-1' })],
+      ['/api/dashboards/d1/share', 'GET', undefined],
+      ['/api/dashboards/d1/share', 'PUT', JSON.stringify({ publicLink: true, users: ['alice'] })],
+      ['/api/dashboards/shared', 'GET', undefined],
+    ])
   })
 
   it('sets Content-Type + JSON.stringify body for a JSON POST; FormData body is sent as-is with no Content-Type', async () => {
