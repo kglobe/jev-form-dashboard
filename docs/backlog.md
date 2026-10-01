@@ -75,7 +75,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - ~~P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）~~ 已完成（2026-10-01，branch `feat/auth-sharing`）：改用 Spring Security 的帳號密碼登入，工作階段存在記憶體，非 GET 請求要帶 CSRF token。帳號由管理員建立，第一個管理員寫在 `backend/.env`。也可以接單一登入（OIDC），設定一樣寫在 `.env`，第一次登入自動建帳號；手邊沒有真的 OIDC server，只用模擬的 server 測過。停用帳號、改權限、重設密碼之後，對方馬上要重新登入。舊的 user ID 由同名的密碼帳號接手。見 spec `docs/superpowers/specs/2026-10-01-auth-sharing-design.md`。
 - P2 · 登入失敗次數限制或鎖帳號：現在密碼可以一直試。（登入與唯讀分享 spec 第 10 節）
 - P2 · `docker/postgres/Dockerfile` 還沒建立（這個開發環境沒裝 Docker），部署前要補。（spec §7）
-- P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）有了帳號以後，任何帳號註冊外部 API 來源時，都能在 header 寫 `${DS_任何名稱}`，借用伺服器上的密鑰去打允許清單裡的 host（登入與唯讀分享 spec 第 10 節）。要不要限制成只有管理員能註冊外部 API 來源，由使用者決定。
+- P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）有了帳號以後，任何帳號註冊外部 API 來源時，都能在 header 寫 `${DS_任何名稱}`，借用伺服器上的密鑰去打允許清單裡的 host（登入與唯讀分享 spec 第 10 節）。2026-10-01 起只有管理員能註冊外部 API 來源，但 `DS_` 還是沒有綁定 host。
 - P3 · 帳號管理的後續：管理員重設密碼後，強制對方下次登入就改密碼；刪除帳號、改帳號名稱（現在不做，因為資料靠帳號名稱認擁有者，要讓人不能用就停用）。（登入與唯讀分享 spec 第 10 節）
 - P3 · 工作階段存資料庫（Spring Session JDBC）、多台後端：現在工作階段存在記憶體，後端重啟後所有人都要重新登入。（登入與唯讀分享 spec 第 10 節）
 - P3 · 單一登入的後續：在畫面上設定 OIDC、登出時一起登出 IdP、限制 OIDC 帳號的網域（現在靠 IdP 那邊只讓被指派的人登入）。（登入與唯讀分享 spec 第 10 節）

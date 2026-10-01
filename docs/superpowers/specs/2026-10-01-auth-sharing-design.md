@@ -90,6 +90,12 @@
 - 舊 ID 都是小寫，轉小寫的規則不影響。`created_by = ''` 的舊資料沒人能接手（空字串不是合法帳號）。
 - migration 不建立任何帳號。
 
+### 2.6 外部 API 來源
+
+- 只有管理員能註冊外部 API 來源（`POST /api/datasources/api`），其他帳號回 403「沒有權限」，「新增資料來源」也不顯示「外部 API」分頁。原因是 header 可以寫 `${DS_任何名稱}`，誰能註冊，誰就能借用伺服器上的密鑰（第 10 節）。
+- 已經註冊好的外部 API 來源不受影響：擁有者一樣能載入、合併、刪除，也能改顯示名稱、敏感欄位和比率。
+- 管理員註冊的來源只有他自己能用。資料來源不共用，要給別人看，就分享用到它的儀表板（2.4）。
+
 ## 3. 設定（`backend/.env`）
 
 | 變數 | 用途 | 沒填時 |
@@ -260,6 +266,7 @@ create index dashboard_share_username on dashboard_share (username);
 - 一個 `SecurityFilterChain`：
   - `/api/auth/options` 和 `ERROR`、`FORWARD` dispatch 不用登入。
   - `/api/admin/**` 要 `ROLE_ADMIN`。
+  - `POST /api/datasources/api` 要 `ROLE_ADMIN`（2.6）。
   - 其他 `/api/**` 要登入。
   - 其餘路徑不擋（之後放前端靜態檔用）。
 - `formLogin`：`loginProcessingUrl("/api/auth/login")`，成功回 204、失敗回 401 JSON（2.2）。`logout`：`/api/auth/logout` 回 204。
@@ -541,7 +548,7 @@ create index dashboard_share_username on dashboard_share (username);
 - 工作階段存資料庫（Spring Session JDBC）、多台後端。
 - 在畫面上設定 OIDC、登出時一起登出 IdP、兩步驟驗證、操作紀錄。
 - 限制 OIDC 帳號的網域（靠 IdP 端只讓被指派的人登入）。
-- `DS_` 密鑰跟帳號綁定：有了帳號以後，任何帳號註冊外部 API 來源時，都能在 header 寫 `${DS_任何名稱}`，借用伺服器上的密鑰去打允許清單裡的 host。這次不改，backlog「正式上線前」第 75 行補上這個風險，要不要限制成只有管理員能註冊外部 API 來源，由使用者決定。
+- `DS_` 密鑰跟帳號綁定：header 可以寫 `${DS_任何名稱}`，借用伺服器上的密鑰去打允許清單裡的 host。2026-10-01 起只有管理員能註冊外部 API 來源（2.6），但 `DS_` 密鑰還是沒有綁定 host，管理員註冊時哪一把都能用（backlog「正式上線前」）。
 - 列層級權限（backlog P3，要等這次做完）。
 
 ## 11. 決定（2026-10-01）
@@ -563,4 +570,5 @@ create index dashboard_share_username on dashboard_share (username);
 | 檢視者看到的錯誤 | 換成通用訊息 | 顯示擁有者那邊的原始錯誤 |
 | 登入方式 | `formLogin` 加 JSON 回應 | 自己寫 JSON 登入 controller（安全處理要自己補） |
 | 工作階段 | 記憶體，閒置 30 分鐘，登入時換新的 | Spring Session JDBC |
-| `DS_` 密鑰共用 | 這次不改，寫進 backlog 讓使用者決定 | 直接限制成管理員才能註冊外部 API |
+| `DS_` 密鑰共用 | 先寫進 backlog 讓使用者決定，使用者後來選了只有管理員能註冊（見下一列） | 照舊讓所有帳號註冊 |
+| 誰能註冊外部 API 來源 | 只有管理員（使用者選，2026-10-01） | 所有帳號（任何人都能借用 DS_ 密鑰） |

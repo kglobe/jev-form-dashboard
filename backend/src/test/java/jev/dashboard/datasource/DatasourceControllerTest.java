@@ -113,8 +113,20 @@ class DatasourceControllerTest {
     }
 
     @Test
-    void registerApiRejectsHostNotInAllowList() throws Exception {
+    void onlyAdminsCanRegisterApiSources() throws Exception { // 唯讀分享 spec 2.6
         mvc.perform(post("/api/datasources/api").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{}}"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error").value("沒有權限"));
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void registerApiRejectsHostNotInAllowList() throws Exception {
+        TestData.addAccount(jdbc, "boss", true);
+        mvc.perform(post("/api/datasources/api").with(TestData.asAdmin("boss"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"erp\",\"url\":\"https://evil.example/sales\",\"headers\":{}}"))
             .andExpect(status().isBadRequest())
@@ -123,7 +135,8 @@ class DatasourceControllerTest {
 
     @Test
     void registerApiRejectsLiteralHeaderValues() throws Exception {
-        mvc.perform(post("/api/datasources/api").with(TestData.as("u1"))
+        TestData.addAccount(jdbc, "boss", true);
+        mvc.perform(post("/api/datasources/api").with(TestData.asAdmin("boss"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{\"Authorization\":\"Bearer x\"}}"))
             .andExpect(status().isBadRequest())
