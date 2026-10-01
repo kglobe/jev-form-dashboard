@@ -7,7 +7,7 @@ import { api } from '../dashboard/api.js'
 import { resetAndReload } from './session.js'
 import { vuetify } from '../dashboard/test-vuetify.js'
 
-vi.mock('../dashboard/api.js', () => ({ api: { logout: vi.fn(), changePassword: vi.fn() } }))
+vi.mock('../dashboard/api.js', () => ({ api: { logout: vi.fn(), changePassword: vi.fn(), listAccounts: vi.fn() } }))
 vi.mock('./session.js', async (orig) => ({ ...(await orig()), resetAndReload: vi.fn() }))
 
 enableAutoUnmount(afterEach)
@@ -78,5 +78,19 @@ describe('UserMenu', () => {
     await flushPromises()
     expect(dialog.props('modelValue')).toBe(true)
     expect(document.body.textContent).toContain('再輸入一次新密碼')
+  })
+
+  it('管理員的「帳號管理」打開帳號管理對話框', async () => {
+    api.listAccounts.mockResolvedValue([])
+    const w = await openMenu()
+    expect(itemTexts()).toEqual(['boss · 管理員', '改密碼', '帳號管理', '登出'])
+    const dialog = w.findComponent({ name: 'AccountsDialog' })
+    expect(dialog.props('modelValue')).toBe(false)
+    expect(api.listAccounts).not.toHaveBeenCalled()
+    item('帳號管理').click()
+    await flushPromises()
+    expect(dialog.props('modelValue')).toBe(true)
+    expect(dialog.props('me')).toEqual(BOSS)
+    expect(api.listAccounts).toHaveBeenCalledOnce()
   })
 })
