@@ -2,7 +2,10 @@ package jev.dashboard.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static jev.dashboard.auth.AuthControllerTest.passwordChange;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,6 +31,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.test.context.ActiveProfiles;
@@ -183,6 +187,36 @@ class LoginLockoutTest {
             .andExpect(jsonPath("$.error").value("帳號已停用，請聯絡管理員"));
         wrong("u2", 4);
         login("u2", TestData.PASSWORD).andExpect(jsonPath("$.error").value("帳號已停用，請聯絡管理員"));
+        wrong("u2", 5);
+        locked("u2", 15); // 鎖住時不比對密碼，也就看不到「已停用」
+    }
+
+    @Test
+    void wrongCurrentPasswordsWhenChangingYourOwnCountToo() throws Exception { // spec 4
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(passwordChange(WRONG, "new-password-1").with(TestData.as("u1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("目前的密碼不對"));
+        }
+        locked("u1", 15);
+        mvc.perform(passwordChange(TestData.PASSWORD, "new-password-1").with(TestData.as("u1")))
+            .andExpect(status().isTooManyRequests())
+            .andExpect(jsonPath("$.error").value("登入失敗太多次，請 15 分鐘後再試"));
+    }
+
+    @Test
+    void whileLockedChangingYourOwnPasswordIsRefusedAndTheSessionStays() throws Exception { // spec 4
+        MockHttpSession s = (MockHttpSession) login("u1", TestData.PASSWORD)
+            .andExpect(status().isNoContent()).andReturn().getRequest().getSession(false);
+        wrong("u1", 5);
+        mvc.perform(passwordChange(TestData.PASSWORD, "new-password-1").session(s).with(csrf()))
+            .andExpect(status().isTooManyRequests());
+        mvc.perform(get("/api/auth/me").session(s)).andExpect(status().isOk()); // 沒改成，工作階段還在
+
+        at(Duration.ofMinutes(15));
+        mvc.perform(passwordChange(TestData.PASSWORD, "new-password-1").session(s).with(csrf()))
+            .andExpect(status().isNoContent());
+        login("u1", "new-password-1").andExpect(status().isNoContent());
     }
 
     @Test

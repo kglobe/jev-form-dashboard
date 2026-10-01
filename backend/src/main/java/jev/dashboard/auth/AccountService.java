@@ -5,6 +5,8 @@ import java.util.Optional;
 import jev.dashboard.ApiException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
@@ -22,14 +24,23 @@ public class AccountService {
         this.lockout = lockout;
     }
 
-    /** 唯讀分享 spec 2.1、4.1：成功後這個帳號所有工作階段都失效，包括目前這個。 */
+    /**
+     * 唯讀分享 spec 2.1、4.1：成功後這個帳號所有工作階段都失效，包括目前這個。
+     * 登入鎖定 spec 4：比對目前的密碼也走 LoginLockout，錯了一樣算一次，鎖住時回 429、不比對。
+     */
     public void changeOwnPassword(String username, String current, String password) {
         Account a = accounts.find(username).orElseThrow(); // 帳號檢查 filter 擋過，帳號也不會被刪
         if (a.passwordHash() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "這個帳號用單一登入，沒有密碼可以改");
         }
-        if (current == null || !encoder.matches(current, a.passwordHash())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "目前的密碼不對");
+        try {
+            lockout.check(username, () -> {
+                if (current == null || !encoder.matches(current, a.passwordHash())) throw new BadCredentialsException("目前的密碼不對");
+            });
+        } catch (BadCredentialsException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (LockedException e) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
         }
         Account.requirePassword(username, password);
         accounts.setPassword(username, encoder.encode(password), Instant.now());
