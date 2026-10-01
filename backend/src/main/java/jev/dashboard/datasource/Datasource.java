@@ -9,7 +9,8 @@ import java.util.UUID;
 /**
  * merge 只有合併來源（kind = merged）才有，其他來源是 null，JSON 不輸出。
  * ratios 是使用者加的比率（B3 spec 4.1），沒有就是空清單。
- * rowCount 是建立時的筆數；V5 之前建立的外部 API、合併來源沒記，是 null。
+ * rowCount 是建立時的筆數，上傳來源更新資料後跟著換。null 有兩種：V5 之前建立的外部 API、合併來源沒記；
+ * 合併來源的輸入來源更新過資料，筆數被清掉（更新資料 spec 2.6）。
  */
 public record Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                          Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt,
@@ -33,7 +34,7 @@ public record Datasource(UUID id, String name, String kind, List<FieldSchema> sc
         return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, value, rowCount);
     }
 
-    public Datasource withRowCount(int value) {
+    public Datasource withRowCount(Integer value) {
         return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, value);
     }
 }

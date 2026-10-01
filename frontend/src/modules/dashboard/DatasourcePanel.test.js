@@ -18,6 +18,7 @@ vi.mock('./api.js', () => ({
     createMerged: vi.fn(),
     datasourceUsage: vi.fn(),
     deleteDatasource: vi.fn(),
+    reloadDatasource: vi.fn(),
   },
 }))
 
@@ -25,6 +26,7 @@ const ds1 = {
   id: 'ds1',
   name: 'sales.csv',
   kind: 'upload',
+  rowCount: 12,
   schema: [
     { name: 'region', type: 'string', sensitive: false, samples: ['北區', '南區', '東區', '西區'] },
     { name: 'memo', type: 'string', sensitive: true },
@@ -755,5 +757,181 @@ describe('DatasourcePanel', () => {
 
     expect(wrapper.find('.v-alert').exists()).toBe(false)
     expect(deleteDialog(wrapper).props('modelValue')).toBe(true)
+  })
+
+  // 更新資料 spec 第 5 節：「更新資料」的對話框是第四個（新增來源、新增比率、刪除來源之後）
+  const reloadDialog = (wrapper) => wrapper.findAllComponents({ name: 'VDialog' })[3]
+  const reloadBtn = (wrapper) => wrapper.findAll('button').find((b) => b.text() === '更新資料')
+  async function openReload(wrapper) {
+    await reloadBtn(wrapper).trigger('click')
+    await flushPromises()
+  }
+  async function pickReloadFile(wrapper, file) {
+    await reloadDialog(wrapper).findComponent({ name: 'VFileInput' }).vm.$emit('update:modelValue', file)
+  }
+  async function chooseMode(wrapper, mode) {
+    await reloadDialog(wrapper).findComponent({ name: 'VRadioGroup' }).vm.$emit('update:modelValue', mode)
+    await flushPromises()
+  }
+  const cancelReload = (wrapper) => reloadDialog(wrapper).findAllComponents({ name: 'VBtn' }).find((b) => b.text() === '取消')
+  const reloadField = (wrapper, label) =>
+    reloadDialog(wrapper).findAllComponents({ name: 'VTextField' }).find((f) => f.props('label') === label)
+
+  it('只有上傳的來源有「更新資料」，外部 API 和合併來源沒有', async () => {
+    api.listDatasources.mockResolvedValue([ds1, ds2, merged])
+    const wrapper = mountPanel('ds1')
+    await flushPromises()
+    expect(reloadBtn(wrapper)).toBeDefined()
+
+    await wrapper.setProps({ selectedId: 'ds2' })
+    expect(reloadBtn(wrapper)).toBeUndefined()
+    await wrapper.setProps({ selectedId: 'mg' })
+    expect(reloadBtn(wrapper)).toBeUndefined()
+  })
+
+  it('對話框寫出目前筆數和會影響哪些東西；沒選更新方式之前「更新」按不下去', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+
+    expect(reloadDialog(wrapper).props('modelValue')).toBe(true)
+    expect(dialogText()).toContain('「sales.csv」目前有 12 筆資料。新檔案的欄位名稱要跟原本一樣。')
+    expect(dialogText()).toContain('更新後，用到它的圖和合併來源都會顯示新的資料。')
+    const fileInput = reloadDialog(wrapper).findComponent({ name: 'VFileInput' })
+    expect(fileInput.find('input').attributes('accept')).toBe('.csv,.xlsx,.xls')
+    expect(reloadField(wrapper, '工作表（Excel 選填）')).toBeDefined()
+    const radios = reloadDialog(wrapper).findAllComponents({ name: 'VRadio' })
+    expect(radios.map((r) => [r.props('value'), r.props('label')])).toEqual([['replace', '整份覆蓋'], ['append', '接在後面']])
+    expect(reloadDialog(wrapper).findComponent({ name: 'VRadioGroup' }).props('modelValue')).toBeNull()
+
+    expect(button('更新').disabled).toBe(true)
+    await chooseMode(wrapper, 'append')
+    expect(button('更新').disabled).toBe(false)
+  })
+
+  it('送出檔案、更新方式和工作表，成功後關掉對話框、重讀清單並顯示新的筆數', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.reloadDatasource.mockResolvedValue({ ...ds1, rowCount: 15 })
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+
+    const file = new File(['a,b'], 'sales.xlsx')
+    await pickReloadFile(wrapper, [file])
+    await reloadField(wrapper, '工作表（Excel 選填）').find('input').setValue('九月')
+    await chooseMode(wrapper, 'replace')
+    await click('更新')
+
+    expect(api.reloadDatasource).toHaveBeenCalledTimes(1)
+    const [id, form] = api.reloadDatasource.mock.calls[0]
+    expect(id).toBe('ds1')
+    expect(form.get('file')).toStrictEqual(file)
+    expect(form.get('mode')).toBe('replace')
+    expect(form.get('sheet')).toBe('九月')
+    expect(api.listDatasources).toHaveBeenCalledTimes(2)
+    expect(reloadDialog(wrapper).props('modelValue')).toBe(false)
+    expect(wrapper.text()).toContain('已更新「sales.csv」：共 15 筆')
+
+    // 再打開是乾淨的表單：沒選方式、沒選檔案，成功訊息也收起來
+    await openReload(wrapper)
+    expect(reloadDialog(wrapper).findComponent({ name: 'VRadioGroup' }).props('modelValue')).toBeNull()
+    expect(reloadDialog(wrapper).findComponent({ name: 'VFileInput' }).props('modelValue')).toBeNull()
+    expect(wrapper.text()).not.toContain('已更新')
+    expect(button('更新').disabled).toBe(true)
+  })
+
+  it('沒填工作表就不送 sheet', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.reloadDatasource.mockResolvedValue({ ...ds1, rowCount: 13 })
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+
+    await pickReloadFile(wrapper, new File(['a,b'], 'oct.csv'))
+    await chooseMode(wrapper, 'append')
+    await click('更新')
+
+    const form = api.reloadDatasource.mock.calls[0][1]
+    expect(form.get('mode')).toBe('append')
+    expect(form.has('sheet')).toBe(false)
+  })
+
+  it('後端擋下來時，錯誤留在對話框裡，不重讀清單', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.reloadDatasource.mockRejectedValue(new Error('欄位跟原本的不一樣：少了 qty'))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+
+    await pickReloadFile(wrapper, new File(['a,b'], 'oct.csv'))
+    await chooseMode(wrapper, 'append')
+    await click('更新')
+
+    expect(reloadDialog(wrapper).props('modelValue')).toBe(true)
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('欄位跟原本的不一樣：少了 qty')
+    expect(api.listDatasources).toHaveBeenCalledTimes(1)
+
+    // 重新打開時舊的錯誤清掉
+    await click('取消')
+    await openReload(wrapper)
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).exists()).toBe(false)
+  })
+
+  it('沒選檔案或檔案超過 50MB 時不送出', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+    await chooseMode(wrapper, 'replace')
+
+    await click('更新')
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('請先選擇檔案')
+
+    const big = new File(['x'], 'big.csv')
+    Object.defineProperty(big, 'size', { value: 50 * 1024 * 1024 + 1 })
+    await pickReloadFile(wrapper, big)
+    await click('更新')
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('檔案太大，上限 50MB')
+    expect(api.reloadDatasource).not.toHaveBeenCalled()
+  })
+
+  it('更新請求還沒回來時不能再按一次', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.reloadDatasource.mockReturnValue(new Promise(() => {}))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+    await pickReloadFile(wrapper, new File(['a,b'], 'oct.csv'))
+    await chooseMode(wrapper, 'append')
+
+    await click('更新')
+    button('更新').click()
+    await flushPromises()
+
+    expect(api.reloadDatasource).toHaveBeenCalledTimes(1)
+  })
+
+  it('更新請求還沒回來時關不掉對話框，失敗的訊息才看得到；回來之後又能關', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    let fail
+    api.reloadDatasource.mockReturnValue(new Promise((_, reject) => (fail = reject)))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+    await pickReloadFile(wrapper, new File(['a,b'], 'oct.csv'))
+    await chooseMode(wrapper, 'replace')
+    await click('更新')
+
+    // 「取消」停用；persistent 讓點對話框外面、按 Esc 也不會關
+    expect(cancelReload(wrapper).element.disabled).toBe(true)
+    expect(reloadDialog(wrapper).props('persistent')).toBe(true)
+
+    fail(new Error('欄位跟原本的不一樣：少了 qty'))
+    await flushPromises()
+    expect(reloadDialog(wrapper).props('modelValue')).toBe(true)
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('欄位跟原本的不一樣：少了 qty')
+    expect(cancelReload(wrapper).element.disabled).toBe(false)
+    expect(reloadDialog(wrapper).props('persistent')).toBe(false)
   })
 })
