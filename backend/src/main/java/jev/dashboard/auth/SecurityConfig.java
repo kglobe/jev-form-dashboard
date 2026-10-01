@@ -18,6 +18,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
@@ -54,7 +55,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper json) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper json, AccountRepository accounts)
+            throws Exception {
         http
             .authorizeHttpRequests(a -> a
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
@@ -76,7 +78,8 @@ public class SecurityConfig {
             .exceptionHandling(e -> e // 設了 entry point，Spring 就不會自己產生 /login 頁
                 .authenticationEntryPoint((req, res, ex) -> writeError(res, json, 401, "請先登入"))
                 .accessDeniedHandler((req, res, ex) -> writeError(res, json, 403,
-                    ex instanceof CsrfException ? "頁面已過期，請重新整理" : "沒有權限")));
+                    ex instanceof CsrfException ? "頁面已過期，請重新整理" : "沒有權限")))
+            .addFilterAfter(new AccountCheckFilter(accounts, json), AnonymousAuthenticationFilter.class); // spec 2.1
         return http.build();
     }
 

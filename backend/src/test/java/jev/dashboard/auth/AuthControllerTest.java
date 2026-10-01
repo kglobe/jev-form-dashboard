@@ -12,6 +12,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,11 +22,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -49,6 +54,11 @@ class AuthControllerTest {
         mvc.perform(formLogin("/api/auth/login").user(username).password(password))
             .andExpect(status().isUnauthorized())
             .andExpect(jsonPath("$.error").value(message));
+    }
+
+    static MockHttpServletRequestBuilder passwordChange(String current, String password) {
+        return post("/api/auth/password").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"current\":\"%s\",\"password\":\"%s\"}".formatted(current, password));
     }
 
     @Test
@@ -135,6 +145,79 @@ class AuthControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[*].id").value(contains(id.toString())));
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u9")))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void changingYourOwnPasswordEndsEverySessionIncludingThisOne() throws Exception { // spec 4.1
+        MockHttpSession s1 = login("u1", TestData.PASSWORD);
+        MockHttpSession s2 = login("u1", TestData.PASSWORD);
+        mvc.perform(passwordChange(TestData.PASSWORD, "new-password-123").session(s1).with(csrf()))
+            .andExpect(status().isNoContent());
+
+        for (MockHttpSession s : List.of(s1, s2)) {
+            mvc.perform(get("/api/auth/me").session(s))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("請先登入"));
+        }
+        loginFails("u1", TestData.PASSWORD, "帳號或密碼錯誤");
+        login("u1", "new-password-123");
+    }
+
+    @Test
+    void changePasswordRejectsAWrongCurrentPasswordAndSsoAccounts() throws Exception {
+        mvc.perform(passwordChange("wrong-password-1", "new-password-123").with(TestData.as("u1")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("目前的密碼不對"));
+
+        jdbc.sql("insert into account (username) values ('sso-a')").update();
+        mvc.perform(passwordChange("wrong-password-1", "new-password-123").with(TestData.as("sso-a")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("這個帳號用單一登入，沒有密碼可以改"));
+    }
+
+    @Test
+    void changePasswordChecksThePasswordRules() throws Exception { // spec 2.1
+        mvc.perform(passwordChange(TestData.PASSWORD, "short-pass1").with(TestData.as("u1"))) // 11 個字
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("密碼至少要 12 個字元"));
+        mvc.perform(passwordChange(TestData.PASSWORD, "營".repeat(25)).with(TestData.as("u1"))) // 75 bytes
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("密碼太長，最多 72 個位元組（約 24 個中文字）"));
+
+        TestData.addAccount(jdbc, "long-account-1", false);
+        mvc.perform(passwordChange(TestData.PASSWORD, "LONG-ACCOUNT-1").with(TestData.as("long-account-1")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("密碼不能跟帳號一樣"));
+
+        // 成功會讓 u1 的工作階段失效，放最後
+        mvc.perform(passwordChange(TestData.PASSWORD, "營".repeat(24)).with(TestData.as("u1"))) // 72 bytes
+            .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void aDisabledAccountsSessionGets401AndStaysDeadAfterReEnabling() throws Exception { // spec 2.1
+        MockHttpSession s = login("u1", TestData.PASSWORD);
+        jdbc.sql("update account set enabled = false where username = 'u1'").update();
+        mvc.perform(get("/api/auth/me").session(s))
+            .andExpect(status().isUnauthorized());
+
+        jdbc.sql("update account set enabled = true where username = 'u1'").update();
+        mvc.perform(get("/api/auth/me").session(s)) // 上一次就失效了
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aSessionCreatedBeforeSessionsValidAfterGets401() throws Exception { // spec 2.1
+        MockHttpSession s = login("u1", TestData.PASSWORD);
+        jdbc.sql("update account set sessions_valid_after = :t where username = 'u1'")
+            .param("t", Instant.ofEpochMilli(s.getCreationTime() + 1).atOffset(ZoneOffset.UTC)).update();
+        mvc.perform(get("/api/auth/me").session(s))
+            .andExpect(status().isUnauthorized());
+
+        Thread.sleep(2); // 測試密碼是 cost 4，新的工作階段可能跟變動落在同一毫秒（plan「實作上的決定」第 6 點）
+        MockHttpSession s2 = login("u1", TestData.PASSWORD);
+        mvc.perform(get("/api/auth/me").session(s2))
             .andExpect(status().isOk());
     }
 }
