@@ -61,7 +61,7 @@ function reload() {
         <v-card-text class="px-6">
           <v-alert v-if="error" type="error" density="compact" class="mb-4">{{ error }}</v-alert>
           <v-text-field v-model="current" label="目前的密碼" type="password" autocomplete="current-password" autofocus />
-          <v-text-field v-model="password" label="新密碼" type="password" autocomplete="new-password" hint="至少 12 個字元" />
+          <v-text-field v-model="password" label="新密碼" type="password" autocomplete="new-password" hint="至少 8 個字元" />
           <v-text-field v-model="again" label="再輸入一次新密碼" type="password" autocomplete="new-password" />
         </v-card-text>
         <v-card-actions class="px-6 pb-5">

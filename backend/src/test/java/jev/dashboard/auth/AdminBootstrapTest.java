@@ -100,7 +100,7 @@ class AdminBootstrapTest {
         fails("-boss", "boss-password-1", "ADMIN_USERNAME 不合規則：帳號要以英文字母或數字開頭，只能用英文字母、數字和 . _ @ -，長度 2～64");
         fails("boss", null, "要建立管理員帳號「boss」，但 ADMIN_PASSWORD 沒填");
         fails("boss", "", "要建立管理員帳號「boss」，但 ADMIN_PASSWORD 沒填");
-        fails("boss", "short", "ADMIN_PASSWORD 不合規則：密碼至少要 12 個字元");
+        fails("boss", "short", "ADMIN_PASSWORD 不合規則：密碼至少要 8 個字元");
         fails("boss", "has space 12345", charset);
         fails("boss", "密碼密碼密碼密碼密碼密碼密碼", charset);
         fails("long-account-1", "long-account-1", "ADMIN_PASSWORD 不合規則：密碼不能跟帳號一樣");

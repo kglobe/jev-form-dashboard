@@ -186,9 +186,9 @@ class AuthControllerTest {
 
     @Test
     void changePasswordChecksThePasswordRules() throws Exception { // spec 2.1
-        mvc.perform(passwordChange(TestData.PASSWORD, "short-pass1").with(TestData.as("u1"))) // 11 個字
+        mvc.perform(passwordChange(TestData.PASSWORD, "short-1").with(TestData.as("u1"))) // 7 個字
             .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error").value("密碼至少要 12 個字元"));
+            .andExpect(jsonPath("$.error").value("密碼至少要 8 個字元"));
         mvc.perform(passwordChange(TestData.PASSWORD, "營".repeat(25)).with(TestData.as("u1"))) // 75 bytes
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("密碼太長，最多 72 個位元組（約 24 個中文字）"));
