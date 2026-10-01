@@ -24,6 +24,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -362,5 +363,110 @@ class DatasourceControllerTest {
         mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u2")))
             .andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到資料源"));
         mvc.perform(get("/api/datasources").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(1));
+    }
+
+    // ---------- 更新資料（更新資料 spec 第 3 節） ----------
+
+    ResultActions reload(String user, String id, MockMultipartFile file, String... params)
+            throws Exception {
+        var req = multipart("/api/datasources/" + id + "/rows").file(file).with(TestData.as(user));
+        for (int i = 0; i < params.length; i += 2) req.param(params[i], params[i + 1]);
+        return mvc.perform(req);
+    }
+
+    @Test
+    void reloadAppendsOrReplacesAndReturnsTheSourceTheWayTheListShowsIt() throws Exception {
+        String id = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,100\n");
+        createDashboard("週報", card("c1", id, "bar", 0));
+        String dash = JsonPath.read(mvc.perform(get("/api/dashboards").with(TestData.as("u1")))
+            .andReturn().getResponse().getContentAsString(UTF_8), "$[0].id");
+
+        reload("u1", id, csv("new.csv", "amount,region\n200,南區\n"), "mode", "append")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(id))
+            .andExpect(jsonPath("$.kind").value("upload"))
+            .andExpect(jsonPath("$.rowCount").value(2))
+            .andExpect(jsonPath("$.schema[0].name").value("region"))
+            .andExpect(jsonPath("$.schema[1].samples[1]").value("200"))
+            .andExpect(jsonPath("$.ratios.length()").value(0));
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].rowCount").value(2));
+        // 圖下次載入就讀到新的資料列
+        mvc.perform(get("/api/dashboards/" + dash + "/data").with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].rows.length()").value(2));
+
+        reload("u1", id, csv("new.csv", "region,amount\n東區,300\n"), "mode", "replace")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.rowCount").value(1));
+        mvc.perform(get("/api/dashboards/" + dash + "/data").with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].rows.length()").value(1))
+            .andExpect(jsonPath("$[0].rows[0][0]").value("東區"));
+    }
+
+    @Test
+    void reloadNeedsAValidModeAFileAndTheCallersOwnUploadSource() throws Exception {
+        String id = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,100\n");
+        String north = TestData.uploadCsv(mvc, "u1", "南區", "region,amount\n南區,50\n");
+        String merged = union("全區", id, north);
+        MockMultipartFile file = csv("new.csv", "region,amount\n東區,1\n");
+
+        reload("u1", id, file).andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("缺少參數：mode"));
+        reload("u1", id, file, "mode", "merge").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("更新方式只能是 replace（整份覆蓋）或 append（接在後面）"));
+        mvc.perform(multipart("/api/datasources/" + id + "/rows").param("mode", "append").with(TestData.as("u1")))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("缺少參數：file"));
+        reload("u1", id, csv("new.txt", "region,amount\n東區,1\n"), "mode", "append")
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error").value("只支援 .csv、.xlsx、.xls"));
+        reload("u2", id, file, "mode", "append").andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到資料源"));
+        reload("u1", merged, file, "mode", "append").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("只有上傳的檔案可以更新資料"));
+        reload("u1", id, csv("new.csv", "region,qty\n東區,1\n"), "mode", "replace").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("欄位跟原本的不一樣：少了 amount；多了 qty"));
+        reload("u1", id, csv("new.csv", "region,amount\n東區,很多\n"), "mode", "replace").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("欄位「amount」原本是數字，新檔案裡有不是數字的值"));
+        StringBuilder big = new StringBuilder("region,amount\n");
+        for (int i = 0; i < 20; i++) big.append("東區,").append(i).append('\n');
+        reload("u1", id, csv("new.csv", big.toString()), "mode", "append").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("資料有 21 筆，超過上限 20 筆"));
+        assertThat(jdbc.sql("select count(*) from datasource_rows where datasource_id = :id")
+            .param("id", java.util.UUID.fromString(id)).query(Long.class).single()).isEqualTo(1L);
+    }
+
+    @Test
+    void anExcelFileIsReadFromTheChosenSheet() throws Exception {
+        String id = TestData.uploadCsv(mvc, "u1", "銷售", "order_date,amount,region\n2024-01-01,100,南區\n");
+        MockMultipartFile xlsx = new MockMultipartFile("file", "new.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ExcelParserTest.workbook());
+
+        reload("u1", id, xlsx, "mode", "append", "sheet", "不存在").andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("找不到工作表：不存在"));
+        reload("u1", id, xlsx, "mode", "append", "sheet", "銷售")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.rowCount").value(2))
+            .andExpect(jsonPath("$.schema[0].max").value("2024-01-05"))
+            // Excel 的數字儲存格讀進來是 1200.0，樣本照樣寫成 1200
+            .andExpect(jsonPath("$.schema[1].samples[1]").value("1200"));
+    }
+
+    @Test
+    void mergedSourcesThatUseItEvenTwoLevelsUpForgetTheirRowCount() throws Exception {
+        String sales = TestData.uploadSales(mvc, "u1");
+        String north = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,1\n");
+        String idle = TestData.uploadCsv(mvc, "u1", "沒人用", "region,amount\n北區,1\n");
+        String all = union("全區", sales, north);
+        String top = union("全區二層", all, north);
+        String unrelated = union("不相干", sales, idle);
+
+        reload("u1", north, csv("new.csv", "region,amount\n北區,2\n"), "mode", "append").andExpect(status().isOk());
+
+        String list = mvc.perform(get("/api/datasources").with(TestData.as("u1")))
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        List<Integer> counts = JsonPath.read(list, "$[?(@.id in ['" + all + "','" + top + "'])].rowCount");
+        assertThat(counts).containsExactly(null, null);
+        List<Integer> kept = JsonPath.read(list, "$[?(@.id == '" + unrelated + "')].rowCount");
+        assertThat(kept).containsExactly(13);
+        List<Integer> own = JsonPath.read(list, "$[?(@.id == '" + north + "')].rowCount");
+        assertThat(own).containsExactly(2);
     }
 }

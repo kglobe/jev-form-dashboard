@@ -68,6 +68,27 @@ class MergedDatasourceServiceTest {
         public List<Map<String, Object>> rows(UUID id) {
             return rows.getOrDefault(id, List.of());
         }
+
+        // 更新資料用：記憶體裡沒有交易，直接執行
+        @Override
+        public void locked(UUID id, Runnable work) {
+            work.run();
+        }
+
+        @Override
+        public void deleteRows(UUID id) {
+            rows.remove(id);
+        }
+
+        @Override
+        public void insertRows(UUID id, int firstRowNo, List<Map<String, Object>> value) {
+            rows.put(id, Stream.concat(rows(id).stream(), value.stream()).toList());
+        }
+
+        @Override
+        public void updateRowCount(UUID id, Integer count) {
+            sources.put(id, sources.get(id).withRowCount(count));
+        }
     }
 
     final MemoryRepo repo = new MemoryRepo();

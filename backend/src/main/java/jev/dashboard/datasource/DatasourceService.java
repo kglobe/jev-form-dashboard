@@ -58,21 +58,92 @@ public class DatasourceService {
 
     /** 解析在交易外面做，解析大檔案時不占資料庫連線；只有寫入是一個交易。 */
     public Datasource upload(String userId, String name, MultipartFile file, String sheet) {
-        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
-        ParsedTable table;
-        try {
-            if (filename.endsWith(".csv")) table = CsvParser.parse(file.getBytes(), maxRows);
-            else if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) table = ExcelParser.parse(file.getInputStream(), sheet, maxRows);
-            else throw new ApiException(BAD_REQUEST, "只支援 .csv、.xlsx、.xls");
-        } catch (IOException e) {
-            throw new UploadParseException("讀取檔案失敗：" + e.getMessage());
-        }
+        ParsedTable table = parse(file, sheet);
         checkRows(table.rows().size());
         List<FieldSchema> schema = SchemaInference.infer(table.headers(), table.rows());
         Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null)
             .withRowCount(table.rows().size());
         repo.insertWithRows(ds, SchemaInference.normalize(table.rows(), schema));
         return get(userId, ds.id());
+    }
+
+    /**
+     * 更新資料 spec 第 2 節：用新檔案整份覆蓋（replace）或接在後面（append）。欄位、型別照原本的檢查，
+     * 跟上傳一樣先在交易外解析；寫入時鎖住這個來源，資料列、欄位統計、筆數和合併來源的筆數在同一個交易裡寫。
+     */
+    public Datasource reload(String userId, UUID id, MultipartFile file, String sheet, String mode) {
+        boolean append = switch (mode == null ? "" : mode) {
+            case "append" -> true;
+            case "replace" -> false;
+            default -> throw new ApiException(BAD_REQUEST, "更新方式只能是 replace（整份覆蓋）或 append（接在後面）");
+        };
+        Datasource ds = stored(userId, id);
+        if (!"upload".equals(ds.kind())) throw new ApiException(BAD_REQUEST, "只有上傳的檔案可以更新資料");
+        ParsedTable table = parse(file, sheet);
+        checkSameColumns(ds.schema(), table.headers());
+        checkTypes(ds.schema(), table.rows());
+        List<Map<String, Object>> added = SchemaInference.normalize(table.rows(), ds.schema());
+        // ponytail: 只鎖這個來源。同一時間拿它建立的合併來源可能記下舊的筆數（只影響分析時給 JEV 的筆數）；要精準再一起鎖使用者的來源
+        repo.locked(id, () -> {
+            // 鎖住之後重讀：解析檔案的時候，顯示名稱、敏感設定可能改過，來源也可能被刪了
+            Datasource current = stored(userId, id);
+            List<Map<String, Object>> rows = new ArrayList<>(append ? repo.rows(id) : List.of());
+            int first = rows.size();
+            rows.addAll(added);
+            checkRows(rows.size());
+            if (!append) repo.deleteRows(id);
+            repo.insertRows(id, first, added);
+            repo.updateSchema(id, SchemaInference.restat(current.schema(), rows));
+            repo.updateRowCount(id, rows.size());
+            // 更新資料 spec 2.6：合併來源載入時才合併，資料自己會跟上；建立時記的筆數不準了，清掉讓分析時重算
+            Set<UUID> users = new HashSet<>();
+            usedBy(repo.list(userId), id, users);
+            users.forEach(m -> repo.updateRowCount(m, null));
+        });
+        return get(userId, id);
+    }
+
+    /** 更新資料 spec 2.2：欄位名稱要跟原本是同一組，順序可以不一樣。 */
+    private static void checkSameColumns(List<FieldSchema> schema, List<String> headers) {
+        List<String> before = schema.stream().map(FieldSchema::name).toList();
+        List<String> missing = before.stream().filter(n -> !headers.contains(n)).toList();
+        List<String> extra = headers.stream().filter(h -> !before.contains(h)).toList();
+        List<String> diff = new ArrayList<>();
+        if (!missing.isEmpty()) diff.add("少了 " + String.join("、", missing));
+        if (!extra.isEmpty()) diff.add("多了 " + String.join("、", extra));
+        if (!diff.isEmpty()) throw new ApiException(BAD_REQUEST, "欄位跟原本的不一樣：" + String.join("；", diff));
+    }
+
+    /** 更新資料 spec 2.3：型別不變。數字、日期欄位每個有值的格子都要是同一種型別；文字欄位什麼都收。 */
+    private static void checkTypes(List<FieldSchema> schema, List<Map<String, Object>> rows) {
+        for (FieldSchema f : schema) {
+            if (f.type() == FieldType.STRING) continue;
+            boolean number = f.type() == FieldType.NUMBER;
+            boolean fits = rows.stream().map(r -> r.get(f.name())).allMatch(v -> SchemaInference.isBlank(v)
+                || (number ? SchemaInference.parseNumber(v) : SchemaInference.parseDate(v)) != null);
+            String type = number ? "數字" : "日期";
+            if (!fits) throw new ApiException(BAD_REQUEST, "欄位「" + f.name() + "」原本是" + type + "，新檔案裡有不是" + type + "的值");
+        }
+    }
+
+    /** 直接或間接拿 id 當輸入的合併來源，收進 out。合併最多 3 層，遞迴不深。 */
+    private static void usedBy(List<Datasource> all, UUID id, Set<UUID> out) {
+        for (Datasource d : all) {
+            if ("merged".equals(d.kind()) && MergeDefinition.inputIds(d.merge()).contains(id) && out.add(d.id())) {
+                usedBy(all, d.id(), out);
+            }
+        }
+    }
+
+    private ParsedTable parse(MultipartFile file, String sheet) {
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase(Locale.ROOT);
+        try {
+            if (filename.endsWith(".csv")) return CsvParser.parse(file.getBytes(), maxRows);
+            if (filename.endsWith(".xlsx") || filename.endsWith(".xls")) return ExcelParser.parse(file.getInputStream(), sheet, maxRows);
+            throw new ApiException(BAD_REQUEST, "只支援 .csv、.xlsx、.xls");
+        } catch (IOException e) {
+            throw new UploadParseException("讀取檔案失敗：" + e.getMessage());
+        }
     }
 
     public Datasource registerApi(String userId, String name, String url, Map<String, String> headers) {

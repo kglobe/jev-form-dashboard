@@ -82,17 +82,18 @@ async function run(action) {
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+// v-file-input 在不同版本可能回傳 File 或 File[]
+const firstFile = (v) => (Array.isArray(v) ? v[0] : v)
+// 上傳和更新資料共用：沒選檔案、檔案太大時要顯示的錯誤，沒問題是空字串
+function fileError(f) {
+  if (!f) return '請先選擇檔案'
+  return f.size > MAX_UPLOAD_BYTES ? '檔案太大，上限 50MB' : ''
+}
+
 function upload() {
-  // v-file-input 在不同版本可能回傳 File 或 File[]
-  const f = Array.isArray(file.value) ? file.value[0] : file.value
-  if (!f) {
-    addError.value = '請先選擇檔案'
-    return
-  }
-  if (f.size > MAX_UPLOAD_BYTES) {
-    addError.value = '檔案太大，上限 50MB'
-    return
-  }
+  const f = firstFile(file.value)
+  addError.value = fileError(f)
+  if (addError.value) return
   const form = new FormData()
   form.append('file', f)
   form.append('name', name.value || f.name)
@@ -265,6 +266,48 @@ async function removeDatasource(ds) {
     deleting.value = false
   }
 }
+
+// ---------- 更新資料（對話框，更新資料 spec 第 5 節） ----------
+
+const reloadOpen = ref(false)
+const reloadTarget = ref(null) // 按下「更新資料」時的來源；之後切換選取不影響更新哪個
+const reloadFile = ref(null)
+const reloadSheet = ref('')
+const reloadMode = ref(null) // 沒有預設值，一定要自己選整份覆蓋或接在後面
+const reloadError = ref('')
+const reloading = ref(false)
+const notice = ref('') // 更新成功的訊息，顯示在頁面上方
+
+function openReload(ds) {
+  reloadTarget.value = { id: ds.id, name: ds.name, rowCount: ds.rowCount }
+  reloadFile.value = null
+  reloadSheet.value = reloadError.value = notice.value = ''
+  reloadMode.value = null
+  reloadOpen.value = true
+}
+
+async function reload() {
+  if (reloading.value) return
+  const f = firstFile(reloadFile.value)
+  reloadError.value = fileError(f)
+  if (reloadError.value) return
+  const form = new FormData()
+  form.append('file', f)
+  form.append('mode', reloadMode.value)
+  if (reloadSheet.value) form.append('sheet', reloadSheet.value)
+  reloading.value = true
+  try {
+    const ds = await api.reloadDatasource(reloadTarget.value.id, form)
+    reloadOpen.value = false
+    notice.value = `已更新「${ds.name}」：共 ${ds.rowCount} 筆`
+    // 已經更新成功了，重讀清單失敗不算更新失敗，錯誤放在頁面上
+    await refresh().catch((e) => (error.value = e.message))
+  } catch (e) {
+    reloadError.value = e.message
+  } finally {
+    reloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -279,6 +322,7 @@ async function removeDatasource(ds) {
     </header>
 
     <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
+    <v-alert v-if="notice" type="success" density="compact" closable @click:close="notice = ''">{{ notice }}</v-alert>
 
     <div class="cc-split">
       <aside class="cc-panel cc-sticky">
@@ -320,6 +364,8 @@ async function removeDatasource(ds) {
               <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template><template v-else-if="selected.merge">{{ mergeSummary(selected) }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
             </div>
           </div>
+          <!-- 更新資料 spec 5.1：只有上傳的檔案能換資料；外部 API 每次載入都重抓，合併來源跟著輸入來源 -->
+          <v-btn v-if="selected.kind === 'upload'" prepend-icon="mdi-database-refresh-outline" @click="openReload(selected)">更新資料</v-btn>
           <v-btn prepend-icon="mdi-delete-outline" :loading="checking" @click="openDelete(selected)">刪除來源</v-btn>
           <v-btn append-icon="mdi-arrow-right" @click="emit('build', selected.id)">用這個來源製圖</v-btn>
         </header>
@@ -509,6 +555,28 @@ async function removeDatasource(ds) {
             <v-btn variant="flat" color="error" :loading="deleting" @click="removeDatasource(deleteTarget)">刪除</v-btn>
           </v-card-actions>
         </template>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="reloadOpen" max-width="520" transition="tc-sheet">
+      <v-card v-if="reloadTarget">
+        <v-card-title class="pt-5 px-6">更新資料</v-card-title>
+        <v-card-text class="px-6">
+          <p>「{{ reloadTarget.name }}」目前有 {{ reloadTarget.rowCount }} 筆資料。新檔案的欄位名稱要跟原本一樣。</p>
+          <p class="mt-2 mb-4">更新後，用到它的圖和合併來源都會顯示新的資料。</p>
+          <v-file-input v-model="reloadFile" label="CSV / Excel" accept=".csv,.xlsx,.xls" prepend-icon="" prepend-inner-icon="mdi-paperclip" />
+          <v-text-field v-model="reloadSheet" label="工作表（Excel 選填）" />
+          <v-radio-group v-model="reloadMode" inline hide-details aria-label="更新方式">
+            <v-radio value="replace" label="整份覆蓋" />
+            <v-radio value="append" label="接在後面" />
+          </v-radio-group>
+          <v-alert v-if="reloadError" type="error" density="compact" class="mt-3">{{ reloadError }}</v-alert>
+        </v-card-text>
+        <v-card-actions class="px-6 pb-5">
+          <v-spacer />
+          <v-btn variant="flat" @click="reloadOpen = false">取消</v-btn>
+          <v-btn variant="flat" color="primary" :disabled="!reloadMode" :loading="reloading" @click="reload">更新</v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
   </section>

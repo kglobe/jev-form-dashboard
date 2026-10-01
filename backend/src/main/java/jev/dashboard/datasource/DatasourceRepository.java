@@ -95,10 +95,35 @@ public class DatasourceRepository {
     }
 
     public void insertRows(UUID id, List<Map<String, Object>> rows) {
+        insertRows(id, 0, rows);
+    }
+
+    /** row_no 從 firstRowNo 開始編；接在後面時從現有筆數開始（更新資料 spec 2.4）。 */
+    public void insertRows(UUID id, int firstRowNo, List<Map<String, Object>> rows) {
         List<Object[]> args = new ArrayList<>(rows.size());
-        for (int i = 0; i < rows.size(); i++) args.add(new Object[] {id, i, write(rows.get(i))});
+        for (int i = 0; i < rows.size(); i++) args.add(new Object[] {id, firstRowNo + i, write(rows.get(i))});
         jdbcTemplate.batchUpdate(
             "insert into datasource_rows (datasource_id, row_no, row_json) values (?, ?, cast(? as jsonb))", args);
+    }
+
+    public void deleteRows(UUID id) {
+        jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", id).update();
+    }
+
+    public void updateRowCount(UUID id, Integer count) {
+        jdbc.sql("update datasource set row_count = :n where id = :id")
+            .param("n", count, Types.INTEGER).param("id", id)
+            .update();
+    }
+
+    /**
+     * 更新資料 spec 4.2：先鎖住來源那一列（select … for update）再做 work，整段是同一個交易。
+     * 同一個來源同時更新時，後到的等前一個寫完才讀現有的資料列，接在後面的 row_no 不會撞在一起。
+     */
+    @Transactional
+    public void locked(UUID id, Runnable work) {
+        jdbc.sql("select id from datasource where id = :id for update").param("id", id).query(UUID.class).optional();
+        work.run();
     }
 
     public List<Map<String, Object>> rows(UUID id) {

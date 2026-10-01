@@ -60,6 +60,8 @@ export const api = {
   sharedDashboards: () => request('GET', '/api/dashboards/shared'),
   listDatasources: () => request('GET', '/api/datasources'),
   uploadDatasource: (form) => request('POST', '/api/datasources/upload', form),
+  // 更新資料 spec 3.1：form 帶 file、mode（replace／append），Excel 可以再帶 sheet
+  reloadDatasource: (id, form) => request('POST', `/api/datasources/${id}/rows`, form),
   registerApi: (body) => request('POST', '/api/datasources/api', body),
   setSensitive: (id, fields) => request('PATCH', `/api/datasources/${id}/sensitive`, { fields }),
   setLabels: (id, labels) => request('PATCH', `/api/datasources/${id}/labels`, { labels }),

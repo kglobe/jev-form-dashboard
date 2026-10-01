@@ -186,6 +186,18 @@ describe('api', () => {
     await expect(api.getDashboard('d1')).rejects.toMatchObject({ message: '找不到儀表板', status: 404 })
   })
 
+  it('reloadDatasource POSTs the FormData as-is to /api/datasources/{id}/rows', async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ id: 'ds1', rowCount: 3 }))
+    const form = new FormData()
+    form.append('mode', 'append')
+    await expect(api.reloadDatasource('ds1', form)).resolves.toEqual({ id: 'ds1', rowCount: 3 })
+    const [url, init] = fetch.mock.calls[0]
+    expect(url).toBe('/api/datasources/ds1/rows')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(form)
+    expect(init.headers['Content-Type']).toBeUndefined()
+  })
+
   it('datasourceUsage GETs /usage; deleteDatasource DELETEs and resolves null on 204', async () => {
     fetch.mockResolvedValueOnce(jsonResponse({ mergedBy: [], dashboards: [] }))
     await expect(api.datasourceUsage('ds1')).resolves.toEqual({ mergedBy: [], dashboards: [] })

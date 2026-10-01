@@ -49,6 +49,15 @@ public class DatasourceController {
         return service.upload(principal.getName(), name, file, sheet);
     }
 
+    /** 更新資料 spec 3.1：mode 是 replace（整份覆蓋）或 append（接在後面），只收自己的上傳來源。 */
+    @PostMapping("/{id}/rows")
+    public Datasource reload(Principal principal, @PathVariable UUID id,
+                             @RequestParam("file") MultipartFile file,
+                             @RequestParam("mode") String mode,
+                             @RequestParam(value = "sheet", required = false) String sheet) {
+        return service.reload(principal.getName(), id, file, sheet, mode);
+    }
+
     @PostMapping("/api")
     public Datasource registerApi(Principal principal, @RequestBody ApiRegistration body) {
         return service.registerApi(principal.getName(), body.name(), body.url(), body.headers());

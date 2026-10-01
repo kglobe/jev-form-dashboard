@@ -1,8 +1,10 @@
 package jev.dashboard.datasource;
 
+import java.math.BigDecimal;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -45,6 +47,23 @@ public final class SchemaInference {
             out.add(new FieldSchema(h, type, distinct.size(), distinct.stream().limit(5).toList(), false, min, max));
         }
         return out;
+    }
+
+    /**
+     * 更新資料 spec 2.5：型別、顯示名稱、敏感設定照舊，相異值數、樣本、日期範圍用整份資料重算。
+     * rows 是整理過的值，數字寫回字串時去掉多餘的 .0，樣本才跟第一次上傳一樣是 1200，不是 1200.0。
+     */
+    public static List<FieldSchema> restat(List<FieldSchema> schema, List<Map<String, Object>> rows) {
+        return schema.stream().map(f -> {
+            Set<String> distinct = new LinkedHashSet<>();
+            rows.stream().map(r -> r.get(f.name())).filter(v -> !isBlank(v))
+                .forEach(v -> distinct.add(v instanceof Number n
+                    ? BigDecimal.valueOf(n.doubleValue()).stripTrailingZeros().toPlainString() : String.valueOf(v)));
+            // 整理過的日期都是 YYYY-MM-DD，照字串排就是照日期排
+            boolean dated = f.type() == FieldType.DATE && !distinct.isEmpty();
+            return new FieldSchema(f.name(), f.type(), distinct.size(), distinct.stream().limit(5).toList(), f.sensitive(),
+                dated ? Collections.min(distinct) : null, dated ? Collections.max(distinct) : null, f.label());
+        }).toList();
     }
 
     /** 所有資料列 key 的聯集，依第一次出現的順序；外部 API 常省略值是 null 的欄位，只看第一列會漏。 */
