@@ -1,6 +1,7 @@
 package jev.dashboard.dashboard;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -97,6 +98,108 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
         mvc.perform(delete("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNoContent());
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNotFound());
+    }
+
+    void putShare(String user, String id, String body, int code) throws Exception {
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as(user))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().is(code));
+    }
+
+    @Test
+    void theOwnerSharesAndReadsTheShareBack() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.publicLink").value(false))
+            .andExpect(jsonPath("$.users").isEmpty());
+
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"publicLink\":true,\"users\":[\" U3 \",\"u2\",\"u2\",null,\"  \"]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.publicLink").value(true))
+            .andExpect(jsonPath("$.users").value(contains("u2", "u3")));
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.publicLink").value(true))
+            .andExpect(jsonPath("$.users").value(contains("u2", "u3")));
+
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.publicLink").value(false))
+            .andExpect(jsonPath("$.users").isEmpty());
+    }
+
+    @Test
+    void sharingRejectsUnknownAccountsAndYourself() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false,\"users\":[\"Nobody\"]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("找不到帳號「nobody」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結"));
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false,\"users\":[\"U1\"]}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("不用分享給自己"));
+
+        jdbc.sql("update account set enabled = false where username = 'u3'").update();
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u3\"]}", 200);
+    }
+
+    @Test
+    void onlyTheOwnerSeesOrChangesTheShare() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u2")))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u2"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"users\":[\"u3\"]}"))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.publicLink").value(false))
+            .andExpect(jsonPath("$.users").value(contains("u2")));
+    }
+
+    @Test
+    void sharedListsNamedSharesNewestFirstAndSkipsDisabledOwners() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String a = create("u1", TestData.dashboardJson(ds).replace("銷售總覽", "A"));
+        String b = create("u1", TestData.dashboardJson(ds).replace("銷售總覽", "B"));
+        String c = create("u3", TestData.dashboardJson(TestData.uploadSales(mvc, "u3")).replace("銷售總覽", "C"));
+        putShare("u1", a, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        putShare("u1", b, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        putShare("u3", c, "{\"publicLink\":true,\"users\":[]}", 200);
+
+        mvc.perform(get("/api/dashboards/shared").with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].id").value(b))
+            .andExpect(jsonPath("$[0].name").value("B"))
+            .andExpect(jsonPath("$[0].owner").value("u1"))
+            .andExpect(jsonPath("$[0].updatedAt").isNotEmpty())
+            .andExpect(jsonPath("$[1].id").value(a))
+            .andExpect(jsonPath("$[1].name").value("A"))
+            .andExpect(jsonPath("$[1].owner").value("u1"))
+            .andExpect(jsonPath("$[1].updatedAt").isNotEmpty());
+        mvc.perform(get("/api/dashboards").with(TestData.as("u2"))).andExpect(jsonPath("$.length()").value(0));
+
+        jdbc.sql("update account set enabled = false where username = 'u1'").update();
+        mvc.perform(get("/api/dashboards/shared").with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void deletingADashboardDeletesItsShares() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\",\"u3\"]}", 200);
+        assertThat(jdbc.sql("select count(*) from dashboard_share").query(Integer.class).single()).isEqualTo(2);
+        mvc.perform(delete("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNoContent());
+        assertThat(jdbc.sql("select count(*) from dashboard_share").query(Integer.class).single()).isZero();
     }
 
     @Test

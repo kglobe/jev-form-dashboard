@@ -4,6 +4,8 @@ import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
+import jev.dashboard.dashboard.DashboardRepository.Share;
+import jev.dashboard.dashboard.DashboardRepository.SharedDashboard;
 import jev.dashboard.transform.ChartData;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -37,6 +39,12 @@ public class DashboardController {
         return service.list(principal.getName());
     }
 
+    /** 唯讀分享 spec 4.3：分享給我的。固定字串的路徑優先於 /{id}。 */
+    @GetMapping("/shared")
+    public List<SharedDashboard> shared(Principal principal) {
+        return service.shared(principal.getName());
+    }
+
     @GetMapping("/{id}")
     public DashboardConfig get(Principal principal, @PathVariable UUID id) {
         return service.get(principal.getName(), id);
@@ -58,6 +66,16 @@ public class DashboardController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(Principal principal, @PathVariable UUID id) {
         service.delete(principal.getName(), id);
+    }
+
+    @GetMapping("/{id}/share")
+    public Share share(Principal principal, @PathVariable UUID id) {
+        return service.share(principal.getName(), id);
+    }
+
+    @PutMapping("/{id}/share")
+    public Share setShare(Principal principal, @PathVariable UUID id, @RequestBody Share body) {
+        return service.setShare(principal.getName(), id, body);
     }
 
     @GetMapping("/{id}/data")
