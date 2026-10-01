@@ -570,5 +570,5 @@ create index dashboard_share_username on dashboard_share (username);
 | 檢視者看到的錯誤 | 換成通用訊息 | 顯示擁有者那邊的原始錯誤 |
 | 登入方式 | `formLogin` 加 JSON 回應 | 自己寫 JSON 登入 controller（安全處理要自己補） |
 | 工作階段 | 記憶體，閒置 30 分鐘，登入時換新的 | Spring Session JDBC |
-| `DS_` 密鑰共用 | 先寫進 backlog 讓使用者決定，使用者後來選了只有管理員能註冊（見下一列） | 照舊讓所有帳號註冊 |
+| `DS_` 密鑰共用 | 先寫進 backlog 讓使用者決定，使用者後來選了只有管理員能註冊（見下一列）；2026-10-02 起密鑰也綁定 host（`2026-10-02-api-secret-hosts-design.md`） | 照舊讓所有帳號註冊 |
 | 誰能註冊外部 API 來源 | 只有管理員（使用者選，2026-10-01） | 所有帳號（任何人都能借用 DS_ 密鑰） |
