@@ -275,6 +275,17 @@ IdP 連不上時，帳密登入照常能用，後端也照常啟動。
 
 刪除後無法復原。萬一合併來源的輸入還是被刪掉了（例如刪除的同時，在另一個分頁拿它建了新的合併來源），用到那個輸入來源的欄位一律當作敏感，`sensitiveFrom` 會顯示「（已刪除的來源）」。完整規則見 [`docs/superpowers/specs/2026-09-30-delete-datasource-design.md`](docs/superpowers/specs/2026-09-30-delete-datasource-design.md)。
 
+## 更新來源的資料
+
+上傳的來源可以換成新的資料，不必另外建一個來源。資料頁選好上傳來源後，右上角有「更新資料」：選好檔案（Excel 可以指定工作表），再選更新方式。
+
+- 整份覆蓋：資料換成新檔案的內容。
+- 接在後面：新檔案的資料接在原本的後面。每月一個檔的話，每個月接一次就好。
+
+新檔案的欄位名稱要跟原本是同一組，順序可以不同；數字和日期欄位的型別也不能變。不符合時，對話框會寫出哪裡不一樣。更新後的總筆數一樣受 `jev.upload.max-rows` 限制，接在後面時算原本加上新的。顯示名稱、敏感設定和比率都不會動，樣本和日期範圍則用更新後的資料重算。
+
+用到它的圖和合併來源（包括疊了好幾層的）下次打開就是新的資料，不用重建。外部 API 每次載入都會重抓，合併來源每次載入都會重新合併，所以這兩種來源沒有這顆按鈕。後端是 `POST /api/datasources/{id}/rows`（`mode=replace` 或 `append`）。完整規則見 [`docs/superpowers/specs/2026-10-02-datasource-reload-design.md`](docs/superpowers/specs/2026-10-02-datasource-reload-design.md)。
+
 ## 測試
 
 後端（用同一個本機 PostgreSQL，接 `jev_dashboard_test` schema，需要 `.env` 裡的 `DB_USER`／`DB_PASSWORD`；測試不會真的呼叫 JEV 或外部 API）：
