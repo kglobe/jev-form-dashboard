@@ -1,128 +1,122 @@
-/* Command Center：指揮中心風格，深色（預設）和淺色兩套。取代原本的 tactile-clean.css 和 vuetify-overrides.css。
+/* Industrial：工業極簡風格，銀灰／炭黑配安全橘，淺色（預設）和深色兩套。檔名沿用舊的 command-center，import 的地方不必跟著改。
    變數和 class 沿用 --tc- / tc- 前綴：儀表板模組（motion.css、ChartCard 等）已經照這些名字寫好 fallback，不必跟著改名。
-   淺色：<html data-theme="light">，只覆寫 token，下面的規則兩套共用。改色要跟 main.js 的 Vuetify theme 同步。
+   深色：<html data-theme="dark">，只覆寫 token，下面的規則兩套共用。改色要跟 main.js 的 Vuetify theme、圖表主題 JSON 同步。
    main.js 要在 App 的 import 之後載入這份，元件樣式才不會把這裡的覆寫蓋回去。 */
 
 /* ---------- 1. Tokens ---------- */
+/* 淺色：銀灰畫布、白卡片（米白會讓圖表的黃、紫兩色對底不到 3:1）、黑色膠囊當主要按鈕，橘色只當點綴 */
 :root {
-  color-scheme: dark;
-
-  /* RGB 通道：同一個顏色要疊不同透明度時用 rgba(var(--tc-accent-rgb), .x) */
-  --tc-accent-rgb: 34, 211, 238;
-  --tc-accent-2-rgb: 129, 140, 248;
-  --tc-ink-rgb: 148, 163, 184; /* 中性色：格線、分隔線、hover */
-  --tc-info-rgb: 96, 165, 250;
-  --tc-warn-rgb: 251, 191, 36;
-  --tc-err-rgb: 251, 113, 133;
-
-  --tc-canvas: #060a13;
-  --tc-panel: #0c1220;
-  --tc-subtle: #111a2c; /* 浮起一層：選單、提示 */
-  --tc-hover: rgba(var(--tc-ink-rgb), 0.08);
-  --tc-active: rgba(var(--tc-accent-rgb), 0.12);
-
-  /* 控制項邊界對 panel、subtle 都 ≥3:1（WCAG 1.4.11）；border-subtle 是裝飾分隔線 */
-  --tc-border: #5b6b85;
-  --tc-border-subtle: rgba(var(--tc-ink-rgb), 0.14);
-  --tc-border-strong: #7a8aa3;
-
-  /* 三種文字色對 canvas / panel / subtle 都 ≥4.5:1 */
-  --tc-text: #e6edf7;
-  --tc-text-2: #b3bfd1;
-  --tc-muted: #8593aa;
-
-  --tc-primary: #22d3ee;
-  --tc-primary-2: #818cf8;
-  --tc-on-primary: #031018;
-  --tc-primary-soft: rgba(var(--tc-accent-rgb), 0.14);
-  --tc-primary-grad: linear-gradient(135deg, #5ee6f7, #22d3ee 45%, #06b6d4);
-
-  --tc-ok: #34d399;
-  --tc-warn: #fbbf24;
-  --tc-err: #fb7185;
-  --tc-info: #60a5fa;
-
-  --tc-ring-color: #22d3ee;
-  --tc-glow: 0 0 0 1px rgba(var(--tc-accent-rgb), 0.45), 0 0 20px -2px rgba(var(--tc-accent-rgb), 0.45);
-  --tc-panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 32px -18px rgba(0, 0, 0, 0.8);
-  --tc-overlay-shadow: 0 28px 56px -16px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(var(--tc-ink-rgb), 0.16);
-  --tc-sheen: rgba(255, 255, 255, 0.025); /* 面板頂端那一抹亮 */
-
-  --tc-field-bg: rgba(2, 6, 18, 0.55);
-  --tc-track: #1a2436;
-  --tc-thumb: #b3bfd1; /* 開關關著時的圓鈕 */
-  --tc-scrollbar: #2a3850;
-  --tc-scrollbar-hover: #3a4a66;
-  --tc-rail-bg: rgba(6, 10, 19, 0.72);
-
-  --tc-radius: 8px;
-  --tc-radius-lg: 12px;
-  --tc-font: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto,
-    "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-  --tc-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
-}
-
-/* 淺色：冷灰畫布、白面板、青色壓深到白底上文字也 ≥4.5:1；其餘沒寫的 token 跟著上面的 RGB 通道自動換 */
-:root[data-theme="light"] {
   color-scheme: light;
 
-  --tc-accent-rgb: 8, 145, 178;
-  --tc-accent-2-rgb: 99, 102, 241;
-  --tc-ink-rgb: 51, 65, 85;
+  /* RGB 通道：同一個顏色要疊不同透明度時用 rgba(var(--tc-accent-rgb), .x) */
+  --tc-accent-rgb: 242, 92, 26; /* 安全橘 #f25c1a：裝飾點和淡色底；當文字、線條用下面壓深的 --tc-primary */
+  --tc-ink-rgb: 23, 24, 27; /* 中性色：格線、分隔線、hover */
   --tc-info-rgb: 29, 78, 216;
-  --tc-warn-rgb: 180, 83, 9;
+  --tc-warn-rgb: 138, 87, 0;
   --tc-err-rgb: 190, 18, 60;
 
-  --tc-canvas: #f2f5fa;
+  --tc-canvas: #e3e4e7;
   --tc-panel: #ffffff;
-  --tc-subtle: #f6f8fb;
+  --tc-subtle: #f5f5f6; /* 浮起一層：選單、提示、次要按鈕 */
   --tc-hover: rgba(var(--tc-ink-rgb), 0.06);
   --tc-active: rgba(var(--tc-accent-rgb), 0.1);
 
-  --tc-border: #7b8698;
-  --tc-border-strong: #5d6878;
+  /* 控制項邊界對 canvas、panel、subtle 都 ≥3:1（WCAG 1.4.11）；border-subtle 是裝飾分隔線 */
+  --tc-border: #7d8189;
+  --tc-border-subtle: rgba(var(--tc-ink-rgb), 0.12);
+  --tc-border-strong: #5f636b;
 
-  --tc-text: #0b1220;
-  --tc-text-2: #334155;
-  --tc-muted: #5a6577;
+  /* 文字色和狀態色對 canvas / panel / subtle 都 ≥4.5:1 */
+  --tc-text: #121315;
+  --tc-text-2: #3b3d42;
+  --tc-muted: #5a5d64;
 
-  --tc-primary: #0e7490;
-  --tc-primary-2: #6366f1;
+  --tc-primary: #b33f0a;
   --tc-on-primary: #ffffff;
   --tc-primary-soft: rgba(var(--tc-accent-rgb), 0.1);
-  --tc-primary-grad: linear-gradient(135deg, #0e7490, #155e75); /* 白字對兩端都 ≥5.3:1 */
+  /* 主要按鈕和導覽列選中的膠囊：淺色主題黑底白字、深色主題反過來 */
+  --tc-cta: #17181b;
+  --tc-on-cta: #ffffff;
 
-  --tc-ok: #047857;
-  --tc-warn: #b45309;
+  --tc-ok: #036a4b;
+  --tc-warn: #8a5700;
   --tc-err: #be123c;
   --tc-info: #1d4ed8;
 
-  --tc-ring-color: #0891b2;
-  --tc-glow: 0 0 0 1px rgba(var(--tc-accent-rgb), 0.35), 0 0 18px -4px rgba(var(--tc-accent-rgb), 0.35);
-  --tc-panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 10px 28px -18px rgba(15, 23, 42, 0.22);
-  --tc-overlay-shadow: 0 24px 48px -16px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.08);
-  --tc-sheen: rgba(255, 255, 255, 0);
+  --tc-ring-color: #b33f0a;
+  --tc-panel-shadow: 0 1px 2px rgba(23, 24, 27, 0.05), 0 12px 32px -20px rgba(23, 24, 27, 0.25);
+  --tc-overlay-shadow: 0 24px 48px -16px rgba(23, 24, 27, 0.3), 0 0 0 1px rgba(23, 24, 27, 0.08);
 
   --tc-field-bg: #ffffff;
-  --tc-track: #e2e8f0;
-  --tc-thumb: #64748b;
-  --tc-scrollbar: #c5ccd8;
-  --tc-scrollbar-hover: #a3adbd;
-  --tc-rail-bg: rgba(255, 255, 255, 0.8);
+  --tc-track: #dcdde0;
+  --tc-thumb: #5f636b; /* 開關關著時的圓鈕 */
+  --tc-scrollbar: #c4c6cb;
+  --tc-scrollbar-hover: #a4a7ae;
+  --tc-bar-bg: rgba(227, 228, 231, 0.78); /* 頂部導覽列：畫布色半透明，下面捲過去的內容霧化 */
+  --tc-bar-h: 64px; /* 頂部導覽列高度；sticky 的面板要往下讓這麼多 */
+
+  --tc-radius: 12px;
+  --tc-radius-lg: 22px;
+  --tc-font: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto,
+    "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --tc-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  /* 寬體科技字：只有拉丁字母，中文退回 --tc-font。用在標誌、小標題、表頭、步驟編號 */
+  --tc-display: "Michroma", var(--tc-font);
+}
+
+/* 深色：近黑畫布、炭灰卡片、橘色提亮到深底上文字也 ≥4.5:1；其餘沒寫的 token 跟著上面的 RGB 通道自動換 */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --tc-accent-rgb: 255, 106, 43;
+  --tc-ink-rgb: 200, 202, 207;
+  --tc-info-rgb: 96, 165, 250;
+  --tc-warn-rgb: 250, 204, 21;
+  --tc-err-rgb: 251, 113, 133;
+
+  --tc-canvas: #0e0f11;
+  --tc-panel: #17181b;
+  --tc-subtle: #1f2024;
+  --tc-hover: rgba(var(--tc-ink-rgb), 0.08);
+  --tc-active: rgba(var(--tc-accent-rgb), 0.12);
+
+  --tc-border: #676a72;
+  --tc-border-subtle: rgba(var(--tc-ink-rgb), 0.14);
+  --tc-border-strong: #85888f;
+
+  --tc-text: #ededee;
+  --tc-text-2: #b8bac0;
+  --tc-muted: #8e9198;
+
+  --tc-primary: #ff7a3d;
+  --tc-on-primary: #111214;
+  --tc-primary-soft: rgba(var(--tc-accent-rgb), 0.14);
+  --tc-cta: #ededee;
+  --tc-on-cta: #111214;
+
+  --tc-ok: #34d399;
+  --tc-warn: #facc15;
+  --tc-err: #fb7185;
+  --tc-info: #60a5fa;
+
+  --tc-ring-color: #ff7a3d;
+  --tc-panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 12px 32px -18px rgba(0, 0, 0, 0.8);
+  --tc-overlay-shadow: 0 28px 56px -16px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(var(--tc-ink-rgb), 0.16);
+
+  --tc-field-bg: #111214;
+  --tc-track: #2a2b2f;
+  --tc-thumb: #b8bac0;
+  --tc-scrollbar: #34363b;
+  --tc-scrollbar-hover: #464950;
+  --tc-bar-bg: rgba(14, 15, 17, 0.78);
 }
 
 /* ---------- 2. 底 ---------- */
-/* 畫布：兩團很淡的主色光暈加 32px 格線，捲動時不動 */
+/* 畫布：素面，不加光暈和格線 */
 .v-application {
   font-family: var(--tc-font);
   -webkit-font-smoothing: antialiased;
-  background:
-    radial-gradient(1100px 560px at 75% -12%, rgba(var(--tc-accent-rgb), 0.09), transparent 62%),
-    radial-gradient(900px 520px at -8% 108%, rgba(var(--tc-accent-2-rgb), 0.08), transparent 60%),
-    linear-gradient(rgba(var(--tc-ink-rgb), 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
-    linear-gradient(90deg, rgba(var(--tc-ink-rgb), 0.035) 1px, transparent 1px) 0 0 / 32px 32px,
-    var(--tc-canvas) !important;
-  background-attachment: fixed !important;
+  background: var(--tc-canvas) !important;
   color: var(--tc-text);
 }
 
@@ -138,7 +132,7 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--tc-bar-h));
   padding: 28px 32px 32px;
 }
 
@@ -150,28 +144,29 @@
   flex-wrap: wrap;
 }
 
+/* 小標題：前面一顆橘點 */
 .cc-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
-  font: 500 11px/1 var(--tc-mono);
-  letter-spacing: 0.16em;
+  margin-bottom: 8px;
+  font: 400 10.5px/1 var(--tc-display);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--tc-primary);
+  color: var(--tc-text-2);
 }
 .cc-eyebrow::before {
   content: "";
-  width: 18px;
-  height: 1px;
-  background: currentColor;
-  box-shadow: 0 0 8px currentColor;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(var(--tc-accent-rgb));
 }
 
 .cc-title {
   margin: 0;
-  font-size: 24px;
-  font-weight: 650;
+  font-size: 26px;
+  font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--tc-text);
 }
@@ -197,17 +192,17 @@
 }
 
 .cc-panel {
-  background: linear-gradient(180deg, var(--tc-sheen), transparent 120px), var(--tc-panel);
+  background: var(--tc-panel);
   border: 1px solid var(--tc-border-subtle);
   border-radius: var(--tc-radius-lg);
   box-shadow: var(--tc-panel-shadow);
 }
 
-/* 清單面板黏在畫面上，長內容自己捲 */
+/* 清單面板黏在畫面上（讓出頂部導覽列），長內容自己捲 */
 .cc-sticky {
   position: sticky;
-  top: 20px;
-  max-height: calc(100vh - 40px);
+  top: calc(var(--tc-bar-h) + 20px);
+  max-height: calc(100vh - var(--tc-bar-h) - 40px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -225,6 +220,7 @@
   border-bottom: 1px solid var(--tc-border-subtle);
 }
 
+/* 不用寬體字：它的 0 是圓角方框，「比率 · 0」這種單獨的數字看起來像缺字 */
 .cc-label {
   font: 500 11px/1.4 var(--tc-mono);
   letter-spacing: 0.12em;
@@ -243,15 +239,15 @@
   text-align: center;
   color: var(--tc-muted);
 }
+/* 橘色圓鈕：兩套主題都用亮橘，圖示固定深色（對比 5.6:1） */
 .cc-empty__icon {
   display: grid;
   place-items: center;
   width: 64px;
   height: 64px;
-  border-radius: 16px;
-  color: var(--tc-primary);
-  background: var(--tc-primary-soft);
-  box-shadow: inset 0 0 0 1px rgba(var(--tc-accent-rgb), 0.3), 0 0 32px -8px rgba(var(--tc-accent-rgb), 0.5);
+  border-radius: 50%;
+  color: #121315;
+  background: rgb(var(--tc-accent-rgb));
 }
 .cc-empty h2 { margin: 0; font-size: 17px; font-weight: 600; color: var(--tc-text); }
 .cc-empty p { margin: 0; max-width: 34rem; line-height: 1.7; }
@@ -277,7 +273,7 @@ kbd, .cc-kbd {
   font-weight: 500;
   white-space: nowrap;
   color: var(--tc-text-2);
-  background: rgba(var(--tc-ink-rgb), 0.12);
+  background: rgba(var(--tc-ink-rgb), 0.1);
   border-radius: 999px;
 }
 .tc-badge::before {
@@ -290,22 +286,21 @@ kbd, .cc-kbd {
 .tc-badge--info { color: var(--tc-info); background: rgba(var(--tc-info-rgb), 0.14); }
 .tc-badge--warn { color: var(--tc-warn); background: rgba(var(--tc-warn-rgb), 0.14); }
 .tc-badge--err { color: var(--tc-err); background: rgba(var(--tc-err-rgb), 0.14); }
-.tc-badge--err::before { box-shadow: 0 0 8px currentColor; }
 
 .tc-tag {
   display: inline-flex;
   align-items: center;
   height: 22px;
-  padding: 0 8px;
+  padding: 0 10px;
   font-size: 12px;
   white-space: nowrap;
   color: var(--tc-primary);
-  border: 1px solid rgba(var(--tc-accent-rgb), 0.4);
-  border-radius: 6px;
+  border: 1px solid rgba(var(--tc-accent-rgb), 0.5);
+  border-radius: 999px;
 }
 
 .tc-skeleton {
-  background: linear-gradient(100deg, rgba(var(--tc-ink-rgb), 0.06) 30%, rgba(var(--tc-accent-rgb), 0.12) 50%, rgba(var(--tc-ink-rgb), 0.06) 70%);
+  background: linear-gradient(100deg, rgba(var(--tc-ink-rgb), 0.06) 30%, rgba(var(--tc-ink-rgb), 0.12) 50%, rgba(var(--tc-ink-rgb), 0.06) 70%);
   background-size: 300% 100%;
 }
 @keyframes tc-shimmer {
@@ -314,8 +309,9 @@ kbd, .cc-kbd {
 }
 
 /* ---------- 5. Vuetify 覆寫 ---------- */
+/* 按鈕一律膠囊 */
 .v-btn {
-  border-radius: var(--tc-radius) !important;
+  border-radius: 999px !important;
   text-transform: none !important;
   letter-spacing: 0.01em !important;
   font-weight: 550;
@@ -334,21 +330,20 @@ kbd, .cc-kbd {
 .v-btn--variant-flat:hover { color: var(--tc-text); border-color: var(--tc-border) !important; }
 .v-btn--variant-flat:active { transform: translateY(1px); }
 
-/* 主要：青色漸層（深色主題配深色字、淺色主題配白字），hover 發光 */
+/* 主要：實心膠囊（淺色黑底、深色白底），hover 外圍一圈淡橘 */
 .v-btn--variant-flat.bg-primary {
-  background-image: var(--tc-primary-grad) !important;
-  color: var(--tc-on-primary) !important;
+  background: var(--tc-cta) !important;
+  color: var(--tc-on-cta) !important;
   border-color: transparent !important;
-  box-shadow: 0 0 0 1px rgba(var(--tc-accent-rgb), 0.4), 0 8px 24px -10px rgba(var(--tc-accent-rgb), 0.7);
 }
-.v-btn--variant-flat.bg-primary:hover { box-shadow: var(--tc-glow), 0 8px 28px -8px rgba(var(--tc-accent-rgb), 0.8); }
+.v-btn--variant-flat.bg-primary:hover { box-shadow: 0 0 0 3px rgba(var(--tc-accent-rgb), 0.35); }
 
 .v-btn--variant-flat.bg-error {
-  background: rgba(var(--tc-err-rgb), 0.16) !important;
+  background: rgba(var(--tc-err-rgb), 0.12) !important;
   color: var(--tc-err) !important;
   border-color: rgba(var(--tc-err-rgb), 0.5) !important;
 }
-.v-btn--variant-flat.bg-error:hover { background: rgba(var(--tc-err-rgb), 0.26) !important; }
+.v-btn--variant-flat.bg-error:hover { background: rgba(var(--tc-err-rgb), 0.2) !important; }
 
 .v-btn--disabled { box-shadow: none !important; }
 /* 載入中的按鈕也帶 disabled，轉圈要看得清楚，不變淡 */
@@ -359,7 +354,7 @@ kbd, .cc-kbd {
 
 /* 卡片 */
 .v-card {
-  background: linear-gradient(180deg, var(--tc-sheen), transparent 96px), var(--tc-panel) !important;
+  background: var(--tc-panel) !important;
   border: 1px solid var(--tc-border-subtle) !important;
   border-radius: var(--tc-radius-lg) !important;
   box-shadow: var(--tc-panel-shadow) !important;
@@ -368,7 +363,7 @@ kbd, .cc-kbd {
 .v-dialog > .v-overlay__content > .v-card { box-shadow: var(--tc-overlay-shadow) !important; }
 .v-overlay__scrim { backdrop-filter: blur(3px); }
 
-/* 輸入框：深一階的底，focus 時青色框加一圈光 */
+/* 輸入框：focus 時主色框加一圈淡橘 */
 .v-field--variant-outlined {
   border-radius: var(--tc-radius);
   background: var(--tc-field-bg);
@@ -382,14 +377,14 @@ kbd, .cc-kbd {
 .v-field input::placeholder,
 .v-field textarea::placeholder { color: var(--tc-muted); opacity: 1; }
 
-/* 清單項目：選中時青色底、左邊一條發光的線 */
+/* 清單項目：選中時淡橘底、左邊一條橘線 */
 .v-list { background: transparent !important; }
 .v-list-item { border-radius: var(--tc-radius) !important; }
 .v-list-item:hover { background: var(--tc-hover); }
 .v-list-item--active {
   background: var(--tc-active) !important;
   color: var(--tc-text) !important;
-  box-shadow: inset 2px 0 0 var(--tc-primary);
+  box-shadow: inset 3px 0 0 var(--tc-primary);
 }
 .v-list-item--active .v-list-item__overlay { opacity: 0 !important; }
 .v-list-item--active .v-icon { color: var(--tc-primary); }
@@ -397,8 +392,8 @@ kbd, .cc-kbd {
 /* 表格 */
 .v-table { background: transparent !important; }
 .v-table > .v-table__wrapper > table > thead > tr > th {
-  font: 500 11px/1.4 var(--tc-mono) !important;
-  letter-spacing: 0.12em;
+  font: 400 10.5px/1.5 var(--tc-display) !important;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--tc-muted) !important;
   background: var(--tc-panel) !important;
@@ -409,24 +404,22 @@ kbd, .cc-kbd {
 
 /* 分頁 */
 .v-tab.v-tab--selected { color: var(--tc-primary) !important; }
-.v-tabs .v-tab__slider { box-shadow: 0 0 10px var(--tc-primary); }
 
-/* 標籤（製圖的欄位選擇） */
-.v-chip { border-radius: 8px !important; font-weight: 500; }
+/* 標籤（製圖的欄位選擇）：膠囊 */
+.v-chip { border-radius: 999px !important; font-weight: 500; }
 .v-chip--variant-outlined { border-color: var(--tc-border-subtle) !important; color: var(--tc-text-2) !important; }
 .v-chip--variant-outlined:hover { border-color: var(--tc-border) !important; color: var(--tc-text) !important; }
 .v-chip.cc-chip--on {
   color: var(--tc-primary) !important;
   background: var(--tc-primary-soft) !important;
-  border-color: rgba(var(--tc-accent-rgb), 0.55) !important;
-  box-shadow: 0 0 16px -6px rgba(var(--tc-accent-rgb), 0.6);
+  border-color: rgba(var(--tc-accent-rgb), 0.6) !important;
 }
 .v-chip .v-chip__overlay { display: none; }
 
 /* 清單圖示跟文字的間距：Vuetify 預設 32px 太鬆 */
 .v-list-item__prepend > .v-icon ~ .v-list-item__spacer { width: 14px; }
 
-/* 開關：關的時候軌道要看得到框；開的時候青色軌道、深色圓鈕 */
+/* 開關：關的時候軌道要看得到框；開的時候主色軌道、對比色圓鈕 */
 .v-switch .v-switch__track {
   opacity: 1;
   background-color: var(--tc-track);
@@ -435,12 +428,12 @@ kbd, .cc-kbd {
 .v-switch .v-switch__thumb { background-color: var(--tc-thumb); }
 .v-switch .v-selection-control--dirty .v-switch__track {
   background-color: var(--tc-primary);
-  box-shadow: 0 0 12px -2px rgba(var(--tc-accent-rgb), 0.7);
+  box-shadow: none;
 }
 .v-switch .v-selection-control--dirty .v-switch__thumb { background-color: var(--tc-on-primary); }
 
 /* 提示框：左邊一條狀態色 */
-.v-alert { border-radius: var(--tc-radius) !important; border-left: 2px solid currentColor; }
+.v-alert { border-radius: var(--tc-radius) !important; border-left: 3px solid currentColor; }
 
 /* ---------- 6. 減少動態效果 ---------- */
 @media (prefers-reduced-motion: reduce) {

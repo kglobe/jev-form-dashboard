@@ -420,8 +420,8 @@ async function append(id) {
   color: var(--tc-text, inherit);
 }
 .cb-step__n {
-  font: 500 11px/1 var(--tc-mono, monospace);
-  letter-spacing: 0.08em;
+  font: 400 10.5px/1 var(--tc-display, monospace);
+  letter-spacing: 0.06em;
   color: var(--tc-primary, currentColor);
 }
 .cb-step__aside { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--tc-muted, inherit); }
@@ -440,7 +440,7 @@ async function append(id) {
 
 .cb-bar {
   position: sticky;
-  top: 12px;
+  top: calc(var(--tc-bar-h, 0px) + 12px); /* 讓出頂部導覽列 */
   z-index: 5;
   display: flex;
   align-items: center;
@@ -452,7 +452,7 @@ async function append(id) {
 
 .cb-empty { min-height: 420px; }
 
-/* 分析中：四張空卡片，一條青色掃描線由上往下掃 */
+/* 分析中：四張空卡片，一條主色掃描線由上往下掃 */
 .cb-scan { position: relative; overflow: hidden; padding: 20px; }
 .cb-scan__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .cb-scan__grid i {

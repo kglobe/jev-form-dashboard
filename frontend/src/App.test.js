@@ -36,12 +36,12 @@ function findDashboardItem(wrapper) {
   return wrapper.findAll('.v-list-item').find((w) => w.text().includes('Dash One'))
 }
 
-function railItem(wrapper, label) {
-  return wrapper.findAll('.cc-rail__item').find((w) => w.text() === label)
+function navItem(wrapper, label) {
+  return wrapper.findAll('.cc-topbar__item').find((w) => w.text() === label)
 }
 
 function currentView(wrapper) {
-  return wrapper.find('.cc-rail__item[aria-current="page"]').text()
+  return wrapper.find('.cc-topbar__item[aria-current="page"]').text()
 }
 
 function findButton(wrapper, label) {
@@ -77,7 +77,7 @@ describe('App', () => {
     vuetify.theme.change('dark')
     const wrapper = mountApp()
     await flushPromises()
-    const themeButton = () => wrapper.get('.cc-rail__theme')
+    const themeButton = () => wrapper.get('.cc-topbar__theme')
     expect(themeButton().attributes('aria-label')).toBe('切換成淺色主題')
     expect(themeButton().text()).toBe('淺色')
 
@@ -102,16 +102,16 @@ describe('App', () => {
     const wrapper = mountApp()
     await flushPromises()
 
-    await wrapper.get('.cc-rail__theme').trigger('click')
+    await wrapper.get('.cc-topbar__theme').trigger('click')
     expect(vuetify.theme.name.value).toBe('light')
     expect(document.documentElement.dataset.theme).toBe('light')
   })
 
-  it('rail has three workspaces, 儀表板 is active by default, and clicking one switches the view with aria-current following', async () => {
+  it('top bar has three workspaces, 儀表板 is active by default, and clicking one switches the view with aria-current following', async () => {
     const wrapper = mountApp()
     await flushPromises()
 
-    const items = wrapper.findAll('.cc-rail__nav .cc-rail__item')
+    const items = wrapper.findAll('.cc-topbar__nav .cc-topbar__item')
     expect(items.map((w) => w.text())).toEqual(['資料', '製圖', '儀表板'])
     expect(items.map((w) => w.attributes('aria-keyshortcuts'))).toEqual(['Alt+1', 'Alt+2', 'Alt+3'])
     expect(items[2].classes()).toContain('is-active')
@@ -166,7 +166,7 @@ describe('App', () => {
     await flushPromises()
 
     for (const label of ['資料', '製圖', '儀表板']) {
-      await railItem(wrapper, label).trigger('click')
+      await navItem(wrapper, label).trigger('click')
       const builder = wrapper.findComponent({ name: 'ChartBuilder' })
       expect(builder.exists()).toBe(true)
       expect(builder.props('active')).toBe(label === '製圖')
@@ -177,7 +177,7 @@ describe('App', () => {
     const wrapper = mountApp()
     await flushPromises()
 
-    await railItem(wrapper, '資料').trigger('click')
+    await navItem(wrapper, '資料').trigger('click')
     const panel = wrapper.findComponent({ name: 'DatasourcePanel' })
     expect(panel.props('selectedId')).toBeNull()
     panel.vm.$emit('select', 'ds1')
@@ -191,7 +191,7 @@ describe('App', () => {
     const first = wrapper.findComponent({ name: 'ChartBuilder' }).props('request')
     expect(first).toEqual({ id: 'ds1' })
 
-    await railItem(wrapper, '資料').trigger('click')
+    await navItem(wrapper, '資料').trigger('click')
     wrapper.findComponent({ name: 'DatasourcePanel' }).vm.$emit('build', 'ds1')
     await flushPromises()
     const second = wrapper.findComponent({ name: 'ChartBuilder' }).props('request')
@@ -203,7 +203,7 @@ describe('App', () => {
     api.getDashboard.mockResolvedValue({ id: 'd2', name: 'New Dash', datasourceId: 'ds1', layout: [] })
     const wrapper = mountApp()
     await flushPromises()
-    await railItem(wrapper, '製圖').trigger('click')
+    await navItem(wrapper, '製圖').trigger('click')
 
     api.listDashboards.mockResolvedValue([...dashboards, { id: 'd2', name: 'New Dash' }])
     wrapper.findComponent({ name: 'ChartBuilder' }).vm.$emit('saved', 'd2')
@@ -224,11 +224,11 @@ describe('App', () => {
     await findButton(wrapper, '前往資料').trigger('click')
     expect(currentView(wrapper)).toBe('資料')
 
-    await railItem(wrapper, '儀表板').trigger('click')
+    await navItem(wrapper, '儀表板').trigger('click')
     await findButton(wrapper, '開始製圖').trigger('click')
     expect(currentView(wrapper)).toBe('製圖')
 
-    await railItem(wrapper, '儀表板').trigger('click')
+    await navItem(wrapper, '儀表板').trigger('click')
     await findButton(wrapper, '新增儀表板').trigger('click')
     expect(currentView(wrapper)).toBe('製圖')
   })
