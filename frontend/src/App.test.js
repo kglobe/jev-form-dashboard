@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import App from './App.vue'
-import { api } from './modules/dashboard/index.js'
+import { api, onUnauthorized } from './modules/dashboard/index.js'
 import { vuetify } from './modules/dashboard/test-vuetify.js'
 
 vi.mock('./modules/dashboard/index.js', () => ({
@@ -10,7 +10,9 @@ vi.mock('./modules/dashboard/index.js', () => ({
     listDashboards: vi.fn(),
     getDashboard: vi.fn(),
     deleteDashboard: vi.fn(),
+    me: vi.fn(),
   },
+  onUnauthorized: vi.fn(),
   ChartBuilder: {
     name: 'ChartBuilder',
     props: ['active', 'request', 'dashboards'],
@@ -24,6 +26,11 @@ vi.mock('./modules/dashboard/index.js', () => ({
     emits: ['select', 'build'],
     template: '<div class="datasource-panel-stub" />',
   },
+}))
+
+vi.mock('./modules/auth/index.js', () => ({
+  LoginPage: { name: 'LoginPage', props: ['error', 'isLight'], emits: ['logged-in', 'retry', 'toggle-theme'], template: '<div class="login-page-stub">{{ error }}</div>' },
+  ReloginDialog: { name: 'ReloginDialog', props: ['modelValue', 'me'], emits: ['done'], template: '<div v-if="modelValue" class="relogin-stub" />' },
 }))
 
 const dashboards = [{ id: 'd1', name: 'Dash One' }]
@@ -62,6 +69,7 @@ describe('App', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     api.listDashboards.mockResolvedValue(dashboards)
+    api.me.mockResolvedValue({ username: 'u1', admin: false, password: true })
   })
 
   afterEach(() => {
@@ -71,6 +79,7 @@ describe('App', () => {
     vuetify.theme.change('light')
     delete document.documentElement.dataset.theme
     localStorage.clear()
+    history.replaceState(null, '', '/')
   })
 
   it('the theme button toggles dark/light: the Vuetify theme, <html data-theme> and localStorage follow, and the label names the other theme', async () => {
@@ -365,5 +374,84 @@ describe('App', () => {
     const after = wrapper.findComponent({ name: 'DashboardView' })
     expect(after.props('config').layout).toEqual([{ chartId: 'c2' }])
     expect(after.vm).toBe(first)
+  })
+
+  it('me 還沒回來時只有 spinner，其他都不掛，也還沒抓清單', async () => {
+    api.me.mockReturnValue(new Promise(() => {}))
+    const wrapper = mountApp()
+    await flushPromises()
+    expect(wrapper.find('.v-progress-circular').exists()).toBe(true)
+    expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'ChartBuilder' }).exists()).toBe(false)
+    expect(api.listDashboards).not.toHaveBeenCalled()
+  })
+
+  it('me 回 401 時只顯示登入頁；登入後再打 me，接著照原本的流程載入', async () => {
+    api.me.mockRejectedValueOnce(Object.assign(new Error('請先登入'), { status: 401 }))
+    const wrapper = mountApp()
+    await flushPromises()
+    const login = wrapper.findComponent({ name: 'LoginPage' })
+    expect(login.exists()).toBe(true)
+    expect(login.props('error')).toBeNull()
+    expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(false)
+    expect(api.listDashboards).not.toHaveBeenCalled()
+
+    login.vm.$emit('logged-in')
+    await flushPromises()
+    expect(api.me).toHaveBeenCalledTimes(2)
+    expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(false)
+    expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(true)
+    expect(api.listDashboards).toHaveBeenCalledTimes(1)
+  })
+
+  it('me 回其他錯誤時，登入頁拿到錯誤訊息；retry 會再打一次 me', async () => {
+    api.me.mockRejectedValueOnce(new Error('無法連線到伺服器'))
+    const wrapper = mountApp()
+    await flushPromises()
+    const login = wrapper.findComponent({ name: 'LoginPage' })
+    expect(login.props('error')).toBe('無法連線到伺服器')
+    expect(api.listDashboards).not.toHaveBeenCalled()
+
+    login.vm.$emit('retry')
+    await flushPromises()
+    expect(api.me).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(true)
+  })
+
+  it('API 回 401 時跳出重新登入，兩個 401 同時回來只開一次，畫面上的元件不卸載', async () => {
+    const wrapper = mountApp()
+    await flushPromises()
+    const builder = wrapper.findComponent({ name: 'ChartBuilder' }).vm
+    expect(wrapper.find('.relogin-stub').exists()).toBe(false)
+
+    const handler = onUnauthorized.mock.calls[0][0]
+    handler()
+    handler()
+    await flushPromises()
+    expect(wrapper.findAll('.relogin-stub')).toHaveLength(1)
+    expect(wrapper.findComponent({ name: 'ReloginDialog' }).props('me')).toEqual({ username: 'u1', admin: false, password: true })
+    expect(wrapper.findComponent({ name: 'ChartBuilder' }).vm).toBe(builder)
+    expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(true)
+  })
+
+  it('重新登入的是同一個帳號：關掉對話框，重抓清單，重新打開目前那份', async () => {
+    api.getDashboard.mockResolvedValue({ id: 'd1', name: 'Dash One', datasourceId: 'ds1', layout: [] })
+    const wrapper = mountApp()
+    await flushPromises()
+    await findDashboardItem(wrapper).trigger('click')
+    await flushPromises()
+    expect(api.getDashboard).toHaveBeenCalledTimes(1)
+
+    onUnauthorized.mock.calls[0][0]()
+    await flushPromises()
+    expect(wrapper.find('.relogin-stub').exists()).toBe(true)
+
+    wrapper.findComponent({ name: 'ReloginDialog' }).vm.$emit('done')
+    await flushPromises()
+    expect(wrapper.find('.relogin-stub').exists()).toBe(false)
+    expect(api.listDashboards).toHaveBeenCalledTimes(2)
+    expect(api.getDashboard).toHaveBeenCalledTimes(2)
+    expect(api.getDashboard).toHaveBeenLastCalledWith('d1')
   })
 })

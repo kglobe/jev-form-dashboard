@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { ChartBuilder, DashboardView, DatasourcePanel, api } from './modules/dashboard/index.js'
+import { ChartBuilder, DashboardView, DatasourcePanel, api, onUnauthorized } from './modules/dashboard/index.js'
+import { LoginPage, ReloginDialog } from './modules/auth/index.js'
+import { restoreSavedHash } from './modules/auth/session.js'
 
 const VIEWS = [
   { id: 'data', label: '資料', icon: 'mdi-database-outline' },
@@ -18,6 +20,16 @@ const dashboards = ref([])
 const current = ref(null)
 const error = ref('')
 const confirmDelete = ref(null)
+
+// 唯讀分享 spec 7.1：me 拿到之前，App 的其他元件都不掛；needLogin 是 me 回 401，bootError 是其他錯誤
+const me = ref(null)
+const needLogin = ref(false)
+const bootError = ref(null)
+// spec 7.2：登入逾時另外用一個 ref，不動 me，畫面上的元件都不卸載；多個 401 同時回來也只是設同一個 true
+const relogin = ref(false)
+onUnauthorized(() => {
+  if (me.value) relogin.value = true
+})
 
 // 深淺主題：Vuetify 換元件配色，<html data-theme> 換 command-center.css 的 token，localStorage 記住下次用哪套
 const THEME_KEY = 'jev-theme' // index.html 的 inline script 讀同一個 key
@@ -47,6 +59,26 @@ async function refresh() {
 // 製圖頁加圖時發現儀表板已經不在（在別的分頁刪了）：重抓清單，選單裡就不會再有它
 function reloadDashboards() {
   refresh().catch((e) => (error.value = e.message))
+}
+
+async function boot() {
+  needLogin.value = false
+  bootError.value = null
+  try {
+    me.value = await api.me()
+  } catch (e) {
+    if (e.status === 401) needLogin.value = true
+    else bootError.value = e.message
+    return
+  }
+  refresh().catch((e) => (error.value = e.message))
+}
+
+// spec 7.2：重新登入的是同一個帳號；剛才失敗的動作不會自動重送
+function afterRelogin() {
+  relogin.value = false
+  reloadDashboards()
+  if (current.value) open(current.value.id)
 }
 
 async function open(id) {
@@ -98,13 +130,18 @@ function onKey(e) {
 
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  refresh().catch((e) => (error.value = e.message))
+  restoreSavedHash()
+  boot()
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
   <v-app>
+    <!-- 唯讀分享 spec 7.1：開機先確認登入。下面的既有標記刻意不重排縮排，跟 feat/industrial-theme 合併時衝突才少 -->
+    <div v-if="!me && !needLogin && !bootError" class="boot"><v-progress-circular indeterminate color="primary" /></div>
+    <LoginPage v-else-if="!me" :error="bootError" :is-light="isLight" @logged-in="boot" @retry="boot" @toggle-theme="toggleTheme" />
+    <template v-else>
     <v-navigation-drawer permanent width="76" color="transparent" class="cc-rail">
       <div class="cc-logo" aria-hidden="true">JEV</div>
       <nav class="cc-rail__nav" aria-label="主要導覽">
@@ -216,6 +253,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <ReloginDialog v-model="relogin" :me="me" @done="afterRelogin" />
+    </template>
   </v-app>
 </template>
 
@@ -286,4 +325,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   line-height: 1.9;
   color: var(--tc-text-2);
 }
+.boot { min-height: 100vh; display: grid; place-items: center; }
 </style>
