@@ -136,6 +136,21 @@ class OidcLoginTest {
     }
 
     @Test
+    void theIdpCannotPickTheLocalName() throws Exception { // spec 2.3 第 4 點：本機帳號名稱不能被 IdP 的同名 claim 換掉
+        MockHttpSession s = login(Map.of("sub", "x-1", "preferred_username", "mallory", "jev_username", "u1"), "/");
+        mvc.perform(get("/api/auth/me").session(s))
+            .andExpect(status().isOk())
+            .andExpect(content().json("{\"username\":\"mallory\"}"));
+    }
+
+    @Test
+    void apiStillAnswers401JsonInsteadOfRedirectingToTheIdp() throws Exception {
+        mvc.perform(get("/api/dashboards").header("Accept", "text/html"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(content().json("{\"error\":\"請先登入\"}", JsonCompareMode.STRICT));
+    }
+
+    @Test
     void blockedLogins() throws Exception {
         // 同名的密碼帳號：不能用名稱接上（spec 2.3 第 4 點）
         TestData.addAccount(jdbc, "carol", false);
@@ -147,6 +162,11 @@ class OidcLoginTest {
                 values (:id, '舊的', 'dave', cast('{"layout":[]}' as jsonb))""")
             .param("id", UUID.randomUUID()).update();
         login(Map.of("sub", "s-4", "preferred_username", "dave"), "/?login_error=username_taken");
+        jdbc.sql("""
+                insert into datasource (id, name, kind, schema_json, created_by)
+                values (:id, '舊的', 'upload', '[]', 'hank')""")
+            .param("id", UUID.randomUUID()).update();
+        login(Map.of("sub", "s-9", "preferred_username", "hank"), "/?login_error=username_taken");
 
         // 停用的帳號
         login(Map.of("sub", "s-5", "preferred_username", "erin"), "/");

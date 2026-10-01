@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -32,7 +33,7 @@ import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
-import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
+import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
@@ -155,8 +156,11 @@ public class SecurityConfig {
             String username = StringUtils.hasText(idp.getPreferredUsername()) ? idp.getPreferredUsername()
                 : Boolean.TRUE.equals(idp.getEmailVerified()) ? idp.getEmail() : null;
             Account a = accounts.forOidc(idp.getIssuer().toString(), idp.getSubject(), username);
+            OidcIdToken t = idp.getIdToken();
+            Map<String, Object> claims = new HashMap<>(t.getClaims());
+            claims.put("jev_username", a.username()); // 放最後：DefaultOidcUser 讓 id_token 蓋過 userinfo，IdP 帶同名 claim 也不能換掉本機帳號
             return new DefaultOidcUser(AuthorityUtils.createAuthorityList(a.admin() ? "ROLE_ADMIN" : "ROLE_USER"),
-                idp.getIdToken(), new OidcUserInfo(Map.of("jev_username", a.username())), "jev_username");
+                new OidcIdToken(t.getTokenValue(), t.getIssuedAt(), t.getExpiresAt(), claims), "jev_username");
         };
     }
 
