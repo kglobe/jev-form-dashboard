@@ -33,7 +33,7 @@
 - 帳密登入自己宣告 `DaoAuthenticationProvider`：
   - 查帳號前先照 2.1 轉換帳號名稱。回傳的 `UserDetails` 用資料庫裡的帳號名稱，`Principal.getName()` 才會是小寫的那個。
   - 找不到帳號，或 `password_hash` 是 null（只用單一登入），都丟 `UsernameNotFoundException`，走 Spring 內建的防時間差處理。
-  - 停用的檢查從 pre-authentication 移到 post-authentication：密碼對了才會看到「帳號已停用」；密碼錯一律回「帳號或密碼錯誤」，不透露帳號存不存在、有沒有停用。
+  - 停用的檢查從 pre-authentication 移到 post-authentication：密碼對了才會看到「帳號已停用」；密碼錯一律回「帳號或密碼錯誤」，不透露帳號存不存在、有沒有停用。2026-10-02 起有一個例外：同一個帳號密碼連續錯 5 次以後回 429，等於說出這個帳號存在，見[登入鎖定 spec](2026-10-02-login-lockout-design.md) 2.3。
   - `ROLE_ADMIN` 或 `ROLE_USER` 照 `account.admin` 給。
 - 工作階段存在記憶體（`HttpSession`）。閒置 30 分鐘登出（Spring 預設）。後端重啟時所有人都要重新登入。
 - CSRF：照 Spring Security 6.5 文件的 SPA 作法（`CookieCsrfTokenRepository.withHttpOnlyFalse()` 加 `SpaCsrfTokenRequestHandler`）。前端從 cookie `XSRF-TOKEN` 讀出 token，每個非 GET 請求都放進 `X-XSRF-TOKEN` header，上傳檔案也一樣。
@@ -540,7 +540,7 @@ create index dashboard_share_username on dashboard_share (username);
 ## 10. 不做
 
 - 免登入的公開連結。
-- 登入失敗次數限制或鎖帳號（列進 backlog「正式上線前」P2）。
+- 登入失敗次數限制或鎖帳號（列進 backlog「正式上線前」P2）。2026-10-02 起同一個帳號密碼連續錯 5 次會鎖 15 分鐘，見[登入鎖定 spec](2026-10-02-login-lockout-design.md)。
 - 管理員重設密碼後，強制對方下次登入就改密碼。
 - 把既有的密碼帳號綁到單一登入（要的話，之後在帳號管理加「綁定單一登入」）。也因為這樣，舊資料只能由密碼帳號接手。
 - 刪除帳號、改帳號名稱。

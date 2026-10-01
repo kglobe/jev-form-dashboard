@@ -50,6 +50,16 @@ describe('LoginPage', () => {
     expect(w.emitted('logged-in')).toBeUndefined()
   })
 
+  it('登入鎖定 spec 5：被鎖住（429）也顯示後端的訊息，表單還在', async () => {
+    api.login.mockRejectedValue(Object.assign(new Error('登入失敗太多次，請 15 分鐘後再試'), { status: 429 }))
+    const w = await mountPage()
+    await w.find('form').trigger('submit')
+    await flushPromises()
+    expect(w.find('.v-alert').text()).toContain('登入失敗太多次，請 15 分鐘後再試')
+    expect(btn(w, '登入').attributes('disabled')).toBeUndefined()
+    expect(w.emitted('logged-in')).toBeUndefined()
+  })
+
   it('有 OIDC 才有單一登入按鈕', async () => {
     api.authOptions.mockResolvedValue({ oidc: { label: '公司帳號' } })
     expect(btn(await mountPage(), '用公司帳號登入')).toBeTruthy()

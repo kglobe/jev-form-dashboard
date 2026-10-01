@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
@@ -120,6 +121,17 @@ class OidcLoginTest {
         MockHttpSession admin = login(Map.of("sub", "s-3"), "/");
         mvc.perform(get("/api/admin/accounts").session(admin)).andExpect(status().isOk());
         mvc.perform(get("/api/auth/me").session(user)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aLockedAccountCanStillUseSingleSignOn() throws Exception { // 登入鎖定 spec 2.2
+        login(Map.of("sub", "s-10", "preferred_username", "ivan"), "/");
+        jdbc.sql("update account set password_hash = :h where username = 'ivan'").param("h", TestData.PASSWORD_HASH).update();
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(formLogin("/api/auth/login").user("ivan").password("wrong-password-1")).andExpect(status().isUnauthorized());
+        }
+        mvc.perform(formLogin("/api/auth/login").user("ivan").password(TestData.PASSWORD)).andExpect(status().isTooManyRequests());
+        mvc.perform(get("/api/auth/me").session(login(Map.of("sub", "s-10"), "/"))).andExpect(status().isOk());
     }
 
     @Test

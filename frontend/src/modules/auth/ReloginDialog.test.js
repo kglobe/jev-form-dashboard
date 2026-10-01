@@ -85,6 +85,16 @@ describe('ReloginDialog', () => {
     expect(document.body.textContent).not.toContain('無法連線到伺服器')
   })
 
+  it('登入鎖定 spec 5：被鎖住（429）時對話框顯示後端的訊息，不打 me、不關', async () => {
+    api.login.mockRejectedValue(Object.assign(new Error('登入失敗太多次，請 3 分鐘後再試'), { status: 429 }))
+    const w = await mountDialog()
+    await loginAgain(w)
+    expect(document.body.textContent).toContain('登入失敗太多次，請 3 分鐘後再試')
+    expect(api.me).not.toHaveBeenCalled()
+    expect(w.emitted('done')).toBeUndefined()
+    expect(bodyButton('登入').disabled).toBe(false)
+  })
+
   it('換了另一個帳號：呼叫 resetAndReload，不 emit done', async () => {
     api.me.mockResolvedValue({ username: 'u2', admin: false, password: true })
     const w = await mountDialog()

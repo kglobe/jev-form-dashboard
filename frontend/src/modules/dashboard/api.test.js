@@ -62,6 +62,14 @@ describe('api', () => {
     expect(handler).not.toHaveBeenCalled()
   })
 
+  it('登入鎖定 spec 5：login 的 429 不呼叫 onUnauthorized，訊息照後端，status 是 429', async () => {
+    const handler = vi.fn()
+    onUnauthorized(handler)
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '登入失敗太多次，請 15 分鐘後再試' }, { status: 429 }))
+    await expect(api.login('u1', 'pw')).rejects.toMatchObject({ message: '登入失敗太多次，請 15 分鐘後再試', status: 429 })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('login 用 URLSearchParams 原樣送出，不設 Content-Type', async () => {
     fetch.mockResolvedValueOnce(jsonResponse(null, { status: 204 }))
     await api.login('u1', 'pw')
