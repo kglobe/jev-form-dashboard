@@ -45,7 +45,7 @@ describe('PasswordDialog', () => {
     expect(input('新密碼').attributes('autocomplete')).toBe('new-password')
     expect(input('再輸入一次新密碼').attributes('autocomplete')).toBe('new-password')
     for (const label of ['目前的密碼', '新密碼', '再輸入一次新密碼']) expect(input(label).attributes('type')).toBe('password')
-    expect(field(w, '新密碼').props('hint')).toBe('至少 12 個字元')
+    expect(field(w, '新密碼').props('hint')).toBe('至少 8 個字元')
     expect(field(w, '目前的密碼').props('autofocus')).toBe(true)
     expect(bodyButton('取消')).toBeTruthy()
     expect(bodyButton('更新密碼')).toBeTruthy()

@@ -134,9 +134,10 @@ class AccountControllerTest {
 
     @Test
     void createChecksThePasswordRules() throws Exception { // spec 2.1
-        error(create("alice", "short-pass1"), 400, "密碼至少要 12 個字元"); // 11 個字
+        error(create("alice", "short-1"), 400, "密碼至少要 8 個字元"); // 7 個字
         error(create("alice", "營".repeat(25)), 400, "密碼太長，最多 72 個位元組（約 24 個中文字）"); // 75 bytes
         error(create("long-account-1", "long-account-1"), 400, "密碼不能跟帳號一樣");
+        create("alice", "11111111").andExpect(status().isCreated()); // 剛好 8 個字可以
     }
 
     @Test
