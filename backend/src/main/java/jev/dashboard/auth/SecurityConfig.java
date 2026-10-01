@@ -9,6 +9,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,7 +17,9 @@ import java.util.function.Supplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.InternalAuthenticationServiceException;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.authority.AuthorityUtils;
@@ -76,6 +79,8 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper json, AccountRepository accounts,
             AuthProperties props, AccountService accountService) throws Exception {
+        // spec 2.1：開始登入的時間（讀帳號之前）放在 details，AccountCheckFilter 拿它跟 sessions_valid_after 比
+        AuthenticationDetailsSource<HttpServletRequest, Instant> loginStarted = req -> Instant.now();
         http
             .authorizeHttpRequests(a -> a
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
@@ -88,13 +93,16 @@ public class SecurityConfig {
                 .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
             .formLogin(f -> f
                 .loginProcessingUrl("/api/auth/login")
+                .authenticationDetailsSource(loginStarted)
                 .successHandler((req, res, auth) -> res.setStatus(HttpServletResponse.SC_NO_CONTENT))
-                .failureHandler((req, res, e) -> writeError(res, json, 401,
-                    e instanceof DisabledException ? "帳號已停用，請聯絡管理員" : "帳號或密碼錯誤")))
+                .failureHandler((req, res, e) -> {
+                    if (e instanceof InternalAuthenticationServiceException) writeError(res, json, 500, "伺服器錯誤"); // 查帳號時資料庫失敗
+                    else writeError(res, json, 401, e instanceof DisabledException ? "帳號已停用，請聯絡管理員" : "帳號或密碼錯誤");
+                }))
             .logout(l -> l
                 .logoutUrl("/api/auth/logout")
                 .logoutSuccessHandler(new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT)))
-            .sessionManagement(s -> s.sessionFixation(f -> f.newSession())) // 工作階段的建立時間就是登入時間（spec 2.1）
+            .sessionManagement(s -> s.sessionFixation(f -> f.newSession())) // spec 2.1：登入一律換新的工作階段
             .requestCache(r -> r.requestCache(new NullRequestCache()))
             .exceptionHandling(e -> e // 設了 entry point，Spring 就不會自己產生 /login 頁
                 .authenticationEntryPoint((req, res, ex) -> writeError(res, json, 401, "請先登入"))
@@ -106,6 +114,7 @@ public class SecurityConfig {
             requireSecureIssuer(oidc.issuerUri());
             http.oauth2Login(o -> o
                 .clientRegistrationRepository(lazyRegistration(oidc))
+                .authenticationDetailsSource(loginStarted)
                 .userInfoEndpoint(u -> u
                     .oidcUserService(localAccounts(accountService))
                     .userService(r -> { throw new OAuth2AuthenticationException(new OAuth2Error("invalid_request")); })) // 只收 OIDC
@@ -119,7 +128,8 @@ public class SecurityConfig {
     /** spec 2.3：issuer 要用 https，本機測試才放行 http://127.0.0.1。看解析後的 scheme 和 host，不比字串開頭。 */
     static void requireSecureIssuer(String issuer) {
         URI u = URI.create(issuer);
-        boolean ok = "https".equals(u.getScheme()) || ("http".equals(u.getScheme()) && "127.0.0.1".equals(u.getHost()));
+        boolean ok = "https".equalsIgnoreCase(u.getScheme())
+            || ("http".equalsIgnoreCase(u.getScheme()) && "127.0.0.1".equals(u.getHost())); // scheme 不分大小寫（RFC 3986）
         if (!ok) throw new IllegalStateException("OIDC_ISSUER_URI 要用 https（本機測試才用 http://127.0.0.1）：" + issuer);
     }
 

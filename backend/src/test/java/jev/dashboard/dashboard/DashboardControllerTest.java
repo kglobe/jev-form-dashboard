@@ -3,6 +3,7 @@ package jev.dashboard.dashboard;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -113,7 +114,7 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.publicLink").value(false))
-            .andExpect(jsonPath("$.users").isEmpty());
+            .andExpect(jsonPath("$.users").value(empty()));
 
         mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
@@ -129,7 +130,7 @@ class DashboardControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.publicLink").value(false))
-            .andExpect(jsonPath("$.users").isEmpty());
+            .andExpect(jsonPath("$.users").value(empty()));
     }
 
     @Test
@@ -146,6 +147,8 @@ class DashboardControllerTest {
 
         jdbc.sql("update account set enabled = false where username = 'u3'").update();
         putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u3\"]}", 200);
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.users").value(contains("u3")));
     }
 
     @Test

@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.net.URLDecoder;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -92,9 +93,33 @@ class OidcLoginTest {
     void issuerMustBeHttpsOrLoopback() {
         assertThatCode(() -> SecurityConfig.requireSecureIssuer("https://idp.example")).doesNotThrowAnyException();
         assertThatCode(() -> SecurityConfig.requireSecureIssuer("http://127.0.0.1:9000")).doesNotThrowAnyException();
+        assertThatCode(() -> SecurityConfig.requireSecureIssuer("HTTPS://idp.example")).doesNotThrowAnyException();
         for (String bad : List.of("http://idp.example", "http://127.0.0.1.evil.example", "ftp://127.0.0.1")) {
             assertThrows(IllegalStateException.class, () -> SecurityConfig.requireSecureIssuer(bad), bad);
         }
+        // .env 行尾多打的空白：去掉後再檢查、再拿去讀 discovery
+        assertThat(new AuthProperties.Oidc(" https://idp.example 	", "id", null, null).issuerUri()).isEqualTo("https://idp.example");
+    }
+
+    @Test
+    void aBlankLabelFallsBackToTheDefault() { // spec 第 3 節：.env 寫了空的 OIDC_LABEL= 也算沒設
+        AuthProperties props = new AuthProperties(null, null, new AuthProperties.Oidc("https://idp.example", "id", null, " "));
+        assertThat(new AuthController(null, null, props).options().oidc().label()).isEqualTo("公司帳號");
+    }
+
+    @Test
+    void anOidcLoginGetsItsRoleFromTheAccount() throws Exception { // spec 2.2、2.3
+        MockHttpSession user = login(Map.of("sub", "s-3", "preferred_username", "carol"), "/");
+        mvc.perform(get("/api/admin/accounts").session(user))
+            .andExpect(status().isForbidden())
+            .andExpect(content().json("{\"error\":\"沒有權限\"}", JsonCompareMode.STRICT));
+
+        // 跟帳號管理一樣更新 sessions_valid_after：之後的單一登入要帶著開始登入的時間，才過得了帳號檢查（spec 2.1）
+        accounts.setAdmin("carol", true, Instant.now());
+        Thread.sleep(2);
+        MockHttpSession admin = login(Map.of("sub", "s-3"), "/");
+        mvc.perform(get("/api/admin/accounts").session(admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/auth/me").session(user)).andExpect(status().isUnauthorized());
     }
 
     @Test

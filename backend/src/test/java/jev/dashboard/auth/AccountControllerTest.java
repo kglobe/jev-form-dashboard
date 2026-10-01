@@ -79,6 +79,12 @@ class AccountControllerTest {
     }
 
     @Test
+    void aRealLoginGetsItsRoleFromTheAccount() throws Exception { // spec 2.2：TestData.as 不經過帳密登入，這裡真的登入
+        error(mvc.perform(get("/api/admin/accounts").session(login("u1", TestData.PASSWORD))), 403, "沒有權限");
+        mvc.perform(get("/api/admin/accounts").session(login("boss", TestData.PASSWORD))).andExpect(status().isOk());
+    }
+
+    @Test
     void listIsSortedAndShowsHowEachAccountLogsIn() throws Exception {
         jdbc.sql("""
                 insert into account (username, oidc_issuer, oidc_subject)

@@ -77,11 +77,11 @@ class AuthControllerTest {
             .andExpect(jsonPath("$.admin").value(true))
             .andExpect(jsonPath("$.password").value(true));
 
-        // 讀資料庫，不是讀 session 裡的權限
-        jdbc.sql("update account set admin = false where username = 'boss'").update();
+        // 讀資料庫，不是讀 session（admin 跟 session 的權限不一樣時，帳號檢查會先回 401，所以用 password 看）
+        jdbc.sql("update account set password_hash = null where username = 'boss'").update();
         mvc.perform(get("/api/auth/me").session(s))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.admin").value(false));
+            .andExpect(jsonPath("$.password").value(false));
     }
 
     @Test

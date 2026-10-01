@@ -3,6 +3,7 @@ package jev.dashboard.auth;
 import java.security.Principal;
 import jev.dashboard.ApiException;
 import org.springframework.http.HttpStatus;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -38,7 +39,9 @@ public class AuthController {
     @GetMapping("/options")
     public Options options() {
         AuthProperties.Oidc oidc = props.oidc();
-        return new Options(oidc != null && oidc.enabled() ? new OidcOption(oidc.label()) : null);
+        if (oidc == null || !oidc.enabled()) return new Options(null);
+        // spec 第 3 節：.env 寫了空的 OIDC_LABEL= 也當作沒設
+        return new Options(new OidcOption(StringUtils.hasText(oidc.label()) ? oidc.label() : "公司帳號"));
     }
 
     @GetMapping("/me")
