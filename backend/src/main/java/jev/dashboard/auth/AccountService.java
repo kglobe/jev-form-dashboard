@@ -1,10 +1,13 @@
 package jev.dashboard.auth;
 
 import java.time.Instant;
+import java.util.Optional;
 import jev.dashboard.ApiException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -67,6 +70,27 @@ public class AccountService {
         find(u);
         Account.requirePassword(u, password);
         accounts.setPassword(u, encoder.encode(password), Instant.now());
+    }
+
+    /**
+     * 唯讀分享 spec 2.3 帳號對應：只認 (issuer, sub)，不用帳號名稱接上既有帳號或舊資料。
+     * ponytail: 兩個人同時用同一個新名稱第一次登入，主鍵衝突會變成 500；下次再按就是 username_taken
+     */
+    public Account forOidc(String issuer, String subject, String rawUsername) {
+        Optional<Account> bound = accounts.findByOidc(issuer, subject);
+        if (bound.isPresent()) {
+            if (!bound.get().enabled()) throw new OAuth2AuthenticationException(new OAuth2Error("account_disabled"));
+            return bound.get();
+        }
+        String u = Account.normalize(rawUsername);
+        if (u == null || !Account.USERNAME.matcher(u).matches()) {
+            throw new OAuth2AuthenticationException(new OAuth2Error("no_username"));
+        }
+        if (accounts.find(u).isPresent() || accounts.hasLegacyData(u)) {
+            throw new OAuth2AuthenticationException(new OAuth2Error("username_taken"));
+        }
+        accounts.insert(u, null, false, issuer, subject);
+        return accounts.find(u).orElseThrow();
     }
 
     private Account find(String username) {

@@ -1,11 +1,16 @@
 package jev.dashboard.auth;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,10 +18,23 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserService;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.ClientRegistrations;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.oidc.OidcUserInfo;
+import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AnonymousAuthenticationFilter;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
@@ -55,8 +73,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper json, AccountRepository accounts)
-            throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper json, AccountRepository accounts,
+            AuthProperties props, AccountService accountService) throws Exception {
         http
             .authorizeHttpRequests(a -> a
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
@@ -82,7 +100,64 @@ public class SecurityConfig {
                 .accessDeniedHandler((req, res, ex) -> writeError(res, json, 403,
                     ex instanceof CsrfException ? "頁面已過期，請重新整理" : "沒有權限")))
             .addFilterAfter(new AccountCheckFilter(accounts, json), AnonymousAuthenticationFilter.class); // spec 2.1
+        if (props.oidc() != null && props.oidc().enabled()) { // spec 2.3：兩個都有填才碰 OIDC
+            AuthProperties.Oidc oidc = props.oidc();
+            requireSecureIssuer(oidc.issuerUri());
+            http.oauth2Login(o -> o
+                .clientRegistrationRepository(lazyRegistration(oidc))
+                .userInfoEndpoint(u -> u
+                    .oidcUserService(localAccounts(accountService))
+                    .userService(r -> { throw new OAuth2AuthenticationException(new OAuth2Error("invalid_request")); })) // 只收 OIDC
+                .defaultSuccessUrl("/", true)
+                .failureHandler((req, res, e) -> res.sendRedirect("/?login_error=" + URLEncoder.encode(
+                    e instanceof OAuth2AuthenticationException o2 ? o2.getError().getErrorCode() : "failed", UTF_8))));
+        }
         return http.build();
+    }
+
+    /** spec 2.3：issuer 要用 https，本機測試才放行 http://127.0.0.1。看解析後的 scheme 和 host，不比字串開頭。 */
+    static void requireSecureIssuer(String issuer) {
+        URI u = URI.create(issuer);
+        boolean ok = "https".equals(u.getScheme()) || ("http".equals(u.getScheme()) && "127.0.0.1".equals(u.getHost()));
+        if (!ok) throw new IllegalStateException("OIDC_ISSUER_URI 要用 https（本機測試才用 http://127.0.0.1）：" + issuer);
+    }
+
+    /**
+     * spec 2.3：第一次有人按按鈕才去讀 issuer 的 discovery，讀到就記住；IdP 掛掉時帳密登入和啟動都不受影響。
+     * ponytail: IdP 掛掉時按按鈕會看到 Spring 的錯誤頁，下次再按會重試；真的常發生，再自己接 OAuth2AuthorizationRequestRedirectFilter 的失敗處理
+     */
+    static ClientRegistrationRepository lazyRegistration(AuthProperties.Oidc p) {
+        AtomicReference<ClientRegistration> cached = new AtomicReference<>();
+        return id -> {
+            if (!"oidc".equals(id)) return null;
+            ClientRegistration r = cached.get();
+            if (r == null) {
+                boolean secret = StringUtils.hasText(p.clientSecret());
+                ClientRegistration.Builder b = ClientRegistrations.fromIssuerLocation(p.issuerUri()) // 會檢查 issuer 一字不差
+                    .registrationId("oidc")
+                    .clientId(p.clientId())
+                    .clientAuthenticationMethod(secret ? ClientAuthenticationMethod.CLIENT_SECRET_BASIC : ClientAuthenticationMethod.NONE)
+                    .scope("openid", "profile", "email")
+                    .clientSettings(ClientRegistration.ClientSettings.builder().requireProofKey(true).build()); // 6.5 才有
+                if (secret) b.clientSecret(p.clientSecret());
+                r = b.build(); // redirectUri 預設 {baseUrl}/{action}/oauth2/code/{registrationId}
+                cached.set(r);
+            }
+            return r;
+        };
+    }
+
+    /** spec 2.3：包在 OidcUserService 外面，對應到本機帳號；name attribute 是本機帳號名稱，Principal.getName() 才跟帳密登入一致。 */
+    static OAuth2UserService<OidcUserRequest, OidcUser> localAccounts(AccountService accounts) {
+        OidcUserService delegate = new OidcUserService();
+        return req -> {
+            OidcUser idp = delegate.loadUser(req); // 驗 id_token；沒有 userinfo_endpoint 就不打 userinfo
+            String username = StringUtils.hasText(idp.getPreferredUsername()) ? idp.getPreferredUsername()
+                : Boolean.TRUE.equals(idp.getEmailVerified()) ? idp.getEmail() : null;
+            Account a = accounts.forOidc(idp.getIssuer().toString(), idp.getSubject(), username);
+            return new DefaultOidcUser(AuthorityUtils.createAuthorityList(a.admin() ? "ROLE_ADMIN" : "ROLE_USER"),
+                idp.getIdToken(), new OidcUserInfo(Map.of("jev_username", a.username())), "jev_username");
+        };
     }
 
     /** spec 2.2：安全設定裡的錯誤都從這裡寫，charset 一定要是 UTF-8，中文才不會變成問號。 */

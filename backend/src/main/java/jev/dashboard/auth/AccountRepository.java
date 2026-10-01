@@ -73,6 +73,23 @@ public class AccountRepository {
         return jdbc.sql("select exists(select 1 from account where admin and enabled)").query(Boolean.class).single();
     }
 
+    /** 唯讀分享 spec 2.3：單一登入只認 (issuer, sub)。 */
+    public Optional<Account> findByOidc(String issuer, String subject) {
+        return jdbc.sql("select * from account where oidc_issuer = :i and oidc_subject = :s")
+            .param("i", issuer)
+            .param("s", subject)
+            .query(this::map).optional();
+    }
+
+    /** 唯讀分享 spec 2.3：dashboard、datasource 有沒有 created_by 是這個名稱的舊資料。 */
+    public boolean hasLegacyData(String username) {
+        return jdbc.sql("""
+                select exists(select 1 from dashboard where created_by = :u)
+                    or exists(select 1 from datasource where created_by = :u)""")
+            .param("u", username)
+            .query(Boolean.class).single();
+    }
+
     private Account map(ResultSet rs, int rowNum) throws SQLException {
         return new Account(rs.getString("username"), rs.getString("password_hash"), rs.getBoolean("admin"),
             rs.getBoolean("enabled"), rs.getString("oidc_issuer"), rs.getString("oidc_subject"),
