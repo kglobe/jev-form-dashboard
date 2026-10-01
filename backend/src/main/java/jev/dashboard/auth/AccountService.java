@@ -14,10 +14,12 @@ import org.springframework.stereotype.Service;
 public class AccountService {
     private final AccountRepository accounts;
     private final PasswordEncoder encoder;
+    private final LoginLockout lockout;
 
-    public AccountService(AccountRepository accounts, PasswordEncoder encoder) {
+    public AccountService(AccountRepository accounts, PasswordEncoder encoder, LoginLockout lockout) {
         this.accounts = accounts;
         this.encoder = encoder;
+        this.lockout = lockout;
     }
 
     /** 唯讀分享 spec 2.1、4.1：成功後這個帳號所有工作階段都失效，包括目前這個。 */
@@ -61,7 +63,7 @@ public class AccountService {
         return find(u);
     }
 
-    /** 唯讀分享 spec 4.2：管理員設定或重設別人的密碼，單一登入的帳號也可以。 */
+    /** 唯讀分享 spec 4.2：管理員設定或重設別人的密碼，單一登入的帳號也可以。登入鎖定 spec 2.4：順便解鎖。 */
     public void resetPassword(String self, String username, String password) {
         String u = Account.normalize(username);
         if (u.equals(self)) {
@@ -70,6 +72,7 @@ public class AccountService {
         find(u);
         Account.requirePassword(u, password);
         accounts.setPassword(u, encoder.encode(password), Instant.now());
+        lockout.clear(u);
     }
 
     /**

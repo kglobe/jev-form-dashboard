@@ -21,10 +21,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.InternalAuthenticationServiceException;
+import org.springframework.security.authentication.LockedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -61,14 +64,22 @@ public class SecurityConfig {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder(); // 存成 {bcrypt}…
     }
 
-    /** 唯讀分享 spec 2.2：帳密登入。停用的檢查移到密碼比對之後，密碼錯一律「帳號或密碼錯誤」。 */
+    /**
+     * 唯讀分享 spec 2.2：帳密登入。停用的檢查移到密碼比對之後，密碼錯一律「帳號或密碼錯誤」。
+     * 登入鎖定 spec 4：查到帳號之後、比對密碼之前先過 LoginLockout，找不到的帳號不會被算到。
+     */
     @Bean
-    DaoAuthenticationProvider passwordLogin(AccountRepository accounts, PasswordEncoder encoder) {
+    DaoAuthenticationProvider passwordLogin(AccountRepository accounts, PasswordEncoder encoder, LoginLockout lockout) {
         DaoAuthenticationProvider p = new DaoAuthenticationProvider(username -> accounts.find(Account.normalize(username))
             .filter(a -> a.passwordHash() != null) // 只用單一登入的帳號當作不存在，走 Spring 內建的防時間差處理
             .map(a -> User.withUsername(a.username()).password(a.passwordHash())
                 .roles(a.admin() ? "ADMIN" : "USER").disabled(!a.enabled()).build())
-            .orElseThrow(() -> new UsernameNotFoundException(username)));
+            .orElseThrow(() -> new UsernameNotFoundException(username))) {
+            @Override
+            protected void additionalAuthenticationChecks(UserDetails user, UsernamePasswordAuthenticationToken auth) {
+                lockout.check(user.getUsername(), () -> super.additionalAuthenticationChecks(user, auth));
+            }
+        };
         p.setPasswordEncoder(encoder);
         p.setPreAuthenticationChecks(user -> {});
         p.setPostAuthenticationChecks(user -> {
@@ -99,6 +110,7 @@ public class SecurityConfig {
                 .successHandler((req, res, auth) -> res.setStatus(HttpServletResponse.SC_NO_CONTENT))
                 .failureHandler((req, res, e) -> {
                     if (e instanceof InternalAuthenticationServiceException) writeError(res, json, 500, "伺服器錯誤"); // 查帳號時資料庫失敗
+                    else if (e instanceof LockedException) writeError(res, json, 429, e.getMessage()); // 登入鎖定 spec 2.2
                     else writeError(res, json, 401, e instanceof DisabledException ? "帳號已停用，請聯絡管理員" : "帳號或密碼錯誤");
                 }))
             .logout(l -> l
