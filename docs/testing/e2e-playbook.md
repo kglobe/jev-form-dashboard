@@ -5,6 +5,8 @@
 
 S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。
 
+第一次全跑在 2026-10-02，commit `79435c3`（integ：main 加上這三個 branch 和這份劇本）。241 步裡 236 PASS、4 FAIL，S10-5 條件沒成立所以沒跑。4 個 FAIL 都是已知的產品問題，那幾步的預期結果後面都標了「已知問題（backlog 2026-10-02）」。劇本跟 App 實際行為對不上的步驟，已經照那次的結果改了。
+
 ## 1. 怎麼跑
 
 - 每次都開一個全新的環境（第 2 節），從 S00 跑到 S99。前一節留下的資料，後一節會接著用，所以不能跳著跑；要跳過某一節，先看它的「留下的狀態」，確定後面沒有用到。
@@ -15,6 +17,7 @@ S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 h
   - 截圖：`take_screenshot` 存到這次的執行資料夾（第 2.4 節），存完一定要用 Read 打開來看，照第 6 節的規則判斷。沒打開看過的截圖，那一步不能記 PASS。
 - 標〔JEV〕的預期取決於 JEV 的判斷（挑哪幾張圖、要不要標異常），沒出現記在備註，不算 FAIL；有出現的話，它的資料一樣要對。
 - 每一步都要記結果（第 9 節的範本）。FAIL 不用停下來，記好之後繼續；後面的步驟因此跑不下去時，記「BLOCKED（因為 Sxx-n）」。
+- 標了「已知問題（backlog 2026-10-02）」的步驟，問題在第一次全跑時就找到了，也已經記進 `docs/backlog.md`。看到的情況跟標註一樣，就記 FAIL，備註寫「已知問題（backlog 2026-10-02）」，不用再查原因；情況不一樣，才照第 10 節回報。問題修好以後，這一步應該要 PASS。
 
 ## 2. 環境
 
@@ -61,9 +64,13 @@ L1 登入：在登入頁 `fill`「帳號」和「密碼」，按「登入」，`
 
 ### 2.5 MCP 的幾個眉角
 
-- `fill` 填到已經有值的 Vuetify 欄位，會接在原本的字後面，不會取代。要取代就用 `jev.setField(標籤, 值)`：它用原生的 `HTMLInputElement.prototype.value` setter 設值，再送一個 `input` 事件。
+- `fill` 填到已經有值的 Vuetify 欄位，會接在原本的字後面，不會取代。要取代就用 `jev.setField(標籤, 值)`：它用原生的 `HTMLInputElement.prototype.value` setter 設值，再送一個 `input` 事件。只送 `input`、不送 `change`，所以靠 `change` 存檔的欄位（例如顯示名稱）用它改了也不會存。
 - 很大的頁面（例如 500 列的明細表）會讓 `take_snapshot` 爆量，改用 `evaluate_script` 讀；輸出太長就帶 `filePath` 存檔再讀。
-- 顯示名稱欄位是「按 Enter 或離開輸入框才存」，`fill` 完要 `press_key` Enter。
+- 顯示名稱欄位是「按 Enter 或離開輸入框才存」，`fill` 完要 `press_key` Enter。要清空或改掉已經有的顯示名稱，不要用 `jev.setField`，改用真的按鍵：`click` 那一格，`press_key` Control+A、Backspace（要改成別的字就再 `type_text`），最後 Enter。
+- 拖拉卡片一律用 `jev.dragBy`（第 5 節）。卡片的標題列 `.card-drag` 在 a11y 樹裡是 ignored，`take_snapshot` 拿不到它的 uid；就算對標題文字用 MCP `drag`，也觸發不了格線的 pointer 拖拉。
+- 復原提示只留 6 秒，分開呼叫 MCP 工具會來不及，按 ✕ 和按「復原」要寫在同一個 `evaluate_script` 裡（S07-7）。
+- 製圖頁往下捲之後，上方黏著的名稱列（儀表板名稱、捨棄、存成新儀表板）會蓋住卡片的標題列，MCP `click` 會點到名稱列。要點卡片上的按鈕，先跑 `() => window.scrollTo(0, 0)`。
+- `resize_page` 最窄只能縮到約 500px。要更窄的畫面，改用 `emulate` 的 viewport（例如 `390x844x2`），用完再用 `emulate` 把 viewport 清掉。
 - 對話框關掉後，Vuetify 的欄位可能還留在 DOM 裡；`take_snapshot` 找 uid 時，認明是目前打開的對話框裡的那一個。
 
 ## 3. S00 準備環境
@@ -270,7 +277,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       el.dispatchEvent(new Event('input', { bubbles: true }))
       return el.value
     },
-    // 備案：MCP drag 沒讓卡片動時才用；用 pointer 事件拖 el 的中心點 dx、dy 像素
+    // 拖拉卡片一律用這個（MCP drag 拖不動格線）；用 pointer 事件把 el 的中心點拖 dx、dy 像素
     dragBy: async (el, dx, dy) => {
       const r = el.getBoundingClientRect()
       const x = r.left + r.width / 2
@@ -321,7 +328,8 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 用名稱找儀表板 id | `async () => window.jev.dashId('E2E 銷售總覽')` |
 | 自己組一張卡片驗數字（不經過 JEV） | `async () => { const ds = await window.jev.source('退貨（補產品主檔）'); return window.jev.card(ds.id, { x: '類別', value: '退貨金額' }) }` |
 | 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告 | `() => window.jev.cards()` |
-| 取代欄位內容 | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
+| 取代欄位內容（只送 `input`；顯示名稱這類靠 `change` 存檔的欄位不能用，見 2.5） | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
+| 拖拉或縮放卡片 | `async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` |
 
 卡片摘要的欄位：`dims` 是維度名稱（已套用顯示名稱）；`rows` 是列數；`nulls` 是空值格數；`x` 是第一欄出現過的值，依時間的圖就是月份清單；`sums` 是每個數字欄的總和；`data` 在 24 列以內時附上全部的列；`percent`、`ratioPeriod` 只有比率才有。
 
@@ -349,7 +357,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 比率 | Y 軸和 tooltip 是百分比；空的那期是缺口，不是畫成 0%；有排除期間時，圖下方有「只算 …（分子、分母都有資料的月份）」 |
 | 明細表 | 表頭是顯示名稱，列數對；沒有「僅顯示前 500 筆」 |
 
-- X 軸標籤擠到被省略時，用 `resize_page` 把視窗拉寬再截一次，不要猜。
+- X 軸標籤擠到被省略時，用 `resize_page` 把視窗拉寬再截一次，不要猜。1440px 寬的視窗裡，半寬（w6）卡片的 7 個月份會隔一個省略一個，拉到 1900px 寬才會全部顯示。
 
 ## 7. 章節
 
@@ -361,7 +369,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S01-1 | `new_page` `http://localhost:5181`，`isolatedContext: "e2e-admin"`，記下 pageId；跑第 5 節的 helper | 登入頁：卡片標題「JEV 儀表板」，欄位「帳號」「密碼」，按鈕「登入」；沒有「用公司帳號登入」（沒設 OIDC）；右上角有切換主題的按鈕 | 畫面、截圖 |
+| S01-1 | `new_page` `http://localhost:5181`，`isolatedContext: "e2e-admin"`，記下 pageId；跑第 5 節的 helper | 登入頁：卡片標題「JEV 儀表板」，欄位「帳號」「密碼」，按鈕「登入」；沒有「用公司帳號登入」（沒設 OIDC）；登入卡片的右上角有切換主題的按鈕 | 畫面、截圖 |
 | S01-2 | 帳號 `e2e-admin`、密碼 `wrong-pass-1`，按「登入」 | 卡片裡出現「帳號或密碼錯誤」，還在登入頁 | 畫面 |
 | S01-3 | `jev.api('GET', '/api/auth/me')` | 401，`{"error":"請先登入"}` | API |
 | S01-4 | `new_page` `http://localhost:5181`，`isolatedContext: "anon"`；帳號 `nobody`、密碼 `whatever-123`，按「登入」 | 一樣是「帳號或密碼錯誤」，看不出帳號存不存在 | 畫面 |
@@ -388,8 +396,8 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S02-3 | 照樣建 `bob`／`Bob-pass-01`、`carol`／`Carol-pass-01`、`dave`／`Dave-pass-01` | 表格共 5 列 | 畫面 |
 | S02-4 | 帳號 `Alice`、初始密碼 `Whatever-01`，按「新增帳號」 | 「帳號「alice」已經存在」 | 畫面 |
 | S02-5 | 帳號換成 `x`（用 setField），按「新增帳號」 | 「帳號要以英文字母或數字開頭，只能用英文字母、數字和 . _ @ -，長度 2～64」 | 畫面 |
-| S02-6 | 帳號 `eve01`、初始密碼 `short7c` | 「密碼至少要 8 個字元」 | 畫面 |
-| S02-7 | 帳號 `evelyn01`、初始密碼 `evelyn01` | 「密碼不能跟帳號一樣」 | 畫面 |
+| S02-6 | 帳號 `eve01`、初始密碼 `short7c`，按「新增帳號」 | 「密碼至少要 8 個字元」 | 畫面 |
+| S02-7 | 帳號 `evelyn01`、初始密碼 `evelyn01`，按「新增帳號」 | 「密碼不能跟帳號一樣」 | 畫面 |
 | S02-8 | `jev.api('GET', '/api/admin/accounts')` | 5 個帳號（e2e-admin、alice、bob、carol、dave），沒有 eve01、evelyn01 | API |
 | S02-9 | `jev.api('PATCH', '/api/admin/accounts/e2e-admin', { enabled: false })`；`{ admin: false }`；`jev.api('PUT', '/api/admin/accounts/e2e-admin/password', { password: 'Another-pass-1' })` | 都是 400：「不能停用自己的帳號」「不能取消自己的管理員」「自己的密碼請用「改密碼」」 | API |
 | S02-10 | `new_page`，`isolatedContext: "alice"`，L1 登入 alice／`Alice-init-01`；按「帳號」 | 選單：「alice」、「改密碼」、「登出」，沒有「帳號管理」；空白狀態第一步沒有「或註冊外部 API，」 | 畫面 |
@@ -401,13 +409,13 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S02-16 | `new_page`，`isolatedContext: "dave"`，L1 登入 dave／`Dave-pass-01` | 登入成功，選單沒有「帳號管理」 | 畫面 |
 | S02-17 | `e2e-admin`：dave 那列按「設成管理員」 | 身分變「管理員」，按鈕變「取消管理員」 | 畫面 |
 | S02-18 | dave 分頁按導覽列「資料」 | 跳出「請重新登入」：「登入已經逾時，請重新登入。畫面上的東西會留著。」，帳號欄已經填好 dave；點對話框外面關不掉 | 畫面、截圖 |
-| S02-19 | 在對話框輸入 `Dave-pass-01`，按「登入」 | 對話框關掉，還在資料頁；「帳號」選單第一行變成「dave · 管理員」，多了「帳號管理」 | 畫面 |
+| S02-19 | 在對話框輸入 `Dave-pass-01`，按「登入」 | 對話框關掉，還在資料頁；「帳號」選單第一行變成「dave · 管理員」，多了「帳號管理」；頁面上紅色的「登入逾時，重新登入後請再操作一次」收起來，剛才失敗的 `GET /api/datasources` 重新抓一次。已知問題（backlog 2026-10-02）：紅色提示還在，`/api/datasources` 也沒有重抓 | 畫面、API |
 | S02-20 | `e2e-admin`：dave 那列按「取消管理員」 | 身分變回「一般」 | 畫面 |
 | S02-21 | `e2e-admin`：alice 那列按「重設密碼」，下方出現「新密碼」欄，輸入 `short`，按「儲存」 | 對話框上方「密碼至少要 8 個字元」 | 畫面 |
 | S02-22 | 新密碼改成 `Alice-reset-02`（setField），按「儲存」 | 綠色訊息「已重設「alice」的密碼」，那一列收起來 | 畫面 |
 | S02-23 | alice 分頁按導覽列「製圖」 | 跳出「請重新登入」，帳號是 alice | 畫面 |
 | S02-24 | 對話框輸入舊密碼 `Alice-init-01` 登入 | 對話框裡「帳號或密碼錯誤」 | 畫面 |
-| S02-25 | 改成 `Alice-reset-02`（setField）登入 | 對話框關掉，製圖頁還在 | 畫面 |
+| S02-25 | 改成 `Alice-reset-02`（setField）登入 | 對話框關掉，製圖頁還在；紅色的「登入逾時」提示收起來。已知問題（backlog 2026-10-02）：同 S02-19，提示還在 | 畫面 |
 | S02-26 | `e2e-admin` 的帳號管理整個截圖 | 5 列：e2e-admin（你）管理員；alice、bob、carol、dave 都是一般、密碼、啟用 | 截圖 |
 
 留下的狀態：5 個帳號；alice 的密碼是 `Alice-reset-02`；`e2e-admin`、`alice`、`bob`、`dave` 都已登入。
@@ -420,10 +428,10 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S03-1 | 「帳號」→「改密碼」 | 對話框「改密碼」：「目前的密碼」「新密碼」（提示「至少 8 個字元」）「再輸入一次新密碼」，按鈕「取消」「更新密碼」 | 畫面 |
+| S03-1 | 「帳號」→「改密碼」 | 對話框「改密碼」：「目前的密碼」「新密碼」「再輸入一次新密碼」，按鈕「取消」「更新密碼」。提示「至少 8 個字元」要點進「新密碼」才會出現，剛打開時看不到 | 畫面 |
 | S03-2 | 目前的密碼 `wrong-pass-9`，新密碼兩欄都填 `Alice-final-03`，按「更新密碼」 | 「目前的密碼不對」 | 畫面 |
 | S03-3 | 目前的密碼改成 `Alice-reset-02`、再輸入一次改成 `Alice-final-04`（setField），按「更新密碼」 | 「兩次輸入的新密碼不一樣」；`list_network_requests` 沒有新的 `POST /api/auth/password`（前端就擋下了） | 畫面、API |
-| S03-4 | 新密碼兩欄都改成 `short`，按「更新密碼」 | 「密碼至少要 8 個字元」 | 畫面 |
+| S03-4 | 新密碼兩欄都改成 `short`，按「更新密碼」 | 「密碼至少要 8 個字元」，由後端檢查，`list_network_requests` 有 `POST /api/auth/password` 回 400。前端只擋 S03-3 那種兩次輸入不一樣的情況 | 畫面、API |
 | S03-5 | 按「取消」，再打開「改密碼」 | 三個欄位都是空的 | 畫面 |
 | S03-6 | 目前的密碼 `Alice-reset-02`，新密碼兩欄 `Alice-final-03`，按「更新密碼」 | 「密碼已更新，請用新密碼重新登入」，只剩「重新登入」按鈕；點對話框外面關不掉 | 畫面、截圖 |
 | S03-7 | 按「重新登入」 | 整頁重新載入，回到登入頁 | 畫面 |
@@ -469,7 +477,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 |---|---|---|---|
 | S05-1 | 選「銷售」；在「營收 顯示名稱」輸入 `營收（元）`，`press_key` Enter | 欄位顯示「營收（元）」；`jev.source('銷售')` 的營收 `label: "營收（元）"` | 畫面、API |
 | S05-2 | 「產品代碼 顯示名稱」輸入 `區域`，按 Enter | 頁面上方紅色訊息「顯示名稱「區域」重複」；那一格變回空的 | 畫面 |
-| S05-3 | 「毛利 顯示名稱」輸入 `毛利額`，按 Enter；再用 setField 清空，按 Enter | 先存成「毛利額」，清空後 `label` 變回 null，欄位只剩淡色的 placeholder「毛利」 | 畫面、API |
+| S05-3 | 「毛利 顯示名稱」輸入 `毛利額`，按 Enter；再用真的按鍵清空：`click` 那一格，`press_key` Control+A、Backspace、Enter（不要用 setField，它不會觸發存檔，見 2.5） | 先存成「毛利額」，清空時送出 PATCH 回 200，清空後 `label` 變回 null，欄位只剩淡色的 placeholder「毛利」 | 畫面、API |
 | S05-4 | 打開「數量 敏感」 | 標題下方變成「6 個欄位 · 1 個敏感」；`jev.source('銷售')` 的數量 `sensitive: true` | 畫面、API |
 | S05-5 | 截欄位表 | 營收的顯示名稱是「營收（元）」，數量的敏感開關是開的 | 截圖 |
 
@@ -510,16 +518,36 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S07-4 | 看預覽 | 至少一張卡片有「符合需求」；沒有「找不到跟需求直接相關的欄位，先顯示一般的分析結果。」；「儀表板名稱」是「銷售 總覽」；左邊出現「04 調整」和「需求紀錄」，只有一句「各區每月營收」；按鈕變「重新分析」 | 畫面、截圖 |
 | S07-5 | `jev.preview()` | 每張卡片沒有 `error`、`rows` 大於 0、`nulls` 是 0；X 軸是日期的卡片，`x` 正好是 2026-01～2026-06；`sum` 卡片的總和：營收（元）321000、毛利 118975、數量 7221；明細表 54 列，`dims` 裡是「營收（元）」 | API |
 | S07-6 | 每張圖卡各截一張 | 照第 6 節的表檢查；營收的圖標題和座標軸是「營收（元）」 | 截圖 |
-| S07-7 | 在一張不是明細表的卡片按「移除這張圖」 | 卡片不見，下方出現「已移除「<標題>」」和「復原」；預覽的明細表沒有 ✕ | 畫面 |
-| S07-8 | 6 秒內按「復原」 | 卡片回到原位，提示消失 | 畫面 |
+| S07-7 | 跑下方的「移除和復原」，它會在一張不是明細表的卡片按「移除這張圖」，接著按「復原」；再跑 `jev.cards()` | `removed` 少了那一張；`toast` 是「已移除「<title>」」，`title` 是卡片上的標題（有套顯示名稱，例如「營收（元） 依 區域」）；明細表那張 `removable: false`。已知問題（backlog 2026-10-02）：提示用的是原始標題，例如「已移除「營收 依 區域」」 | 畫面 |
+| S07-8 | 看同一次的回傳值 | `after` 跟 `before` 一樣（卡片回到原位），`toastGone: true` | 畫面 |
 | S07-9 | 「想怎麼調整？」輸入 `不要圓餅圖，加毛利率的趨勢`，按「調整」 | 調整完，需求紀錄變兩句；原本有圓餅圖的話，現在沒有了〔JEV〕；多一張毛利率的折線圖〔JEV〕；圖表最多 6 張，加上明細表 | 畫面 |
 | S07-10 | `jev.preview()` | 規則跟 S07-5 一樣；有毛利率卡片的話，`percent: true`，`data` 依序是 0.345、0.355、0.365、0.375、0.385、0.395 | API |
 | S07-11 | 截毛利率那張 | Y 軸是百分比，X 軸從 2026-01 開始，6 個點都在，往上爬 | 截圖 |
 | S07-12 | 用 setField 把「儀表板名稱」清空 | 欄位下「請輸入儀表板名稱」，「存成新儀表板」停用 | 畫面 |
 | S07-13 | 名稱改成 `E2E 銷售總覽`，按「存成新儀表板」 | 切到儀表板頁，標題「E2E 銷售總覽」；左邊「我的儀表板 · 1」；圖表上方「依據：各區每月營收 → 不要圓餅圖，加毛利率的趨勢」；網址變成 `#/d/<uuid>` | 畫面、截圖 |
-| S07-14 | 回到「製圖」 | 預覽清掉了，又是「圖表會出現在這裡」，「加到既有儀表板」不見 | 畫面 |
-| S07-15 | 點一下「想看什麼？」的框（空的），`press_key` Control+Enter | 一樣開始分析；結果出來後，名稱改成 `E2E 暫存`，按「存成新儀表板」 | 畫面 |
+| S07-14 | 回到「製圖」 | 預覽清掉了，又是「圖表會出現在這裡」，「加到既有儀表板」不見；「想看什麼？」的框還留著「各區每月營收」 | 畫面 |
+| S07-15 | 點一下「想看什麼？」的框，`press_key` Control+A、Backspace 清空，再 `press_key` Control+Enter | 框是空的也一樣開始分析；結果出來後，名稱改成 `E2E 暫存`，按「存成新儀表板」 | 畫面 |
 | S07-16 | 儀表板頁左邊 | 「我的儀表板 · 2」：E2E 暫存、E2E 銷售總覽 | 畫面 |
+
+移除和復原（S07-7、S07-8，用一個 `evaluate_script` 跑完；復原只有 6 秒，分開呼叫工具會來不及）：
+
+```js
+async () => {
+  window.scrollTo(0, 0)
+  const wait = (ms) => new Promise((ok) => setTimeout(ok, ms))
+  const ids = () => [...document.querySelectorAll('[data-chart-id]')].map((el) => el.dataset.chartId)
+  const before = ids()
+  const card = [...document.querySelectorAll('[data-chart-id]')].find((el) => el.querySelector('[aria-label="移除這張圖"]'))
+  const title = card.querySelector('.tc-card-title .text-truncate').textContent.trim()
+  card.querySelector('[aria-label="移除這張圖"]').click()
+  await wait(500)
+  const removed = ids()
+  const toast = document.body.innerText.match(/已移除「[^」]*」/)?.[0] ?? null
+  ;[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '復原')?.click()
+  await wait(1000)
+  return { title, toast, before, removed, after: ids(), toastGone: !document.body.innerText.includes('已移除「') }
+}
+```
 
 留下的狀態：儀表板「E2E 銷售總覽」和「E2E 暫存」。
 
@@ -535,8 +563,8 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S08-2 | `list_network_requests` | 有 `GET /api/dashboards/<id>`、`/api/dashboards/<id>/data`、`/api/jev/highlight/<id>`；沒有 `/api/jev/analyze` | API |
 | S08-3 | 跑 helper；`jev.dashboard()` | 數字跟 S07-10 一樣（X 軸月份、總和） | API |
 | S08-4 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))`，再 `jev.cards()` | 回傳陣列，每一筆的 `severity` 是「正常波動」「值得注意」「需要關注」「嚴重警示」其中一個，`noul` 大於 0.7；畫面上有標註的卡片和陣列一一對應，文字一樣。預期至少一張被標註（北區 6 月掉了 79%）〔JEV〕。用到「數量」（敏感）的卡片一定沒有標註 | API、截圖 |
-| S08-5 | 記下 `jev.dashboard()` 的 `layout`；`take_snapshot` 找第一張卡片的標題列，`drag` 到最後一張卡片的標題列 | 卡片移動了；`list_network_requests` 有 `PUT /api/dashboards/<id>` 回 200；`jev.dashboard()` 的 `gridPos` 跟拖之前不一樣 | 畫面、API |
-| S08-6 | 拖不動的話（沒有 PUT）改用備案：`async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` | 同 S08-5。兩種都拖不動就記 FAIL，附上截圖 | 畫面、API |
+| S08-5 | 記下 `jev.dashboard()` 的 `layout`；把第一張卡片往下拖：`async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)`。不要用 MCP `drag`，它拖不動（見 2.5） | 卡片移動了 | 畫面 |
+| S08-6 | `list_network_requests`；`jev.dashboard()` | 有 `PUT /api/dashboards/<id>` 回 200；`gridPos` 跟拖之前不一樣。沒有 PUT 就記 FAIL，附上截圖 | 畫面、API |
 | S08-7 | 縮放：`async () => window.jev.dragBy(document.querySelectorAll('.vgl-item__resizer')[0], 200, 120)` | 有 PUT；那張卡片的 `gridPos.w` 或 `h` 變大 | API |
 | S08-8 | 重新整理，跑 helper，`jev.dashboard()` | `gridPos` 跟 S08-7 之後一樣 | API、截圖 |
 | S08-9 | 在明細表按「移除這張圖」 | 對話框「移除圖表」：「確定從「E2E 銷售總覽」移除「<標題>」？移除後無法復原，要加回來得重新分析。」；按「取消」，卡片還在 | 畫面 |
@@ -563,7 +591,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S09-6 | `jev.cards()` | 每張卡片都有來源標籤，「銷售」或「退貨」 | 畫面 |
 | S09-7 | 看依據 | 兩行：「依據（銷售）：各區每月營收 → 不要圓餅圖，加毛利率的趨勢」「依據（退貨）：各區退貨金額」 | 畫面 |
 | S09-8 | `jev.dashboard()` | 每張卡片的 `source` 跟標籤一樣；銷售卡片的數字照 S07，退貨卡片照 S09-3 | API |
-| S09-9 | 截整頁，再截每張退貨圖卡 | 照第 6 節；來源標籤看得到 | 截圖 |
+| S09-9 | 截整頁，再截每張退貨圖卡 | 照第 6 節；來源標籤看得到。已知問題（backlog 2026-10-02）：明細表卡片只顯示約 10 列，也不能捲動，退貨明細的第 11 列被卡片切掉（S11-14 的 E2E 對照 明細也一樣） | 截圖 |
 
 留下的狀態：「E2E 銷售總覽」有銷售和退貨兩個來源的圖。
 
@@ -588,7 +616,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S10-11 | 勾回「補上 產品代碼」，把它的輸出名稱改成 `產品代碼`，按「預覽」 | 「欄位名稱「產品代碼」跟主來源的欄位重複」 | 畫面 |
 | S10-12 | 取消勾選「補上 產品代碼」，按「預覽」 | 「共 11 筆」；提示「主檔有 1 個對接值重複，用排最前面的那一列」「1 筆對不到主檔，補上的欄位是空的」；P01 是電鍋／家電，P02 是檯燈／家電（不是檯燈（舊款）），P09 那列產品名稱和類別是空的 | 畫面、截圖 |
 | S10-13 | 按「建立」 | 選中「退貨（補產品主檔）」，「查表：退貨 ← 產品主檔（產品代碼 = 產品代碼） · 6 個欄位 · 0 個敏感」 | 畫面 |
-| S10-14 | `jev.card((await jev.source('退貨（補產品主檔）')).id, { x: '類別', value: '退貨金額' })` | 家電 5000，另一組（類別空白）150 | API |
+| S10-14 | `jev.card((await jev.source('退貨（補產品主檔）')).id, { x: '類別', value: '退貨金額' })` | 家電 5000，另一組（類別空白）150。已知問題（backlog 2026-10-02）：只回家電 5000，類別空白的 150 不見了 | API |
 
 留下的狀態：合併來源「台中店＋高雄店」「退貨（補產品主檔）」。
 
@@ -604,14 +632,14 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S11-2 | 在「銷售·營收」那列，退貨那格選「退貨金額」 | 那列的輸出名稱下面紅字「對照時數字欄位只能對應一個來源」；把那格清掉，紅字消失 | 畫面 |
 | S11-3 | 按「預覽」 | 「共 65 筆」，沒有提示 | 畫面 |
 | S11-4 | 按「建立」 | 「對照：銷售、退貨 · 8 個欄位 · 1 個敏感」 | 畫面 |
-| S11-5 | 看欄位表 | 「銷售·數量」的敏感開關是開的、停用；滑鼠停在那格會看到「在『銷售』標為敏感，要改請到那個來源」；「銷售·營收」的顯示名稱沿用「營收（元）」 | 畫面、截圖 |
+| S11-5 | 看欄位表；`() => [...document.querySelectorAll('td[title]')].map((td) => td.title)` | 「銷售·數量」的敏感開關是開的、停用；那一格的 `title` 是「在『銷售』標為敏感，要改請到那個來源」（瀏覽器原生的提示，`wait_for`、`take_snapshot`、截圖都看不到，只能讀 `td[title]`）；「銷售·營收」的顯示名稱沿用「營收（元）」 | 畫面、截圖 |
 | S11-6 | 新增比率：名稱 `退貨率`，分子「退貨·退貨金額」，分母「營收（元）」 | 比率表「退貨率｜退貨·退貨金額 ÷ 營收（元）」 | 畫面 |
 | S11-7 | 跑 helper；`jev.card((await jev.source('銷售／退貨 對照')).id, { x: '日期', value: '退貨率', timeGrain: 'month' }, 'line')` | `percent: true`；`data`：2026-01 是 null，02～06 約 0.0138、0.0154、0.0192、0.0179、0.0289 | API |
 | S11-8 | `jev.card((await jev.source('銷售／退貨 對照')).id, { x: '區域', value: '退貨率' })` | 北區約 0.0330、中區約 0.0014、南區約 0.0231；`ratioPeriod` 是 `{ from: "2026-02", to: "2026-06" }` | API |
-| S11-9 | 按「用這個來源製圖」；跑 helper；需求 `每月營收和退貨金額對照`，按「分析」 | 預覽出來；有一張營收和退貨金額依月份的雙數值圖〔JEV〕 | 畫面 |
-| S11-10 | `jev.preview()` | 雙數值卡片 6 列：2026-01 [46000, null]，之後 [50600, 700]、[55200, 850]、[59800, 1150]、[64400, 1150]、[45000, 1300]（兩個數值的順序可能對調）；`nulls` 1 | API |
-| S11-11 | 截雙數值那張 | 圖例兩個名稱（「營收（元）」和「退貨·退貨金額」）；兩組都有畫；左右各一條 Y 軸；X 軸 2026-01～06，1 月只有營收 | 截圖 |
-| S11-12 | 「想怎麼調整？」輸入 `加每月退貨率`，按「調整」 | 多一張退貨率的圖〔JEV〕 | 畫面 |
+| S11-9 | 按「用這個來源製圖」；跑 helper；需求用 `jev.setField('想看什麼？（選填）', '每月營收和退貨金額對照')` 填（框裡還留著 S09 的「各區退貨金額」，`fill` 會接在後面），按「分析」 | 預覽出來；有一張營收和退貨金額依月份的雙數值圖〔JEV〕。JEV 可能只做依區域、依產品代碼的雙數值圖，依月份那張到 S11-12 調整後才出現 | 畫面 |
+| S11-10 | `jev.preview()`；預覽裡還沒有依月份的雙數值卡片時，改跑 `jev.card((await jev.source('銷售／退貨 對照')).id, { x: '日期', measures: ['銷售·營收', '退貨·退貨金額'], timeGrain: 'month' })`，S11-12 之後再跑一次 `jev.preview()` | 依月份的雙數值卡片〔JEV〕6 列：2026-01 [46000, null]，之後 [50600, 700]、[55200, 850]、[59800, 1150]、[64400, 1150]、[45000, 1300]（兩個數值的順序可能對調）；`nulls` 1。`jev.card` 的結果也一樣 | API |
+| S11-11 | 截依月份的雙數值那張〔JEV〕（S11-9 沒有的話，等 S11-12 之後再截） | 圖例兩個名稱（「營收（元）」和「退貨·退貨金額」）；兩組都有畫；左右各一條 Y 軸；X 軸 2026-01～06，1 月只有營收 | 截圖 |
+| S11-12 | 「想怎麼調整？」輸入 `加每月退貨率`，按「調整」 | 多一張退貨率的圖〔JEV〕；依月份的雙數值圖可能這時才出現，出現了就回頭補 S11-10、S11-11 | 畫面 |
 | S11-13 | 截退貨率那張（有的話） | Y 軸是百分比；X 軸從 2026-01 開始，1 月是空的（缺口，不是 0%）；依區域的話，圖下方有「只算 2026-02～2026-06（分子、分母都有資料的月份）」 | 截圖 |
 | S11-14 | 名稱改成 `E2E 對照`，存成新儀表板 | 儀表板頁打開「E2E 對照」，「我的儀表板 · 2」 | 畫面 |
 
@@ -632,7 +660,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S12-5 | 按「取消」 | 來源還在 | 畫面 |
 | S12-6 | 再按「刪除來源」→「刪除」 | 對話框關掉，清單裡沒有它，右邊改選第一個來源 | 畫面 |
 | S12-7 | 儀表板頁打開「E2E 分店」 | 整份打得開，沒有紅色錯誤；每張卡片都是「資料來源已刪除，可以按右上角 ✕ 移除這張圖」 | 畫面、截圖 |
-| S12-8 | 拖一張卡片（S08-5 的方法） | PUT 回 200 | API |
+| S12-8 | 拖一張卡片（S08-5 的 `jev.dragBy`） | PUT 回 200 | API |
 | S12-9 | 在一張卡片按 ✕ →「移除」 | 卡片不見，PUT 回 200 | 畫面、API |
 | S12-10 | 資料頁選「台中店」，按「刪除來源」 | 這次是「刪除資料來源」，沒有儀表板那一段；按「刪除」，台中店不見 | 畫面 |
 | S12-11 | `jev.api('GET', '/api/datasources/' + (await jev.source('退貨')).id + '/usage')` | `mergedBy` 是「退貨（補產品主檔）」和「銷售／退貨 對照」；`dashboards` 有「E2E 銷售總覽」，張數是退貨卡片數 | API |
@@ -649,20 +677,20 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 |---|---|---|---|
 | S13-1 | alice 打開「E2E 銷售總覽」，按「分享」 | 對話框「分享「E2E 銷售總覽」」：「公開連結」開關（關）「有帳號的人拿到連結就能看」；「分享給」欄位（placeholder「輸入對方的帳號」，提示「對方的帳號在他帳號選單的第一行」）和「加入」；「還沒有分享給任何人」；連結 `http://localhost:5181/#/d/<id>`、「複製連結」；「對方看到的資料跟你一樣，包括明細表和敏感欄位。」；「取消」「儲存」 | 畫面、截圖 |
 | S13-2 | 輸入 `nobody`，按「加入」，按「儲存」 | 對話框裡「找不到帳號「nobody」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結」，對話框沒關 | 畫面 |
-| S13-3 | 按「移除「nobody」」；輸入 `alice`，加入，儲存 | 「不用分享給自己」 | 畫面 |
+| S13-3 | 按「移除「nobody」」；輸入 `alice`，加入，儲存 | 移除 nobody 之後，「找不到帳號「nobody」…」跟著消失；儲存後是「不用分享給自己」。已知問題（backlog 2026-10-02）：nobody 的錯誤訊息一直留著，等到儲存才被換掉 | 畫面 |
 | S13-4 | 移除 alice；輸入 `BOB`，加入 | 標籤是「bob」（轉成小寫） | 畫面 |
 | S13-5 | 按「儲存」 | 對話框關掉；`jev.api('GET', '/api/dashboards/' + location.hash.slice(4) + '/share')` 是 `{ publicLink: false, users: ["bob"] }` | 畫面、API |
-| S13-6 | 按「複製連結」 | 按鈕變「已複製」；瀏覽器不讓複製時，連結被選取，欄位下方「瀏覽器不讓網頁直接複製，請按 Ctrl+C」。兩種都算 PASS | 畫面 |
+| S13-6 | 再按一次「分享」（S13-5 儲存時對話框關掉了），按「複製連結」；看完按「取消」 | 按鈕變「已複製」；瀏覽器不讓複製時，連結被選取，欄位下方「瀏覽器不讓網頁直接複製，請按 Ctrl+C」。兩種都算 PASS | 畫面 |
 | S13-7 | bob：`new_page`（`isolatedContext: "bob"`）`http://localhost:5181` | 左邊「我的儀表板 · 0」、「分享給我的 · 1」，裡面「E2E 銷售總覽」，副標「來自 alice」 | 畫面 |
 | S13-8 | bob 打開它；跑 helper；`jev.cards()`；`document.querySelectorAll('.vgl-item__resizer').length` | 副標「「alice」分享給你的儀表板，只能檢視。」；沒有「分享」，只有「新增儀表板」；每張卡片 `removable: false`、`draggable: false`；resizer 是 0 個；依據兩行看得到；異常標註跟 alice 看到的一樣 | 畫面、API、截圖 |
-| S13-9 | bob：`drag` 第一張卡片的標題列到最後一張 | 卡片不動；`list_network_requests` 沒有 PUT | 畫面、API |
+| S13-9 | bob：檢視者的卡片沒有 `.card-drag`，改拖標題：`async () => window.jev.dragBy(document.querySelector('[data-chart-id] .tc-card-title'), 0, 400)` | 卡片不動；`list_network_requests` 沒有 PUT | 畫面、API |
 | S13-10 | bob：`jev.dashboard()`；把讀到的設定原樣 PUT 回去：`jev.api('PUT', '/api/dashboards/' + location.hash.slice(4), (await jev.api('GET', '/api/dashboards/' + location.hash.slice(4))).body)` | 卡片數字跟 alice 的一模一樣，`gridPos` 也沒變；PUT 回 404「找不到儀表板」（body 不完整會先回 400，所以要送完整的設定） | API |
 | S13-11 | bob 切到「資料」 | 「還沒有資料來源」，看不到 alice 的來源 | 畫面 |
 | S13-12 | bob：`navigate_page` 到 `http://localhost:5181/#/d/<E2E 對照 的 id>`（id 用 alice 分頁的 `jev.dashId('E2E 對照')` 查） | 「找不到這份儀表板，可能已經刪除或取消分享」 | 畫面 |
 | S13-13 | alice 打開「E2E 對照」→「分享」，打開「公開連結」，儲存 | 對話框關掉 | 畫面 |
 | S13-14 | bob 重新整理同一個網址 | 打開「E2E 對照」，唯讀；左邊「分享給我的」還是只有 1 份（公開連結不會列進來） | 畫面、截圖 |
 | S13-15 | `anon`：`new_page` 同一個網址（`isolatedContext: "anon"`） | 登入頁，看不到儀表板（沒有免登入的連結） | 畫面 |
-| S13-16 | alice：「E2E 銷售總覽」的分享移除 bob，儲存；bob 已經開著那份的畫面先不動 | bob 已經開著的畫面不會自己消失 | 畫面 |
+| S13-16 | bob 先從「分享給我的」打開「E2E 銷售總覽」（S13-14 之後 bob 停在「E2E 對照」，沒先打開的話這一步等於沒測）；alice：「E2E 銷售總覽」的分享移除 bob，儲存；bob 的畫面先不動 | bob 已經開著的畫面不會自己消失 | 畫面 |
 | S13-17 | bob 打開「E2E 銷售總覽」的連結後重新整理 | 「找不到這份儀表板，可能已經刪除或取消分享」；「分享給我的」整段不見 | 畫面 |
 | S13-18 | alice 再把 bob 加回「E2E 銷售總覽」，儲存 | bob 重新整理後又看得到（S18 要用） | 畫面 |
 
@@ -681,9 +709,9 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S14-3 | 截一張圖卡 | 圖表跟著換成深色配色，文字和座標軸看得清楚 | 截圖 |
 | S14-4 | 重新整理 | 還是深色，載入時沒有閃一下淺色 | 畫面 |
 | S14-5 | 按「淺色」 | 回到淺色；`localStorage` 是 `light` | 畫面 |
-| S14-6 | `anon` 分頁（登入頁）按右上角「切換成深色主題」 | 登入頁變深色 | 畫面、截圖 |
-| S14-7 | bob 分頁 `resize_page` 390×844，看導覽列 | 「資料」「製圖」「儀表板」都放得下；帳號鈕和主題鈕只剩圖示；`document.documentElement.scrollWidth <= innerWidth` | 畫面、截圖 |
-| S14-8 | `resize_page` 回原本大小 | 版面恢復 | 畫面 |
+| S14-6 | `anon` 分頁（登入頁）按登入卡片右上角的「切換成深色主題」 | 登入頁變深色 | 畫面、截圖 |
+| S14-7 | 記下 `innerWidth`、`innerHeight`；bob 分頁 `emulate` viewport `390x844x2`（`resize_page` 最窄只到約 500px），看導覽列和儀表板 | `innerWidth` 是 390；「資料」「製圖」「儀表板」都放得下；帳號鈕和主題鈕只剩圖示；`document.documentElement.scrollWidth <= innerWidth`；卡片排成一欄，標題和異常標註看得清楚。已知問題（backlog 2026-10-02）：卡片還是兩欄、每張約 150px，標題被擠成「毛.」或整個不見，「嚴重警示」標註超出畫面被切掉 | 畫面、截圖 |
+| S14-8 | `emulate` 把 viewport 清掉，再 `resize_page` 回 S14-7 記下的大小 | 版面恢復，按鈕文字回來 | 畫面 |
 
 留下的狀態：bob 是淺色，anon 是深色（之後沒有用到）。
 
@@ -720,7 +748,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S16-1 | `e2e-admin`：資料頁「新增來源」→「外部 API」；名稱 `E2E API`、網址 `https://example.com/`、headers `{"Authorization":"${DS_E2E_UNBOUND}"}`（這個變數沒設，也沒綁 host），按「註冊」 | 對話框裡「密鑰 DS_E2E_UNBOUND 沒有開放給 example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_E2E_UNBOUND]=example.com」，對話框沒關。不是「環境變數 DS_E2E_UNBOUND 未設定」，代表沒綁的密鑰在檢查階段就被擋下，值也沒讀 | 畫面、截圖 |
+| S16-1 | `e2e-admin`：資料頁「新增來源」，會直接停在「外部 API」分頁，三個欄位還留著 S15-13 的值，所以都用 setField 改：名稱 `E2E API`、網址 `https://example.com/`、headers `{"Authorization":"${DS_E2E_UNBOUND}"}`（這個變數沒設，也沒綁 host），按「註冊」 | 對話框裡「密鑰 DS_E2E_UNBOUND 沒有開放給 example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_E2E_UNBOUND]=example.com」，對話框沒關。不是「環境變數 DS_E2E_UNBOUND 未設定」，代表沒綁的密鑰在檢查階段就被擋下，值也沒讀 | 畫面、截圖 |
 | S16-2 | headers 改成 `{"Authorization":"${DS_E2E_TOKEN}","X-Trace":"${DS_E2E_UNBOUND}"}`（用 setField） | 一樣是 DS_E2E_UNBOUND 那句，只要有一把沒綁就整個擋下 | 畫面 |
 | S16-3 | 網址改成 `https://www.example.com/`，headers 改成 `{"Authorization":"${DS_E2E_TOKEN}"}` | 「密鑰 DS_E2E_TOKEN 沒有開放給 www.example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_E2E_TOKEN]=www.example.com」。`www.example.com` 在允許清單裡，但密鑰只綁 `example.com` | 畫面 |
 | S16-4 | 網址改成 `https://EXAMPLE.com/`，headers 不變 | 過了綁定檢查，等幾秒後「外部 API 呼叫失敗（回應必須是 JSON 陣列）」，跟 S15-13 一樣，可見 host 大小寫不分 | 畫面 |
@@ -775,11 +803,11 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S18-9 | `jev.source('銷售／退貨 對照')`、`jev.source('退貨（補產品主檔）')` | 對照的 `rowCount` 是 null（輸入來源更新過，筆數清掉了）；退貨（補產品主檔）沒用到銷售，還是 11 | API |
 | S18-10 | 再按一次「更新資料」 | 上方的成功訊息收起來了；說明變成「「銷售」目前有 63 筆資料。…」；沒有檔案、沒選方式、沒有錯誤訊息 | 畫面 |
 | S18-11 | 按「取消」；`jev.source('銷售')` | 對話框關掉，`rowCount` 還是 63 | 畫面、API |
-| S18-12 | 打開「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 依月份的銷售卡片 `x` 是 2026-01～2026-07；`sum` 卡片：營收（元）394600、毛利 148783、數量 8877；有毛利率卡片的話，`data` 最後一個是 0.405；退貨卡片跟 S09-3 一樣（5150） | API |
-| S18-13 | 每張銷售圖卡各截一張 | X 軸多了 2026-07，排在最後，前面 6 期一個都沒少 | 截圖 |
-| S18-14 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 現在比的是 2026-06 和 2026-07〔JEV〕 | API |
-| S18-15 | 打開「E2E 對照」；`jev.dashboard()`；再跑 S11-7、S11-8 那兩個 `jev.card` | 雙數值卡片 7 列，多一列 2026-07 [73600, null]，`nulls` 2；每月退貨率多一期 2026-07，是 null；依區域的退貨率跟 S11-8 一樣（北區約 0.0330、中區約 0.0014、南區約 0.0231），`ratioPeriod` 還是 `{ from: "2026-02", to: "2026-06" }` | API |
-| S18-16 | 截雙數值那張 | X 軸到 2026-07，7 月只有營收 | 截圖 |
+| S18-12 | 打開「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 依月份的銷售卡片 `x` 是 2026-01～2026-07；`sum` 卡片的營收（元）394600；用到毛利的 `sum` 卡片或散佈圖（`aggregate: none`，原始資料列），`sums` 裡的毛利是 148783〔JEV〕；有毛利率卡片的話，`data` 最後一個是 0.405；退貨卡片跟 S09-3 一樣（5150）。這份儀表板沒有用到數量的卡片（數量是敏感欄位），數量 8877 在 S18-15 的明細表驗 | API |
+| S18-13 | 先 `resize_page` 拉到 1900px 寬（第 6 節），每張銷售圖卡各截一張 | X 軸多了 2026-07，排在最後，前面 6 期一個都沒少 | 截圖 |
+| S18-14 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 200，陣列每一筆只有 `chartId`、`severity`、`noul`，沒有期間欄位，看不出比的是哪兩期。後端只比最後兩個已經結束的期間，接上 7 月之後就是 2026-06 和 2026-07，依月份卡片的標註可能跟 S08-4 不一樣〔JEV〕（第一次全跑時 c2 從「嚴重警示」變成「需要關注」）。記下回傳的陣列和畫面上的標註就好 | API |
+| S18-15 | 打開「E2E 對照」；`jev.dashboard()`；再跑 S11-7、S11-8 那兩個 `jev.card` | 雙數值卡片 7 列，多一列 2026-07 [73600, null]，`nulls` 2；明細表 74 列（63＋11），「銷售·數量」的 `sums` 是 8877；每月退貨率多一期 2026-07，是 null；依區域的退貨率跟 S11-8 一樣（北區約 0.0330、中區約 0.0014、南區約 0.0231），`ratioPeriod` 還是 `{ from: "2026-02", to: "2026-06" }` | API |
+| S18-16 | 一樣在 1900px 寬的視窗截雙數值那張，截完 `resize_page` 拉回原本大小 | X 軸到 2026-07，每個月份標籤都看得到，7 月只有營收 | 截圖 |
 | S18-17 | bob 重新整理「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 跟 S18-12 一樣的數字 | API |
 | S18-18 | bob：`async () => { const form = new FormData(); form.append('file', new File(['日期\n2026-08-05\n'], 'check.csv')); form.append('mode', 'append'); return window.jev.api('POST', '/api/datasources/<S18-2 的銷售 id>/rows', form) }` | 404，`{"error":"找不到資料源"}`，別人的來源不能更新 | API |
 | S18-19 | alice：跑下方的「更新資料 API 檢查」 | `noMode` 400「缺少參數：mode」；`noFile` 400「缺少參數：file」；`badMode` 400「更新方式只能是 replace（整份覆蓋）或 append（接在後面）」；`merged` 400「只有上傳的檔案可以更新資料」；`headerOnly` 400「沒有資料列」；`rowCount` 還是 63 | API |
@@ -869,7 +897,8 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | S00-1 | PASS | | |
 | S01-1 | PASS | S01-01.png | |
 | S07-9 | PASS | | 〔JEV〕沒有圓餅圖可以拿掉 |
-| S08-6 | FAIL | S08-06.png | MCP drag 和備案都拖不動，沒有 PUT |
+| S08-6 | FAIL | S08-06.png | dragBy 拖不動，沒有 PUT |
+| S09-9 | FAIL | S09-09.png | 已知問題（backlog 2026-10-02）：退貨明細第 11 列被切掉 |
 
 合計：PASS n／FAIL n／BLOCKED n／沒跑 n
 ```
