@@ -117,6 +117,8 @@ export DS_ERP_AUTH="Bearer xxx"
 
 開發伺服器（`vite.config.js`）把 `/api`、`/oauth2`、`/login/oauth2` proxy 到 `http://127.0.0.1:8080`（不是 `localhost`：後端現在只聽 `127.0.0.1`，`localhost` 在某些系統會先解析成 `::1`，反而連不到），本機開發不用另外處理 CORS。`/oauth2`、`/login/oauth2` 是單一登入用的，兩條都設成 `changeOrigin: false`，不改 Host，後端算出來的 redirect URI 才會是瀏覽器看到的網址（`http://localhost:5173/login/oauth2/code/oidc`）。
 
+要接別的後端，啟動前設環境變數 `API_TARGET`，三條 proxy 會一起換過去，例如 `API_TARGET=http://127.0.0.1:8081 npm run dev -- --port 5181`。端對端測試就是這樣開一套自己的後端和前端，不用停掉 8080 上正在用的那一套。
+
 介面分成三個工作區，用頂部導覽列切換，也可以按 Alt+1／2／3：
 - 「資料」：新增來源（上傳 CSV／Excel、註冊外部 API，或把現有的來源合併；「外部 API」分頁只有管理員看得到），右邊的欄位表可以改顯示名稱、設定敏感欄位，下面的「比率」區可以加比率。按「用這個來源製圖」會帶著這個來源切到製圖頁。
 - 「製圖」：選來源、點選想看的欄位、寫一句需求，按「分析」（或在需求框按 Ctrl+Enter），圖表會出現在右邊。滿意就「存成新儀表板」，或用「加到既有儀表板」接在某份儀表板的最下面。切到別頁再回來，預覽還在。
@@ -301,6 +303,8 @@ npm run build
 ```
 
 `npm test` 跑 vitest，`npm run build` 用 Vite 打包，成功的話會在 `frontend/dist/` 產生輸出。
+
+瀏覽器端對端測試照 [`docs/testing/e2e-playbook.md`](docs/testing/e2e-playbook.md) 跑，用 Chrome DevTools MCP 一步一步操作，把每個功能走一遍。它會用新的 schema 在 8081／5181 開一套自己的後端和前端。固定資料在 `docs/testing/fixtures/`，預期數字寫在劇本第 4 節。資料要改就改 `make_fixtures.py`，它會重新產生檔案、印出新的數字，再拿去更新劇本。
 
 ## 常見問題
 
