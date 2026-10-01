@@ -20,7 +20,9 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 ### 補齊
 
-- P1 · 唯讀分享：把儀表板分享給主管，對方只能看、不能改。要先完成「正式上線前」的登入驗證。（對標 Grafana）**執行中（2026-10-01，branch `feat/auth-sharing`）**：擁有者可以分享給指定帳號，也可以自己決定要不要公開，公開後有帳號的人拿到連結就能看；不做免登入的公開連結。
+- ~~P1 · 唯讀分享：把儀表板分享給主管，對方只能看、不能改。要先完成「正式上線前」的登入驗證。（對標 Grafana）~~ 已完成（2026-10-01，branch `feat/auth-sharing`）：擁有者可以分享給指定帳號，也可以打開公開連結，有帳號的人拿到連結就能看。指定的帳號在「分享給我的」看得到。被分享的人只能看，不能拖拉、縮放、移除卡片，資料用擁有者的身分載入。沒做免登入的公開連結。見 spec `docs/superpowers/specs/2026-10-01-auth-sharing-design.md`。
+- P3 · 分享的後續：記住檢視者打開過的公開連結；免登入的公開連結；可以換新的分享 token，讓舊連結永久失效（現在關掉公開連結再打開，舊連結又能用）。（登入與唯讀分享 spec 第 2.4、10 節）
+- P3 · 綁定單一登入：在帳號管理把既有的密碼帳號綁到單一登入。現在用單一登入的人遇到同名的帳號或舊資料會被擋下來，所以舊資料只能由密碼帳號接手。（登入與唯讀分享 spec 第 10 節）
 - P2 · 儀表板篩選器：整份儀表板共用的分類篩選（例如「北區」）和期間（例如「本季」），選了之後每張圖一起變。現在每張圖的範圍是固定的。（對標 Grafana 的 variables 與時間範圍）
 - P2 · KPI 大數字卡：顯示本期數字、跟上期比的變化，超過門檻就變色，例如「本月營收 1.2 億，+5%」。現有的圖型都沒有這種呈現。（對標 Grafana 的 Stat／Gauge）
 - P2 · 更新既有來源的資料：上傳新檔時可以整份覆蓋或接在後面，用到它的圖和合併來源跟著更新。現在每次上傳都會變成新來源，合併定義又不能改，每月一個檔就得整串重建。（對標 ETL 的全量／增量載入）
@@ -38,7 +40,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 - P3 · 下鑽：點圖上的長條或點，看那一組的明細。（對標 Grafana data links）
 - P3 · 版本紀錄：可以還原到之前的版本。現在按 ✕ 移除卡片會直接存檔，無法復原。（對標 Grafana）
 - P3 · 自動重新整理與輪播：隔一段時間重抓資料，多份儀表板輪流顯示在會議室電視上。（對標 Grafana 的 refresh、playlist）
-- P3 · 列層級權限：分享時限定對方能看哪些資料列，例如北區主管只看得到北區。要先有唯讀分享。（對標 Power BI、Tableau 的 RLS）
+- P3 · 列層級權限：分享時限定對方能看哪些資料列，例如北區主管只看得到北區。要先有唯讀分享（登入和分享已完成，可以開始）。（對標 Power BI、Tableau 的 RLS）
 
 ### JEV 差異化
 
@@ -70,9 +72,14 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 ## 正式上線前
 
-- P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）**執行中（2026-10-01，branch `feat/auth-sharing`）**：先做帳號密碼登入，由管理員建帳號，第一個管理員寫在 `backend/.env`；另外留 OAuth2（OIDC）的設定接口，也寫在 `.env`，第一次登入自動建帳號。手邊沒有 OAuth2 server，只能用模擬的 server 測。舊的 user ID 當帳號名稱，同名帳號接手原本的資料。
+- ~~P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）~~ 已完成（2026-10-01，branch `feat/auth-sharing`）：改用 Spring Security 的帳號密碼登入，工作階段存在記憶體，非 GET 請求要帶 CSRF token。帳號由管理員建立，第一個管理員寫在 `backend/.env`。也可以接單一登入（OIDC），設定一樣寫在 `.env`，第一次登入自動建帳號；手邊沒有真的 OIDC server，只用模擬的 server 測過。停用帳號、改權限、重設密碼之後，對方馬上要重新登入。舊的 user ID 由同名的密碼帳號接手。見 spec `docs/superpowers/specs/2026-10-01-auth-sharing-design.md`。
+- P2 · 登入失敗次數限制或鎖帳號：現在密碼可以一直試。（登入與唯讀分享 spec 第 10 節）
 - P2 · `docker/postgres/Dockerfile` 還沒建立（這個開發環境沒裝 Docker），部署前要補。（spec §7）
-- P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）
+- P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）有了帳號以後，任何帳號註冊外部 API 來源時，都能在 header 寫 `${DS_任何名稱}`，借用伺服器上的密鑰去打允許清單裡的 host（登入與唯讀分享 spec 第 10 節）。要不要限制成只有管理員能註冊外部 API 來源，由使用者決定。
+- P3 · 帳號管理的後續：管理員重設密碼後，強制對方下次登入就改密碼；刪除帳號、改帳號名稱（現在不做，因為資料靠帳號名稱認擁有者，要讓人不能用就停用）。（登入與唯讀分享 spec 第 10 節）
+- P3 · 工作階段存資料庫（Spring Session JDBC）、多台後端：現在工作階段存在記憶體，後端重啟後所有人都要重新登入。（登入與唯讀分享 spec 第 10 節）
+- P3 · 單一登入的後續：在畫面上設定 OIDC、登出時一起登出 IdP、限制 OIDC 帳號的網域（現在靠 IdP 那邊只讓被指派的人登入）。（登入與唯讀分享 spec 第 10 節）
+- P3 · 兩步驟驗證、操作紀錄。（登入與唯讀分享 spec 第 10 節）
 - P3 · 監控和告警：JEV 逾時、呼叫失敗、快取命中率這些現在只寫進 log，沒有任何監控或告警機制。
 - P2 · `jev.datasource.allowed-hosts` 在 `application.yml` 預設是空的，`backend/.env` 也沒有設定，所以外部 API 來源一律抓不到。「E2E採購儀表板」打開時 `/data` 回 400「未開放註冊外部 API」。要用外部 API 來源，就得把 ERP 的 host 加進允許清單。（合併後檢查，2026-09-28）
 
@@ -133,9 +140,9 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 - P3 · vitest 5 在 Node 23.9.0 上會印 EBADENGINE 警告，`package.json` 沒鎖 `engines`。（frontend ledger，Task 1）
 - P3 · 幾支既有元件測試覆蓋不完整：`DashboardView` 的防過期 guard 只靠程式碼檢查過、沒有測試；`highlight` 只驗了第一個 guard，沒驗 error／highlight 兩個 guard 和「圖表先於標註顯示」以外的情境；勾選欄位的迴圈測試沒驗證數量；缺「已存檔模式可拖拉」這類正面對照組。（frontend ledger，Task 3、Task 4b）
-- P3 · `api.test.js` 的 `rejects.toThrow` 是子字串比對、假設 `VITE_USER_ID` 沒設，`stubGlobal` 也沒有還原；測試檔沒有統一用 `enableAutoUnmount`，靠手動清空 `document.body` 頂著。（frontend ledger，Task 4b）
+- P3 · `api.test.js` 的 `rejects.toThrow` 是子字串比對~~、假設 `VITE_USER_ID` 沒設，`stubGlobal` 也沒有還原~~（登入驗證拿掉了 `VITE_USER_ID`，`afterEach` 也會 `unstubAllGlobals`）；測試檔沒有統一用 `enableAutoUnmount`，靠手動清空 `document.body` 頂著。（frontend ledger，Task 4b）
 - P3 · 後端 round 2 沒有候選組合、候選欄位用滿全部欄位這兩種分支還沒有測試覆蓋；沒有測試驗證欄位改成敏感之後，已經快取的異常檢查結果會跟著失效。（backend ledger，Task 9、Task 11）
 - P3 · 測試輸出裡還留著 Mockito self-attach 的 JDK 警告，不影響結果但會洗版。JEV 500 情境印出的 stack trace 已經拿掉，現在只剩一行 WARN。（backend ledger，Task 4、Task 5、Task 9）
-- P3 · `jev.dashboard` package 下有一個測試用的 controller，會被掃進所有 `@SpringBootTest`。（backend ledger，Task 1）
+- ~~P3 · `jev.dashboard` package 下有一個測試用的 controller，會被掃進所有 `@SpringBootTest`。（backend ledger，Task 1）~~ 已刪掉：它只用來測缺 `X-User-Id` header，登入驗證上線後這個情境不存在了（登入與唯讀分享 spec 6.5）。
 - P3 · 有兩份存過需求的舊儀表板屬於另一個使用者 ID，合併後檢查只在資料庫層確認它們的需求紀錄轉成了 `basis`，沒有在畫面上看過「依據」那一行。下次用那個使用者登入時順手確認。（合併後檢查，2026-09-28）
 - ~~P3 · README 的「合併來源」一節沒寫查表的對接欄位最多 3 組（畫面上已經限制 3 組）。（B1 Task 10 review）~~ 已補上。
