@@ -37,6 +37,8 @@ cp backend/.env.example backend/.env
 | `OIDC_CLIENT_ID` | 在 IdP 登記的 client id | 空，不啟用 |
 | `OIDC_CLIENT_SECRET` | client secret | 空，當成 public client，靠 PKCE |
 | `OIDC_LABEL` | 登入頁按鈕上「用」和「登入」中間的字，例如填 `Microsoft`，按鈕就是「用 Microsoft 登入」 | 「公司帳號」（寫在 `application.yml`） |
+| `API_ALLOWED_HOSTS` | 允許註冊的外部 API host，逗號分隔，大小寫不分（見「外部 API 資料源的規則」） | 空，不開放外部 API |
+| `jev.datasource.secret-hosts.[DS_名稱]` | 這把 `DS_` 密鑰可以送去的 host，逗號分隔。方括號要留著；不能用作業系統環境變數設定 | 空，每一把密鑰都送不出去 |
 
 `application.yml` 裡設定了 `spring.config.import: optional:file:.env[.properties]`，啟動時（工作目錄在 `backend/`）會把 `.env` 當成 properties 檔讀進來，成為設定的一部分。檔案不存在也不會讓啟動失敗（`optional:` 的效果），只是上面幾個值會維持空字串或預設值。
 
@@ -54,7 +56,8 @@ properties 檔是用 ISO-8859-1 讀的，所以 `.env` 有幾個限制：
 | `jev.api-url` | `https://api.typesafe.ai/v1/systemone` | JEV 分析 API 端點 |
 | `jev.model` | `jev-1.13.0` | 呼叫 JEV 用的模型版本。信心門檻是照 `jev-1.13.0` 調的；換成別的版本（包括 `jev-latest`），啟動時會印警告，門檻也要重新調校 |
 | `jev.upload.max-rows` | `100000` | 上傳檔案或外部 API 回應可接受的最大列數 |
-| `jev.datasource.allowed-hosts` | `[]`（空清單） | 允許註冊的外部 API host，預設空＝不開放註冊外部 API |
+| `jev.datasource.allowed-hosts` | `${API_ALLOWED_HOSTS:}`（空清單） | 允許註冊的外部 API host，預設空＝不開放註冊外部 API。平常在 `.env` 設 `API_ALLOWED_HOSTS` 就好 |
+| `jev.datasource.secret-hosts` | 空 | `DS_` 密鑰可以送去哪些 host（見「外部 API 資料源的規則」）。這一項不能用環境變數覆寫 |
 | `spring.servlet.multipart.max-file-size` | `50MB` | 單一上傳檔案大小上限 |
 | `spring.servlet.multipart.max-request-size` | `50MB` | 整個上傳請求大小上限 |
 | `spring.datasource.hikari.schema` | `jev_dashboard` | 應用程式使用的資料庫 schema |
@@ -70,10 +73,10 @@ properties 檔是用 ISO-8859-1 讀的，所以 `.env` 有幾個限制：
 ./mvnw spring-boot:run -Dspring-boot.run.arguments=--jev.datasource.allowed-hosts=erp.example.com
 ```
 
-或用環境變數（Spring 的寬鬆綁定規則：`.` 換成 `_`、全大寫），多個 host 用逗號分隔：
+平常寫在 `backend/.env` 的 `API_ALLOWED_HOSTS` 就好（見「外部 API 資料源的規則」）。也可以用同名的環境變數，多個 host 用逗號分隔：
 
 ```bash
-export JEV_DATASOURCE_ALLOWED_HOSTS=erp.example.com,another.example.com
+export API_ALLOWED_HOSTS=erp.example.com,another.example.com
 ```
 
 ### 外部 API 資料源的規則
@@ -82,12 +85,13 @@ export JEV_DATASOURCE_ALLOWED_HOSTS=erp.example.com,another.example.com
 
 - 只有管理員能註冊，其他帳號會拿到 403「沒有權限」。已經註冊好的外部 API 來源，擁有者照常能用。
 - 網址只能是 `http` 或 `https`。
-- host 一定要在 `jev.datasource.allowed-hosts` 裡（大小寫不分）；清單是空的就直接拒絕（`未開放註冊外部 API：jev.datasource.allowed-hosts 是空的`）。
+- host 一定要在允許清單（`backend/.env` 的 `API_ALLOWED_HOSTS`）裡，大小寫不分；清單是空的就直接拒絕（`未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS`）。
 - 解析出來如果是 loopback 位址（例如 `127.0.0.1`）一律拒絕，避免打到後端自己或本機其他服務；私有網段（`10.x`、`192.168.x` 等）不擋，因為 ERP 之類的 API 通常在內網。
 - 不會跟隨 redirect。
 - 連線逾時 5 秒、讀取逾時 10 秒。
 - 網址不能帶帳密（`https://user:pass@host/...`）或帳密類的 query 參數（`access_token`、`token`、`api_key`、`apikey`、`secret`、`password`、`passwd`、`pwd`、`auth`、`authorization`、`signature`、`sig`，不分大小寫），這些一律改放 headers。
 - header 的值只能寫 `${DS_環境變數名}`，不能寫死字串。這是為了避免使用者不小心把 `DB_PASSWORD` 之類的機敏設定當成 header 值送出去，程式只認得 `DS_` 開頭的環境變數，實際值在呼叫當下才去讀。
+- header 用到的每一把 `DS_` 密鑰，都要在 `jev.datasource.secret-hosts` 綁定網址的 host，不然回 400（`密鑰 DS_ERP_AUTH 沒有開放給 erp.example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_ERP_AUTH]=erp.example.com`）。註冊時和之後每次載入都會檢查，拿掉綁定、重啟後端之後，已經註冊的來源就抓不到了。綁定不會讓 host 變得連得到，host 還是要在允許清單裡。
 
 完整範例，註冊時的 body：
 
@@ -99,11 +103,17 @@ export JEV_DATASOURCE_ALLOWED_HOSTS=erp.example.com,another.example.com
 }
 ```
 
-啟動後端前設定對應的環境變數（也可以直接寫進 `backend/.env`，因為兩者是同一套讀取機制）：
+`backend/.env` 要有這三行，改完重啟後端：
 
-```bash
-export DS_ERP_AUTH="Bearer xxx"
+```properties
+API_ALLOWED_HOSTS=erp.example.com
+DS_ERP_AUTH=Bearer xxx
+jev.datasource.secret-hosts.[DS_ERP_AUTH]=erp.example.com
 ```
+
+- `API_ALLOWED_HOSTS` 和 `secret-hosts` 的 host 都用逗號分隔，前後空白不算，大小寫不分。同一把密鑰要開放給好幾個 host，就接在同一行後面，不要再加一行 `[DS_ERP_AUTH]=`：同一個 key 只認最後一行，前一行綁的 host 會失效。
+- `secret-hosts` 的 key 建議加方括號，Spring 只保證加了方括號的 key 原樣保留。這一項不能用作業系統環境變數設定（名稱裡的 `_` 會被當成 `.`），只能寫在 `.env`、`application.yml`（`"[DS_ERP_AUTH]": [erp.example.com]`）或命令列參數。
+- `DS_ERP_AUTH` 可以改用作業系統環境變數，例如 `export DS_ERP_AUTH="Bearer xxx"`。
 
 ### 敏感欄位
 
@@ -312,7 +322,8 @@ npm run build
 | `503`、`JEV 目前請求太多，請稍後再試` | 超過 JEV 的速率限制（每分鐘 1,200 次請求、每秒 250,000 tokens）。後端已經照 `retry-after` 等過並重試一次；要等太久（分析超過 10 秒、異常檢查超過 2 秒）就不等，直接回這個訊息 | 等一下再按一次 |
 | `413`、`送給 JEV 的資料太大…` | 欄位太多或樣本太長，state 加上最長的一題，估算超過 JEV 單次 32k tokens 的上限（題目加總超過 64k 的話，後端會自己拆成幾次送，不會報錯） | 減少欄位，或把長文字欄位標成敏感（敏感欄位不送樣本） |
 | 想看 JEV 每一題的完整機率（例如 Choice 第二名是誰） | 預設不記錄 | 啟動後端時加 `--logging.level.jev.dashboard.jev.JevClient=DEBUG`，log 會印出每題的 `probabilities` 和 `legend` |
-| `未開放註冊外部 API：jev.datasource.allowed-hosts 是空的` | `jev.datasource.allowed-hosts` 預設是空清單 | 用命令列參數或環境變數加上要開放的 host（見「`application.yml` 常用設定」） |
+| `未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS` | 允許清單預設是空的，`backend/.env` 沒有設 `API_ALLOWED_HOSTS` | 在 `backend/.env` 加上 `API_ALLOWED_HOSTS=要開放的 host`，重啟後端（見「外部 API 資料源的規則」） |
+| `密鑰 DS_... 沒有開放給 ...：請在 backend/.env 加上 ...` | header 用的 `DS_` 密鑰沒有綁定這個網址的 host。已經註冊的來源突然抓不到，也可能是綁定被拿掉了 | 照訊息在 `backend/.env` 加上那一行，重啟後端。已經有 `[DS_...]=` 那一行的話，把 host 用逗號接在後面，不要再加一行（同一個 key 只認最後一行） |
 | `header「...」的值只能寫 ${DS_環境變數名}` | 註冊外部 API 時 header 值寫了字面字串，不是 `${DS_XXX}` 格式 | 改成 `${DS_你的變數名}`，實際值透過同名環境變數提供 |
 | `網址不能包含帳密或 token，請改放在 headers，值寫 ${DS_環境變數名}` | 註冊外部 API 時網址裡帶了 `user:pass@`，或帶了 `token`／`api_key`／`password` 之類的 query 參數 | 把驗證資訊改放進 headers，值寫成 `${DS_你的變數名}` |
 | `CSV 第 N 行格式錯誤` | 引號沒對齊等，CSV 格式跟 commons-csv 的預期不符 | 用試算表軟體另存一次，或檢查該行的逗號、引號有沒有用對 |

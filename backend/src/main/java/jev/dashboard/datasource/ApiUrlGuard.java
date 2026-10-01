@@ -34,8 +34,10 @@ public class ApiUrlGuard {
     }
 
     ApiUrlGuard(List<String> allowedHosts) {
+        // API_ALLOWED_HOSTS=, 綁定出來是 ["", ""]：空白的項目不算，才會走到「未開放」那句訊息
         this.allowedHosts = allowedHosts == null ? Set.of()
-            : allowedHosts.stream().map(h -> h.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+            : allowedHosts.stream().filter(h -> !h.isBlank()).map(h -> h.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
     }
 
     public URI check(String url) {
@@ -52,7 +54,7 @@ public class ApiUrlGuard {
         }
         String host = uri.getHost();
         if (host == null) throw bad("網址沒有 host：" + url);
-        if (allowedHosts.isEmpty()) throw bad("未開放註冊外部 API：jev.datasource.allowed-hosts 是空的");
+        if (allowedHosts.isEmpty()) throw bad("未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS");
         if (!allowedHosts.contains(host.toLowerCase(Locale.ROOT))) throw bad("host 不在允許清單：" + host);
         InetAddress[] addresses;
         try {

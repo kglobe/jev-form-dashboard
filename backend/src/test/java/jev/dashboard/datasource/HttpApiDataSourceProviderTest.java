@@ -16,8 +16,11 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
@@ -33,6 +36,29 @@ class HttpApiDataSourceProviderTest {
     /** 直接打 fetchFrom（繞過 guard，因為測試 server 在 loopback），其他照正式設定。 */
     private static HttpApiDataSourceProvider provider(int maxRows) {
         return new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), new MockEnvironment(), props(maxRows));
+    }
+
+    /** 允許清單只有 10.0.0.5；secretHosts 是 jev.datasource.secret-hosts。 */
+    static HttpApiDataSourceProvider provider(MockEnvironment env, Map<String, List<String>> secretHosts) {
+        JevProperties props = new JevProperties(null, null, null, new JevProperties.Upload(100),
+            new JevProperties.Datasource(List.of("10.0.0.5"), secretHosts));
+        return new HttpApiDataSourceProvider(new ApiUrlGuard(props), env, props);
+    }
+
+    /** 記下讀過哪些變數，用來確認沒開放的密鑰連讀都沒讀。 */
+    private static MockEnvironment recording(List<String> read) {
+        return new MockEnvironment() {
+            @Override
+            public String getProperty(String key) {
+                read.add(key);
+                return super.getProperty(key);
+            }
+        };
+    }
+
+    static String notBound(String varName, String host) {
+        return "密鑰 " + varName + " 沒有開放給 " + host + "：請在 backend/.env 加上 jev.datasource.secret-hosts.["
+            + varName + "]=" + host;
     }
 
     /**
@@ -159,21 +185,94 @@ class HttpApiDataSourceProviderTest {
     @Test
     void resolvesHeadersFromEnvironment() {
         MockEnvironment env = new MockEnvironment().withProperty("DS_ERP_API_TOKEN", "Bearer t0k");
-        HttpApiDataSourceProvider provider = new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), env, props(100));
-        assertThat(provider.resolveHeaders(Map.of("Authorization", "${DS_ERP_API_TOKEN}")))
+        HttpApiDataSourceProvider provider = provider(env,
+            Map.of("DS_ERP_API_TOKEN", List.of("erp.example.com"), "DS_MISSING_VAR", List.of("erp.example.com")));
+        assertThat(provider.resolveHeaders("erp.example.com", Map.of("Authorization", "${DS_ERP_API_TOKEN}")))
             .containsEntry("Authorization", "Bearer t0k");
-        assertThatThrownBy(() -> provider.resolveHeaders(Map.of("X-Key", "${DS_MISSING_VAR}")))
+        assertThatThrownBy(() -> provider.resolveHeaders("erp.example.com", Map.of("X-Key", "${DS_MISSING_VAR}")))
             .hasMessageContaining("DS_MISSING_VAR");
     }
 
     @Test
     void nonDsPrefixedVariableIsRejectedEvenWhenPresentInEnvironment() {
         MockEnvironment env = new MockEnvironment().withProperty("DB_PASSWORD", "s3cr3t");
-        HttpApiDataSourceProvider provider = new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), env, props(100));
+        HttpApiDataSourceProvider provider = provider(env, Map.of("DB_PASSWORD", List.of("erp.example.com")));
         assertThatThrownBy(() -> HttpApiDataSourceProvider.validateHeaders(Map.of("X-Key", "${DB_PASSWORD}")))
             .hasMessageContaining("${DS_環境變數名}");
-        assertThatThrownBy(() -> provider.resolveHeaders(Map.of("X-Key", "${DB_PASSWORD}")))
+        assertThatThrownBy(() -> provider.resolveHeaders("erp.example.com", Map.of("X-Key", "${DB_PASSWORD}")))
             .hasMessageContaining("${DS_環境變數名}");
+    }
+
+    @Test
+    void secretIsOnlySentToTheHostsItIsBoundTo() { // 密鑰綁定 spec 3.2
+        List<String> read = new ArrayList<>();
+        MockEnvironment env = recording(read).withProperty("DS_ERP_TOKEN", "Bearer t0k");
+        Map<String, String> headers = Map.of("Authorization", "${DS_ERP_TOKEN}");
+
+        for (HttpApiDataSourceProvider unbound : List.of(provider(env, Map.of()),
+                provider(env, Map.of("DS_ERP_TOKEN", List.of("other.example.com"))),
+                provider(env, Map.of("DS_OTHER_TOKEN", List.of("erp.example.com"))))) {
+            assertThatThrownBy(() -> unbound.resolveHeaders("erp.example.com", headers))
+                .isInstanceOf(ApiException.class)
+                .hasMessage(notBound("DS_ERP_TOKEN", "erp.example.com"))
+                .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+        }
+        assertThat(read).doesNotContain("DS_ERP_TOKEN");
+
+        HttpApiDataSourceProvider bound =
+            provider(env, Map.of("DS_ERP_TOKEN", List.of("erp2.example.com", "erp.example.com")));
+        assertThat(bound.resolveHeaders("erp.example.com", headers)).containsEntry("Authorization", "Bearer t0k");
+    }
+
+    @Test
+    void boundHostIgnoresCase() {
+        MockEnvironment env = new MockEnvironment().withProperty("DS_ERP_TOKEN", "Bearer t0k");
+        Map<String, String> headers = Map.of("Authorization", "${DS_ERP_TOKEN}");
+        assertThat(provider(env, Map.of("DS_ERP_TOKEN", List.of("ERP.Example.com"))).resolveHeaders("erp.example.COM", headers))
+            .containsEntry("Authorization", "Bearer t0k");
+    }
+
+    @Test
+    void oneUnboundHeaderRejectsTheWholeRequest() {
+        List<String> read = new ArrayList<>();
+        MockEnvironment env = recording(read).withProperty("DS_ERP_TOKEN", "Bearer t0k").withProperty("DS_HR_KEY", "k3y");
+        HttpApiDataSourceProvider provider = provider(env, Map.of("DS_ERP_TOKEN", List.of("erp.example.com")));
+        assertThatThrownBy(() -> provider.resolveHeaders("erp.example.com",
+                Map.of("Authorization", "${DS_ERP_TOKEN}", "X-Key", "${DS_HR_KEY}")))
+            .hasMessage(notBound("DS_HR_KEY", "erp.example.com"));
+        assertThat(read).doesNotContain("DS_HR_KEY");
+    }
+
+    @Test
+    void everyBindingIsCheckedBeforeAnyValueIsRead() {
+        // spec 3.2：先查完全部綁定才讀值；前一把綁了但沒設定值，也要回後一把沒綁定的 400，不是 500
+        List<String> read = new ArrayList<>();
+        HttpApiDataSourceProvider provider = provider(recording(read), Map.of("DS_A", List.of("10.0.0.5")));
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("X-A", "${DS_A}");
+        headers.put("X-B", "${DS_B}");
+        assertThatThrownBy(() -> provider.resolveHeaders("10.0.0.5", headers))
+            .isInstanceOf(ApiException.class)
+            .hasMessage(notBound("DS_B", "10.0.0.5"))
+            .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+        assertThat(read).isEmpty();
+    }
+
+    @Test
+    void everyFetchChecksTheBindingAndSecretHostsDoNotOpenAHost() {
+        MockEnvironment env = new MockEnvironment().withProperty("DS_ERP_TOKEN", "Bearer t0k");
+        Map<String, String> headers = Map.of("Authorization", "${DS_ERP_TOKEN}");
+        // 擋在發出請求之前：10.0.0.5 真的連不到，走到 HTTP 會變成 502
+        assertThatThrownBy(() -> provider(env, Map.of()).fetchRows(api("http://10.0.0.5/sales", headers)))
+            .hasMessage(notBound("DS_ERP_TOKEN", "10.0.0.5"));
+        // 綁了 10.0.0.6 也不會讓它通過允許清單
+        assertThatThrownBy(() -> provider(env, Map.of("DS_ERP_TOKEN", List.of("10.0.0.6")))
+                .fetchRows(api("http://10.0.0.6/sales", headers)))
+            .hasMessage("host 不在允許清單：10.0.0.6");
+    }
+
+    private static Datasource api(String url, Map<String, String> headers) {
+        return new Datasource(UUID.randomUUID(), "erp", "api", List.of(), url, headers, "u1", null);
     }
 
     @Test

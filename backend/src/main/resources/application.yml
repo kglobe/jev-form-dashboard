@@ -29,7 +29,9 @@ jev:
   upload:
     max-rows: 100000
   datasource:
-    allowed-hosts: []
+    # 外部 API 允許清單，逗號分隔。變數刻意不用 DS_ 開頭：DS_ 的值可以寫進 header 送出去
+    allowed-hosts: ${API_ALLOWED_HOSTS:}
+    # 密鑰綁定 host 寫在 .env：jev.datasource.secret-hosts.[DS_ERP_TOKEN]=erp.example.com（README「外部 API 資料源的規則」）
   auth:
     admin-username: ${ADMIN_USERNAME:}
     admin-password: ${ADMIN_PASSWORD:}

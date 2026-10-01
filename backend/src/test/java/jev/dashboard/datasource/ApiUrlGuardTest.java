@@ -11,8 +11,18 @@ import org.junit.jupiter.api.Test;
 class ApiUrlGuardTest {
     @Test
     void emptyAllowListRejectsEverything() {
-        assertThatThrownBy(() -> new ApiUrlGuard(List.of()).check("http://10.0.0.5/api"))
-            .isInstanceOf(ApiException.class).hasMessageContaining("未開放");
+        // API_ALLOWED_HOSTS=, 經 Spring 綁定會變成 ["", ""]，一樣算空清單
+        for (List<String> hosts : List.of(List.<String>of(), List.of("", ""), List.of(" "))) {
+            assertThatThrownBy(() -> new ApiUrlGuard(hosts).check("http://10.0.0.5/api"))
+                .isInstanceOf(ApiException.class).hasMessage("未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS");
+        }
+    }
+
+    @Test
+    void allowListIgnoresCase() {
+        // 走到「本機位址」這步，表示已經過了允許清單；localhost 在本機就解析得到，不必查 DNS
+        assertThatThrownBy(() -> new ApiUrlGuard(List.of("LocalHost")).check("http://LOCALHOST/x"))
+            .hasMessageContaining("本機位址");
     }
 
     @Test

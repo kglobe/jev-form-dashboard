@@ -430,7 +430,9 @@ describe('DatasourcePanel', () => {
 
     const headersField = wrapper.findComponent({ name: 'VTextarea' })
     expect(headersField.props('label')).toBe('headers（JSON，值只能寫 ${DS_環境變數名}）')
-    expect(document.body.textContent).toContain('{"Authorization":"${DS_ERP_AUTH}"}')
+    // 密鑰綁定 spec 4：密鑰沒綁定 host 就送不出去，提示裡要先講
+    expect(headersField.props('hint')).toBe('範例：{"Authorization":"${DS_ERP_AUTH}"}。密鑰還要在 backend/.env 綁定這個網址的 host')
+    expect(document.body.textContent).toContain('密鑰還要在 backend/.env 綁定這個網址的 host')
   })
 
   it('register() sends {name, url, headers} parsed from the textarea', async () => {

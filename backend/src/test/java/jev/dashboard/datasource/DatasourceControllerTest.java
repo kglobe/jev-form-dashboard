@@ -143,6 +143,16 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$.error", containsString("${DS_環境變數名}")));
     }
 
+    @Test
+    void registerApiRejectsSecretsNotBoundToTheHost() throws Exception { // 密鑰綁定 spec 3.2
+        TestData.addAccount(jdbc, "boss", true);
+        mvc.perform(post("/api/datasources/api").with(TestData.asAdmin("boss"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{\"X-Key\":\"${DS_TEST_UNBOUND}\"}}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value(HttpApiDataSourceProviderTest.notBound("DS_TEST_UNBOUND", "10.0.0.5")));
+    }
+
     static final String NORTH_SOUTH = """
         {"op":"union","inputs":["%1$s","%2$s"],"columns":[
           {"name":"region","from":{"%1$s":"region","%2$s":"area"}},
