@@ -1,20 +1,39 @@
 package jev.dashboard;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
 import java.io.InputStream;
+import java.util.List;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 public final class TestData {
     private TestData() {}
 
+    /** 測試帳號的密碼；PASSWORD_HASH 是事先算好的 bcrypt（cost 4），clean 不必每次重算。 */
+    public static final String PASSWORD = "test-password-1";
+    public static final String PASSWORD_HASH = "{bcrypt}$2a$04$YjwA8WPDUz9gUv6VAUQbOudjRmUno73kxXve8EeD/tOS7NvU546tO";
+
     public static void clean(JdbcClient jdbc) {
-        jdbc.sql("truncate dashboard, datasource_rows, datasource").update();
+        jdbc.sql("truncate dashboard_share, account, dashboard, datasource_rows, datasource").update();
+        for (String u : List.of("u1", "u2", "u3")) addAccount(jdbc, u, false);
+    }
+
+    public static void addAccount(JdbcClient jdbc, String username, boolean admin) {
+        jdbc.sql("insert into account (username, password_hash, admin) values (:u, :h, :a)")
+            .param("u", username).param("h", PASSWORD_HASH).param("a", admin).update();
+    }
+
+    /** 以這個帳號登入加上 CSRF token（唯讀分享 spec 8.1）。帳號要先在 account 表裡。 */
+    public static RequestPostProcessor as(String username) {
+        return req -> csrf().postProcessRequest(user(username).postProcessRequest(req));
     }
 
     public static String uploadSales(MockMvc mvc, String userId) throws Exception {
@@ -25,7 +44,7 @@ public final class TestData {
         String body = mvc.perform(multipart("/api/datasources/upload")
                 .file(new MockMultipartFile("file", "sales.csv", "text/csv", csv))
                 .param("name", "銷售")
-                .header("X-User-Id", userId))
+                .with(TestData.as(userId)))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         return JsonPath.read(body, "$.id");
@@ -36,7 +55,7 @@ public final class TestData {
         String body = mvc.perform(multipart("/api/datasources/upload")
                 .file(new MockMultipartFile("file", name + ".csv", "text/csv", csv.getBytes(UTF_8)))
                 .param("name", name)
-                .header("X-User-Id", userId))
+                .with(TestData.as(userId)))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         return JsonPath.read(body, "$.id");

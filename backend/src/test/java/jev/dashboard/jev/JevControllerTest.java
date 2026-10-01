@@ -58,7 +58,7 @@ class JevControllerTest {
          "gridPos":{"x":0,"y":0,"w":6,"h":4},"mapping":{"x":"region","value":"amount","aggregate":"sum"}}""";
 
     void analyzeIsRejected(String body, String message) throws Exception {
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value(message));
@@ -73,7 +73,7 @@ class JevControllerTest {
     @Test
     void analyzeReturnsPreviewWithoutSaving() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").doesNotExist())
@@ -90,7 +90,7 @@ class JevControllerTest {
         // 資料列拿掉了還送出 12 筆，代表 analyze 沒有為了算筆數去讀資料列（外部 API 就不用整批抓回來）
         jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
 
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
             .andExpect(status().isOk());
 
@@ -100,7 +100,7 @@ class JevControllerTest {
     @Test
     void analyzeOtherUsersDatasourceIs404() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u2")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
@@ -110,14 +110,14 @@ class JevControllerTest {
     @Test
     void highlightFlagsAnomalousCardsAndCachesTheResult() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
 
         for (int i = 0; i < 2; i++) {
-            mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1"))
+            mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].chartId").value("c1"))
@@ -126,7 +126,7 @@ class JevControllerTest {
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c3").doesNotContain("anomaly_c4");
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u2"))
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u2")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
     }
@@ -134,17 +134,17 @@ class JevControllerTest {
     @Test
     void highlightRightAfterDataUsesTheRowsDataAlreadyRead() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
 
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1")).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1"))).andExpect(status().isOk());
         // 資料列拿掉了還標得出來，代表異常檢查用的是 /data 剛讀的資料，沒有再讀一次來源
         jdbc.sql("delete from datasource_rows where datasource_id = :id").param("id", UUID.fromString(ds)).update();
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].chartId").value("c1"));
     }
@@ -159,17 +159,17 @@ class JevControllerTest {
               {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
             ]}""".formatted(ds);
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(dashboardJson))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
 
-        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
             .andExpect(status().isOk());
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
 
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1").doesNotContain("北區");
@@ -194,7 +194,7 @@ class JevControllerTest {
     void analyzeReturnsTheCleanedIntents() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         // 頭尾的半形、全形空白都去掉；空字串、只有空白、null 的句子丟掉
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"datasourceId\":\"" + ds + "\",\"intents\":[\"  各區每月營收　\",\"\",\"   \",null]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.intents").value(contains("各區每月營收")))
@@ -205,7 +205,7 @@ class JevControllerTest {
     @Test
     void adjustSendsTheCurrentChartsAndKeepsThemWhenJevAddsNothing() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"datasourceId\":\"" + ds + "\",\"intents\":[\"各區每月營收\",\"不要圓餅圖\"],\"current\":["
                     + BAR_CARD + "," + TABLE_CARD + "]}"))
             .andExpect(status().isOk())
@@ -220,7 +220,7 @@ class JevControllerTest {
     @Test
     void adjustingWithSomeoneElsesDatasourceIs404() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u2").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u2")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"datasourceId\":\"" + ds + "\",\"intents\":[\"不要圓餅圖\"],\"current\":[" + TABLE_CARD + "]}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
@@ -231,22 +231,22 @@ class JevControllerTest {
     void analyzingAMergedSourceKeepsInheritedSensitiveSamplesAwayFromJev() throws Exception {
         String sales = TestData.uploadSales(mvc, "u1");
         String products = TestData.uploadCsv(mvc, "u1", "產品主檔", "code,category,owner\nA,家電,王小明\nB,文具,李小華\nC,食品,陳大文\n");
-        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
             .andExpect(status().isOk());
-        mvc.perform(patch("/api/datasources/" + products + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + products + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"owner\"]}"))
             .andExpect(status().isOk());
         String merge = """
             {"op":"lookup","main":"%s","lookup":"%s","keys":[{"main":"product","lookup":"code"}],
              "bring":[{"name":"category","from":"category"},{"name":"owner","from":"owner"}]}""".formatted(sales, products);
-        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String created = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售（補產品主檔）\",\"merge\":" + merge + "}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String merged = JsonPath.read(created, "$.id");
 
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + merged + "\"}"))
             .andExpect(status().isOk());
 
@@ -267,13 +267,13 @@ class JevControllerTest {
               {"name":"region","from":{"%1$s":"region","%2$s":"region"}},
               {"name":"product","from":{"%1$s":"product","%2$s":"product"}},
               {"name":"退貨·amount","from":{"%2$s":"amount"}}],"sourceColumn":"來源"}""".formatted(sales, refunds);
-        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String created = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售／退貨 對照\",\"merge\":" + merge + "}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String compared = JsonPath.read(created, "$.id");
 
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + compared + "\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout[0].type").value("line"))
@@ -288,7 +288,7 @@ class JevControllerTest {
         String plain = TestData.uploadSales(mvc, "u1");
         String secret = TestData.uploadSales(mvc, "u1");
         // 兩個來源都有 region，只有 secret 那邊標成敏感
-        mvc.perform(patch("/api/datasources/" + secret + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + secret + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
             .andExpect(status().isOk());
         String card = """
@@ -296,17 +296,17 @@ class JevControllerTest {
              "gridPos":{"x":%d,"y":0,"w":6,"h":4},
              "mapping":{"x":"order_date","timeGrain":"month","series":"region","value":"amount","aggregate":"sum"}}""";
         String first = card.formatted("c1", plain, 0);
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"兩個來源\",\"layout\":[" + first + "]}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"兩個來源\",\"layout\":["
                     + first + "," + card.formatted("c2", secret, 6) + "]}"))
             .andExpect(status().isOk());
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
 
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c1\"").doesNotContain("anomaly_c2");
@@ -315,7 +315,7 @@ class JevControllerTest {
     @Test
     void highlightSendsRatioCardsInPercentPointsAndSkipsThemOnceTheRatioIsSensitive() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(patch("/api/datasources/" + ds + "/ratios").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + ds + "/ratios").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ratios\":[{\"name\":\"單價\",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
             .andExpect(status().isOk());
@@ -326,21 +326,21 @@ class JevControllerTest {
               {"chartId":"c2","datasourceId":"%1$s","type":"line","title":"月數量","gridPos":{"x":6,"y":0,"w":6,"h":4},
                "mapping":{"x":"order_date","timeGrain":"month","value":"qty","aggregate":"sum"}}
             ]}""".formatted(ds);
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", "u1")
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(dashboardJson))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
 
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c1\"").contains("\"unit\":\"%\"").contains("\"changePoints\"");
 
         // 分子標成敏感，比率跟著敏感，那張卡整張不送
-        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + ds + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"amount\"]}"))
             .andExpect(status().isOk());
-        mvc.perform(get("/api/jev/highlight/" + id).header("X-User-Id", "u1")).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
         assertThat(JEV.bodies).hasSize(2);
         assertThat(JEV.bodies.get(1)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1");
     }
@@ -348,12 +348,12 @@ class JevControllerTest {
     @Test
     void analyzingASourceWithARatioAsksAboutItAfterTheFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(patch("/api/datasources/" + ds + "/ratios").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + ds + "/ratios").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ratios\":[{\"name\":\"單價\",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
             .andExpect(status().isOk());
 
-        mvc.perform(post("/api/jev/analyze").header("X-User-Id", "u1")
+        mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + ds + "\"}"))
             .andExpect(status().isOk());
 
@@ -365,7 +365,7 @@ class JevControllerTest {
     static final String ORDERS_CSV = "訂單日期,地區,金額,出貨日\n2024-07-05,北區,1200,2024-07-08\n2024-07-20,南區,800,2024-07-22\n";
 
     ResultActions mapping(String userId, String body) throws Exception {
-        return mvc.perform(post("/api/jev/mapping").header("X-User-Id", userId)
+        return mvc.perform(post("/api/jev/mapping").with(TestData.as(userId))
             .contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
@@ -373,7 +373,7 @@ class JevControllerTest {
     void mappingAsksJevOnceAndReturnsOnlyTheMatchesThatPassTheRules() throws Exception {
         String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
         String sales = TestData.uploadSales(mvc, "u1");
-        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
             .andExpect(status().isOk());
 
@@ -394,16 +394,16 @@ class JevControllerTest {
         String orders = TestData.uploadCsv(mvc, "u1", "訂單", ORDERS_CSV);
         String sales = TestData.uploadSales(mvc, "u1");
         String products = TestData.uploadCsv(mvc, "u1", "產品主檔", "code,category,owner\nA,家電,王小明\nB,文具,李小華\nC,食品,陳大文\n");
-        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + sales + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
             .andExpect(status().isOk());
-        mvc.perform(patch("/api/datasources/" + products + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + products + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"owner\"]}"))
             .andExpect(status().isOk());
         String merge = """
             {"op":"lookup","main":"%s","lookup":"%s","keys":[{"main":"product","lookup":"code"}],
              "bring":[{"name":"category","from":"category"},{"name":"owner","from":"owner"}]}""".formatted(sales, products);
-        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String created = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售（補產品主檔）\",\"merge\":" + merge + "}"))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);

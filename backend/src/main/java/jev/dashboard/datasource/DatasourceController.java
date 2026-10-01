@@ -1,5 +1,6 @@
 package jev.dashboard.datasource;
 
+import java.security.Principal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -12,7 +13,6 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -42,62 +42,62 @@ public class DatasourceController {
     }
 
     @PostMapping("/upload")
-    public Datasource upload(@RequestHeader("X-User-Id") String userId,
+    public Datasource upload(Principal principal,
                              @RequestParam("file") MultipartFile file,
                              @RequestParam("name") String name,
                              @RequestParam(value = "sheet", required = false) String sheet) {
-        return service.upload(userId, name, file, sheet);
+        return service.upload(principal.getName(), name, file, sheet);
     }
 
     @PostMapping("/api")
-    public Datasource registerApi(@RequestHeader("X-User-Id") String userId, @RequestBody ApiRegistration body) {
-        return service.registerApi(userId, body.name(), body.url(), body.headers());
+    public Datasource registerApi(Principal principal, @RequestBody ApiRegistration body) {
+        return service.registerApi(principal.getName(), body.name(), body.url(), body.headers());
     }
 
     @PostMapping("/merged/preview")
-    public DatasourceService.MergePreview previewMerged(@RequestHeader("X-User-Id") String userId,
+    public DatasourceService.MergePreview previewMerged(Principal principal,
                                                         @RequestBody MergeRequest body) {
-        return service.previewMerged(userId, body.merge());
+        return service.previewMerged(principal.getName(), body.merge());
     }
 
     @PostMapping("/merged")
-    public Datasource createMerged(@RequestHeader("X-User-Id") String userId, @RequestBody MergeRequest body) {
-        return service.createMerged(userId, body.name(), body.merge());
+    public Datasource createMerged(Principal principal, @RequestBody MergeRequest body) {
+        return service.createMerged(principal.getName(), body.name(), body.merge());
     }
 
     @GetMapping
-    public List<Datasource> list(@RequestHeader("X-User-Id") String userId) {
-        return service.list(userId);
+    public List<Datasource> list(Principal principal) {
+        return service.list(principal.getName());
     }
 
     @GetMapping("/{id}/usage")
-    public Usage usage(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {
-        return new Usage(service.mergedBy(userId, id).stream().map(d -> new Ref(d.id(), d.name())).toList(),
-            dashboards.usingDatasource(userId, id));
+    public Usage usage(Principal principal, @PathVariable UUID id) {
+        return new Usage(service.mergedBy(principal.getName(), id).stream().map(d -> new Ref(d.id(), d.name())).toList(),
+            dashboards.usingDatasource(principal.getName(), id));
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id) {
-        service.delete(userId, id);
+    public void delete(Principal principal, @PathVariable UUID id) {
+        service.delete(principal.getName(), id);
     }
 
     @PatchMapping("/{id}/sensitive")
-    public Datasource sensitive(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+    public Datasource sensitive(Principal principal, @PathVariable UUID id,
                                 @RequestBody SensitiveFields body) {
-        return service.markSensitive(userId, id, body.fields() == null ? List.of() : body.fields());
+        return service.markSensitive(principal.getName(), id, body.fields() == null ? List.of() : body.fields());
     }
 
     @PatchMapping("/{id}/labels")
-    public Datasource labels(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+    public Datasource labels(Principal principal, @PathVariable UUID id,
                              @RequestBody FieldLabels body) {
-        return service.setLabels(userId, id, body.labels() == null ? Map.of() : body.labels());
+        return service.setLabels(principal.getName(), id, body.labels() == null ? Map.of() : body.labels());
     }
 
     /** B3 spec 第 7 節：整份取代，新增、刪除都用這支。 */
     @PatchMapping("/{id}/ratios")
-    public Datasource ratios(@RequestHeader("X-User-Id") String userId, @PathVariable UUID id,
+    public Datasource ratios(Principal principal, @PathVariable UUID id,
                              @RequestBody RatioList body) {
-        return service.setRatios(userId, id, body.ratios() == null ? List.of() : body.ratios());
+        return service.setRatios(principal.getName(), id, body.ratios() == null ? List.of() : body.ratios());
     }
 }

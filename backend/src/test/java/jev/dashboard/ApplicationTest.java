@@ -18,16 +18,17 @@ class ApplicationTest {
 
     @Test
     void listensOnLoopbackByDefault() {
-        // 身分只靠 X-User-Id header，預設不能對外網開；要開用 --server.address=0.0.0.0
+        // 預設只聽本機；要對外開用 --server.address=0.0.0.0
         assertThat(env.getProperty("server.address")).isEqualTo("127.0.0.1");
     }
 
     @Test
     void flywayCreatesTablesInTestSchema() {
+        String schema = env.getProperty("spring.flyway.schemas"); // 環境變數 SPRING_FLYWAY_SCHEMAS 會蓋過 application-test.yml
         List<String> tables = jdbc.sql("""
                 select table_name from information_schema.tables
-                where table_schema = 'jev_dashboard_test' order by table_name""")
-            .query(String.class).list();
-        assertThat(tables).contains("dashboard", "datasource", "datasource_rows", "jev_flyway_history");
+                where table_schema = :s order by table_name""")
+            .param("s", schema).query(String.class).list();
+        assertThat(tables).contains("account", "dashboard", "dashboard_share", "datasource", "datasource_rows", "jev_flyway_history");
     }
 }

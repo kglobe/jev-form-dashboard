@@ -36,7 +36,7 @@ class DashboardControllerTest {
     }
 
     String create(String user, String json) throws Exception {
-        String body = mvc.perform(post("/api/dashboards").header("X-User-Id", user)
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as(user))
                 .contentType(MediaType.APPLICATION_JSON).content(json))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
@@ -57,7 +57,7 @@ class DashboardControllerTest {
     }
 
     void appendFails(String id, String body, int code, String message) throws Exception {
-        mvc.perform(post("/api/dashboards/" + id + "/charts").header("X-User-Id", "u1")
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().is(code))
             .andExpect(jsonPath("$.error").value(message));
@@ -69,40 +69,40 @@ class DashboardControllerTest {
         String json = TestData.dashboardJson(ds);
         String id = create("u1", json);
 
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.name").value("銷售總覽"))
             .andExpect(jsonPath("$.createdBy").value("u1"))
             .andExpect(jsonPath("$.layout.length()").value(4))
             .andExpect(jsonPath("$.layout[0].gridPos.x").value(0));
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u2"))
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u2")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
-        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/dashboards").header("X-User-Id", "u2")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/dashboards").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/dashboards").with(TestData.as("u2"))).andExpect(jsonPath("$.length()").value(0));
 
         String moved = json.replaceFirst("\\{\"x\":0,\"y\":0,", "{\"x\":6,\"y\":8,");
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1")
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(moved))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout[0].gridPos.x").value(6))
             .andExpect(jsonPath("$.layout[0].gridPos.y").value(8));
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u2")
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content(moved))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
 
-        mvc.perform(delete("/api/dashboards/" + id).header("X-User-Id", "u2"))
+        mvc.perform(delete("/api/dashboards/" + id).with(TestData.as("u2")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
-        mvc.perform(delete("/api/dashboards/" + id).header("X-User-Id", "u1")).andExpect(status().isNoContent());
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1")).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNoContent());
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNotFound());
     }
 
     @Test
     void createWithSomeoneElsesDatasourceIs404() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u2")
+        mvc.perform(post("/api/dashboards").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
@@ -112,7 +112,7 @@ class DashboardControllerTest {
     void dataTransformsEachCardAndFlagsMissingField() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String id = create("u1", TestData.dashboardJson(ds));
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(4))
             .andExpect(jsonPath("$[0].chartId").value("c1"))
@@ -123,7 +123,7 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$[2].rows[0][0]").value("北區"))
             .andExpect(jsonPath("$[3].error").value("FIELD_MISSING"))
             .andExpect(jsonPath("$[3].missingField").value("profit"));
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u2"))
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u2")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
     }
@@ -134,25 +134,25 @@ class DashboardControllerTest {
         String json = TestData.dashboardJson(ds);
         String id = create("u1", json);
 
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"壞\",\"layout\":[null]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("第 1 張圖表是空的"));
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace("\"name\":\"銷售總覽\"", "\"name\":\" \"")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("儀表板名稱不能空白"));
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace(",\"gridPos\":{\"x\":0,\"y\":0,\"w\":6,\"h\":4}", "")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("圖表 c1：缺少 gridPos"));
-        mvc.perform(post("/api/dashboards/preview/data").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards/preview/data").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace("\"type\":\"line\"", "\"type\":\"donut\"")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error", startsWith("圖表 c1：type 必須是")));
 
-        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(1));
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.length()").value(4));
     }
@@ -160,12 +160,12 @@ class DashboardControllerTest {
     @Test
     void previewDataWorksWithoutSaving() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/dashboards/preview/data").header("X-User-Id", "u1")
+        mvc.perform(post("/api/dashboards/preview/data").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].rows.length()").value(6));
         // 別人的來源跟已刪除的一樣查不到，只回 SOURCE_DELETED，不會拿到資料（刪除來源 spec 4.1）
-        mvc.perform(post("/api/dashboards/preview/data").header("X-User-Id", "u2")
+        mvc.perform(post("/api/dashboards/preview/data").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].error").value("SOURCE_DELETED"))
@@ -180,7 +180,7 @@ class DashboardControllerTest {
             "\"name\":\"銷售總覽\",\"intents\":[\"各區每月營收\",\"不要圓餅圖\"],");
 
         String id = create("u1", withIntents);
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.intents").doesNotExist())
             .andExpect(jsonPath("$.basis.length()").value(1))
@@ -189,15 +189,15 @@ class DashboardControllerTest {
 
         // 沒有需求紀錄就沒有依據
         String plain = create("u1", json);
-        mvc.perform(get("/api/dashboards/" + plain).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + plain).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.basis").doesNotExist());
 
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace("\"name\":\"銷售總覽\",", "\"name\":\"銷售總覽\",\"intents\":[\" \"],")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("需求紀錄不能有空白的句子"));
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content(json.replace("\"name\":\"銷售總覽\",", "\"name\":\"銷售總覽\",\"basis\":[{\"datasourceId\":\""
                     + ds + "\",\"intents\":[\"" + "營".repeat(201) + "\"]}],")))
             .andExpect(status().isBadRequest())
@@ -208,19 +208,19 @@ class DashboardControllerTest {
     void createNeedsAtLeastOneCardAllFromOneSource() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String other = TestData.uploadSales(mvc, "u1");
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"空\",\"layout\":[]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("沒有要存入的圖表"));
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"混\",\"layout\":[" + card("c1", ds, 0) + "," + card("c2", other, 4) + "]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("一次存入的圖表要來自同一個資料來源"));
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"缺\",\"layout\":[" + card("c1", ds, 0).replace("\"datasourceId\":\"" + ds + "\",", "") + "]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("圖表 c1：缺少 datasourceId"));
-        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/dashboards").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
@@ -232,14 +232,14 @@ class DashboardControllerTest {
         String basis = "\"basis\":[{\"datasourceId\":\"" + sales + "\",\"intents\":[\"各區每月營收\"]},"
             + "{\"datasourceId\":\"" + returns + "\",\"intents\":[\"各區退貨\"]}]";
 
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\"," + basis + ",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", returns, 4) + "]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout[*].datasourceId").value(contains(sales, returns)))
             .andExpect(jsonPath("$.basis[*].datasourceId").value(contains(sales, returns)));
 
         // 銷售的圖全部拿掉：銷售那組依據跟著刪
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\"," + basis + ",\"layout\":[" + card("c2", returns, 4) + "]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.basis.length()").value(1))
@@ -247,17 +247,17 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$.basis[0].intents").value(contains("各區退貨")));
 
         // backlog 第 42 行：圖指到別人的來源就擋下來
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", strangers, 0) + "]}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"basis\":[{\"intents\":[\"各區退貨\"]}],\"layout\":[" + card("c2", returns, 4) + "]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("依據缺少 datasourceId"));
 
         // 最後一張也可以拿掉：layout 變成空的，依據也沒了
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\"," + basis + ",\"layout\":[]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout.length()").value(0))
@@ -269,27 +269,27 @@ class DashboardControllerTest {
         String sales = TestData.uploadSales(mvc, "u1");
         String returns = TestData.uploadSales(mvc, "u1");
         String id = create("u1", "{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "]}");
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", returns, 4) + "]}"))
             .andExpect(status().isOk());
-        mvc.perform(delete("/api/datasources/" + returns).header("X-User-Id", "u1")).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/datasources/" + returns).with(TestData.as("u1"))).andExpect(status().isNoContent());
 
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].error").doesNotExist())
             .andExpect(jsonPath("$[1].error").value("SOURCE_DELETED"));
 
         // 拖拉照樣存得進去
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "," + card("c2", returns, 4) + "]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout[0].gridPos.y").value(2));
         // 移除已刪除的卡片
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "]}"))
             .andExpect(status().isOk());
         // 新帶進來的來源照舊要檢查
-        mvc.perform(put("/api/dashboards/" + id).header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 2) + "," + card("c3", UUID.randomUUID().toString(), 6) + "]}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
@@ -299,9 +299,9 @@ class DashboardControllerTest {
     void aDashboardWhoseSourcesAreAllDeletedStillOpens() throws Exception {
         String sales = TestData.uploadSales(mvc, "u1");
         String id = create("u1", "{\"name\":\"週報\",\"layout\":[" + card("c1", sales, 0) + "," + card("c2", sales, 4) + "]}");
-        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1")).andExpect(status().isNoContent());
+        mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u1"))).andExpect(status().isNoContent());
 
-        mvc.perform(get("/api/dashboards/" + id + "/data").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].error").value("SOURCE_DELETED"))
             .andExpect(jsonPath("$[1].error").value("SOURCE_DELETED"));
@@ -311,7 +311,7 @@ class DashboardControllerTest {
     void theListNoLongerCarriesADatasourceId() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         create("u1", TestData.dashboardJson(ds));
-        mvc.perform(get("/api/dashboards").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards").with(TestData.as("u1")))
             .andExpect(jsonPath("$[0].name").value("銷售總覽"))
             .andExpect(jsonPath("$[0].updatedAt").exists())
             .andExpect(jsonPath("$[0].datasourceId").doesNotExist());
@@ -327,7 +327,7 @@ class DashboardControllerTest {
         String batch = "{\"name\":\"亂改\",\"intents\":[\"各區退貨\"],\"layout\":["
             + card("c1", returns, 0) + "," + tableCard("c2", returns, 4) + "]}";
 
-        mvc.perform(post("/api/dashboards/" + id + "/charts").header("X-User-Id", "u1")
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(batch))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.name").value("銷售總覽"))
@@ -341,7 +341,7 @@ class DashboardControllerTest {
             .andExpect(jsonPath("$.basis[1].intents").value(contains("各區退貨")));
 
         // 沒有需求紀錄：圖照加，依據不多一組
-        mvc.perform(post("/api/dashboards/" + id + "/charts").header("X-User-Id", "u1")
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":[" + card("c9", returns, 3) + "]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout[6].chartId").value("c7"))
@@ -358,7 +358,7 @@ class DashboardControllerTest {
         String ok = "{\"layout\":[" + card("c1", returns, 0) + "]}";
 
         appendFails(UUID.randomUUID().toString(), ok, 404, "找不到儀表板");
-        mvc.perform(post("/api/dashboards/" + id + "/charts").header("X-User-Id", "u2")
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content(ok))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
@@ -370,7 +370,7 @@ class DashboardControllerTest {
             "圖表 c1：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar 其中之一");
         appendFails(id, "{\"intents\":[\" \"],\"layout\":[" + card("c1", returns, 0) + "]}", 400, "需求紀錄不能有空白的句子");
 
-        mvc.perform(get("/api/dashboards/" + id).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
             .andExpect(jsonPath("$.layout.length()").value(4));
     }
 }
