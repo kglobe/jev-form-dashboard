@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import App from './App.vue'
 import { api, onUnauthorized } from './modules/dashboard/index.js'
 import { vuetify } from './modules/dashboard/test-vuetify.js'
+
+// 每個測試結束就卸載 App，前一個測試的 hashchange listener 才不會留在 window 上
+enableAutoUnmount(afterEach)
 
 vi.mock('./modules/dashboard/index.js', () => ({
   api: {
@@ -11,6 +14,7 @@ vi.mock('./modules/dashboard/index.js', () => ({
     getDashboard: vi.fn(),
     deleteDashboard: vi.fn(),
     me: vi.fn(),
+    sharedDashboards: vi.fn(),
   },
   onUnauthorized: vi.fn(),
   ChartBuilder: {
@@ -19,7 +23,7 @@ vi.mock('./modules/dashboard/index.js', () => ({
     emits: ['saved', 'dashboards-changed'],
     template: '<div class="chart-builder-stub" />',
   },
-  DashboardView: { name: 'DashboardView', props: ['config'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
+  DashboardView: { name: 'DashboardView', props: ['config', 'readonly'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
   DatasourcePanel: {
     name: 'DatasourcePanel',
     props: ['selectedId'],
@@ -71,6 +75,7 @@ describe('App', () => {
     vi.resetAllMocks()
     api.listDashboards.mockResolvedValue(dashboards)
     api.me.mockResolvedValue({ username: 'u1', admin: false, password: true })
+    api.sharedDashboards.mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -464,5 +469,190 @@ describe('App', () => {
     const theme = wrapper.get('button[aria-label^="切換成"]')
     expect(account.element.compareDocumentPosition(theme.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(wrapper.findComponent({ name: 'UserMenu' }).props('me')).toEqual({ username: 'u1', admin: false, password: true })
+  })
+
+  describe('分享給我的、唯讀檢視和 #/d/<id> 網址', () => {
+    const ID = '11111111-2222-3333-4444-555555555555'
+    const NOT_FOUND = '找不到這份儀表板，可能已經刪除或取消分享'
+    const sharedItem = { id: ID, name: '各區營收', owner: 'boss', updatedAt: '2026-09-30T08:00:00Z' }
+    // happy-dom 20 的 replaceState 用 setTimeout 補發 hashchange（瀏覽器不會），數 getDashboard 之前先等它發完
+    const settle = async () => {
+      await new Promise((r) => setTimeout(r))
+      await flushPromises()
+    }
+    const item = (wrapper, name) => wrapper.findAll('.v-list-item').find((w) => w.text().includes(name))
+    const goTo = (url) => {
+      history.replaceState(null, '', url)
+      // 照瀏覽器的行為手動發一次；happy-dom 會再補發一次
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
+
+    it('「分享給我的 · N」列出分享給我的儀表板，副標是「來自 擁有者」，沒有刪除鈕；沒有時整段不顯示', async () => {
+      const wrapper = mountApp()
+      await flushPromises()
+      expect(api.sharedDashboards).toHaveBeenCalledTimes(1)
+      expect(wrapper.text()).not.toContain('分享給我的')
+      expect(wrapper.find('[aria-label="分享給我的"]').exists()).toBe(false)
+
+      api.sharedDashboards.mockResolvedValue([sharedItem])
+      wrapper.findComponent({ name: 'ChartBuilder' }).vm.$emit('dashboards-changed')
+      await flushPromises()
+      expect(wrapper.text()).toContain('分享給我的 · 1')
+      const items = wrapper.get('[aria-label="分享給我的"]').findAll('.v-list-item')
+      expect(items).toHaveLength(1)
+      expect(items[0].get('.v-list-item-title').text()).toBe('各區營收')
+      expect(items[0].get('.v-list-item-subtitle').text()).toBe('來自 boss')
+      expect(items[0].find('button').exists()).toBe(false)
+    })
+
+    it('只有分享給我的時，空白狀態是「從左邊選一份儀表板」，沒有製圖步驟', async () => {
+      api.listDashboards.mockResolvedValue([])
+      api.sharedDashboards.mockResolvedValue([sharedItem])
+      const wrapper = mountApp()
+      await flushPromises()
+      expect(wrapper.get('.empty-start h2').text()).toBe('從左邊選一份儀表板')
+      expect(wrapper.find('.empty-steps').exists()).toBe(false)
+      expect(findButton(wrapper, '前往資料')).toBeDefined()
+      expect(findButton(wrapper, '開始製圖')).toBeDefined()
+    })
+
+    it('檢視者：說明文字換掉，DashboardView 是 readonly', async () => {
+      api.sharedDashboards.mockResolvedValue([sharedItem])
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+
+      await item(wrapper, '各區營收').trigger('click')
+      await flushPromises()
+      expect(api.getDashboard).toHaveBeenCalledWith(ID)
+      expect(wrapper.get('.cc-desc').text()).toBe('「boss」分享給你的儀表板，只能檢視。')
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(true)
+    })
+
+    it('擁有者：說明文字照舊，DashboardView 不是 readonly', async () => {
+      api.getDashboard.mockResolvedValue({ id: 'd1', name: 'Dash One', createdBy: 'u1', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+
+      await findDashboardItem(wrapper).trigger('click')
+      await flushPromises()
+      expect(wrapper.get('.cc-desc').text()).toBe('卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。')
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(false)
+    })
+
+    it('打開儀表板時網址變成 #/d/<id>；刪除目前那份才拿掉', async () => {
+      api.listDashboards.mockResolvedValue([{ id: 'd1', name: 'Dash One' }, { id: 'd2', name: 'Dash Two' }])
+      api.getDashboard.mockResolvedValue({ id: 'd1', name: 'Dash One', createdBy: 'u1', layout: [] })
+      api.deleteDashboard.mockResolvedValue(null)
+      const wrapper = mountApp()
+      await flushPromises()
+
+      await item(wrapper, 'Dash One').trigger('click')
+      await flushPromises()
+      expect(location.hash).toBe('#/d/d1')
+      // d1 不是 UUID：open() 自己改的 hash 不能被 openFromHash 當成格式不對
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(true)
+      expect(wrapper.text()).not.toContain(NOT_FOUND)
+
+      // spec 7.9：切到「資料」「製圖」時 hash 不動
+      pressKey({ altKey: true, key: '1' })
+      await flushPromises()
+      expect(location.hash).toBe('#/d/d1')
+      pressKey({ altKey: true, key: '3' })
+      await flushPromises()
+
+      // 刪掉的不是目前那份：hash 留著
+      await item(wrapper, 'Dash Two').get('button[aria-label="刪除儀表板"]').trigger('click')
+      await flushPromises()
+      dialogButton('刪除').click()
+      await flushPromises()
+      expect(location.hash).toBe('#/d/d1')
+
+      await item(wrapper, 'Dash One').get('button[aria-label="刪除儀表板"]').trigger('click')
+      await flushPromises()
+      dialogButton('刪除').click()
+      await flushPromises()
+      expect(location.hash).toBe('')
+      expect(location.pathname).toBe('/')
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+    })
+
+    it('網址有 #/d/<id> 時，開機就打開那份', async () => {
+      history.replaceState(null, '', `/#/d/${ID}`)
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+      expect(api.getDashboard).toHaveBeenCalledWith(ID)
+      expect(currentView(wrapper)).toBe('儀表板')
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('config').id).toBe(ID)
+    })
+
+    it('打開失敗回 404 時清掉畫面，顯示「找不到這份儀表板，可能已經刪除或取消分享」，hash 是失敗的那份', async () => {
+      api.listDashboards.mockResolvedValue([{ id: 'd1', name: 'Dash One' }, { id: 'd2', name: 'Dash Two' }])
+      api.getDashboard.mockResolvedValueOnce({ id: 'd1', name: 'Dash One', createdBy: 'u1', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+      await item(wrapper, 'Dash One').trigger('click')
+      await flushPromises()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(true)
+
+      api.getDashboard.mockRejectedValueOnce(Object.assign(new Error('找不到儀表板'), { status: 404 }))
+      await item(wrapper, 'Dash Two').trigger('click')
+      await flushPromises()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(false)
+      expect(wrapper.get('h1').text()).toBe('儀表板')
+      expect(wrapper.get('.v-alert').text()).toBe(NOT_FOUND)
+      // 重新整理會再試 d2，不是回到 d1
+      expect(location.hash).toBe('#/d/d2')
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(2)
+    })
+
+    it('格式不對的 #/d/… 不打 API，直接顯示找不到', async () => {
+      history.replaceState(null, '', '/#/d/abc')
+      const wrapper = mountApp()
+      await settle()
+      expect(api.getDashboard).not.toHaveBeenCalled()
+      expect(wrapper.get('.v-alert').text()).toBe(NOT_FOUND)
+    })
+
+    it('hashchange 到合法的 #/d/<id> 時切到儀表板頁並打開；變成空的或其他 hash 什麼都不做', async () => {
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+
+      pressKey({ altKey: true, key: '1' })
+      await flushPromises()
+      expect(currentView(wrapper)).toBe('資料')
+      goTo(`/#/d/${ID}`)
+      await settle()
+      expect(currentView(wrapper)).toBe('儀表板')
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+      expect(api.getDashboard).toHaveBeenCalledWith(ID)
+
+      for (const hash of ['', '#/other']) {
+        pressKey({ altKey: true, key: '1' })
+        await flushPromises()
+        goTo(`/${hash}`)
+        await settle()
+        expect(currentView(wrapper)).toBe('資料')
+        expect(api.getDashboard).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('卸載時拿掉 hashchange 的 listener', async () => {
+      const addSpy = vi.spyOn(window, 'addEventListener')
+      const removeSpy = vi.spyOn(window, 'removeEventListener')
+      const wrapper = mountApp()
+      await flushPromises()
+
+      const handler = addSpy.mock.calls.find(([type]) => type === 'hashchange')[1]
+      wrapper.unmount()
+      expect(removeSpy).toHaveBeenCalledWith('hashchange', handler)
+    })
   })
 })
