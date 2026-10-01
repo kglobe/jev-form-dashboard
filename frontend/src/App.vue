@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
-import { ChartBuilder, DashboardView, DatasourcePanel, api } from './modules/dashboard/index.js'
+import { ChartBuilder, DashboardView, DatasourcePanel, api, onUnauthorized } from './modules/dashboard/index.js'
+import { LoginPage, ReloginDialog, ShareDialog, UserMenu } from './modules/auth/index.js'
+import { DASHBOARD_HASH, restoreSavedHash } from './modules/auth/session.js'
 
 const VIEWS = [
   { id: 'data', label: '資料', icon: 'mdi-database-outline' },
@@ -15,9 +17,23 @@ const datasourceId = ref(null)
 const buildRequest = ref(null)
 
 const dashboards = ref([])
+// 唯讀分享 spec 7.7：分享給我的
+const shared = ref([])
 const current = ref(null)
 const error = ref('')
 const confirmDelete = ref(null)
+// 唯讀分享 spec 7.6：分享對話框
+const sharing = ref(false)
+
+// 唯讀分享 spec 7.1：me 拿到之前，App 的其他元件都不掛；needLogin 是 me 回 401，bootError 是其他錯誤
+const me = ref(null)
+const needLogin = ref(false)
+const bootError = ref(null)
+// spec 7.2：登入逾時另外用一個 ref，不動 me，畫面上的元件都不卸載；多個 401 同時回來也只是設同一個 true
+const relogin = ref(false)
+onUnauthorized(() => {
+  if (me.value) relogin.value = true
+})
 
 // 深淺主題：Vuetify 換元件配色，<html data-theme> 換 command-center.css 的 token，localStorage 記住下次用哪套
 const THEME_KEY = 'jev-theme' // index.html 的 inline script 讀同一個 key
@@ -41,7 +57,7 @@ function startBuild(id) {
 }
 
 async function refresh() {
-  dashboards.value = await api.listDashboards()
+  [dashboards.value, shared.value] = await Promise.all([api.listDashboards(), api.sharedDashboards()])
 }
 
 // 製圖頁加圖時發現儀表板已經不在（在別的分頁刪了）：重抓清單，選單裡就不會再有它
@@ -49,12 +65,56 @@ function reloadDashboards() {
   refresh().catch((e) => (error.value = e.message))
 }
 
+async function boot() {
+  needLogin.value = false
+  bootError.value = null
+  try {
+    me.value = await api.me()
+  } catch (e) {
+    if (e.status === 401) needLogin.value = true
+    else bootError.value = e.message
+    return
+  }
+  refresh().catch((e) => (error.value = e.message))
+  openFromHash()
+}
+
+// spec 7.2：重新登入的是同一個帳號；剛才失敗的動作不會自動重送
+function afterRelogin() {
+  relogin.value = false
+  reloadDashboards()
+  if (current.value) open(current.value.id)
+}
+
+const NOT_FOUND = '找不到這份儀表板，可能已經刪除或取消分享'
+// 唯讀分享 spec 7.8：打開的不是自己的，就是檢視者
+const readonly = computed(() => !!current.value && current.value.createdBy !== me.value?.username)
+
+// 最後一次 open() 的 id（plan「實作上的決定」第 23 點）
+let lastOpened = null
+
+// spec 7.9：只認 #/d/<uuid>；格式不對的直接說找不到，不打 API；其他 hash 不理
+function openFromHash() {
+  if (!me.value || !location.hash.startsWith('#/d/')) return
+  // open() 自己改的 hash：happy-dom 的 replaceState 會補發 hashchange（瀏覽器不會），不再打開一次
+  if (location.hash === `#/d/${lastOpened}`) return
+  view.value = 'dashboards'
+  const m = location.hash.match(DASHBOARD_HASH)
+  if (m) return open(m[1])
+  current.value = null
+  error.value = NOT_FOUND
+}
+
 async function open(id) {
+  lastOpened = id
+  // spec 7.8、7.9：先改網址再抓，404 時 hash 才是失敗的那份，重新整理會再試它
+  history.replaceState(null, '', `#/d/${id}`)
   try {
     current.value = await api.getDashboard(id)
     error.value = ''
   } catch (e) {
-    error.value = e.message
+    if (e.status === 404) current.value = null
+    error.value = e.status === 404 ? NOT_FOUND : e.message
   }
 }
 
@@ -79,7 +139,12 @@ async function confirmRemove() {
   confirmDelete.value = null
   try {
     await api.deleteDashboard(d.id)
-    if (current.value?.id === d.id) current.value = null
+    if (current.value?.id === d.id) {
+      current.value = null
+      // spec 7.9：只有刪除目前那份才拿掉網址的 hash
+      lastOpened = null
+      history.replaceState(null, '', location.pathname + location.search)
+    }
     await refresh()
     error.value = ''
   } catch (e) {
@@ -98,13 +163,20 @@ function onKey(e) {
 
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  refresh().catch((e) => (error.value = e.message))
+  window.addEventListener('hashchange', openFromHash)
+  restoreSavedHash()
+  boot()
 })
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
 </script>
 
 <template>
   <v-app>
+    <!-- 唯讀分享 spec 7.1：開機先確認登入。下面的既有標記刻意不重排縮排，跟 feat/industrial-theme 合併時衝突才少 -->
+    <div v-if="!me && !needLogin && !bootError" class="boot"><v-progress-circular indeterminate color="primary" /></div>
+    <LoginPage v-else-if="!me" :error="bootError" :is-light="isLight" @logged-in="boot" @retry="boot" @toggle-theme="toggleTheme" />
+    <template v-else>
     <v-navigation-drawer permanent width="76" color="transparent" class="cc-rail">
       <div class="cc-logo" aria-hidden="true">JEV</div>
       <nav class="cc-rail__nav" aria-label="主要導覽">
@@ -123,6 +195,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <span>{{ v.label }}</span>
         </button>
       </nav>
+      <UserMenu :me="me">
+        <template #activator="{ props }">
+          <button type="button" class="cc-rail__item cc-rail__account" v-bind="props" :title="me.username">
+            <v-icon icon="mdi-account-circle-outline" size="22" />
+            <span>帳號</span>
+          </button>
+        </template>
+      </UserMenu>
       <button
         type="button"
         class="cc-rail__item cc-rail__theme"
@@ -151,9 +231,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <div>
             <div class="cc-eyebrow">03 · Dashboards</div>
             <h1 class="cc-title">{{ current ? current.name : '儀表板' }}</h1>
-            <p class="cc-desc">卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。</p>
+            <p class="cc-desc">{{ readonly ? `「${current.createdBy}」分享給你的儀表板，只能檢視。` : '卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。' }}</p>
           </div>
+          <!-- 唯讀分享 spec 7.6、7.8：只有擁有者打開自己的儀表板才有「分享」 -->
+          <div class="d-flex ga-2">
+          <v-btn v-if="current && !readonly" variant="tonal" prepend-icon="mdi-share-variant-outline" @click="sharing = true">分享</v-btn>
           <v-btn color="primary" prepend-icon="mdi-plus" @click="view = 'build'">新增儀表板</v-btn>
+          </div>
         </header>
         <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
         <div class="cc-split">
@@ -181,15 +265,30 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               </v-list-item>
               <p v-if="!dashboards.length" class="text-caption text-medium-emphasis pa-3">還沒有存過儀表板</p>
             </v-list>
+            <!-- 唯讀分享 spec 7.7：分享給我的，副標是擁有者，沒有刪除鈕；沒有就整段不顯示 -->
+            <template v-if="shared.length">
+              <div class="cc-label px-4 pt-4 pb-1">分享給我的 · {{ shared.length }}</div>
+              <v-list nav class="dash-list px-2 pb-2" aria-label="分享給我的">
+                <v-list-item
+                  v-for="d in shared"
+                  :key="d.id"
+                  :title="d.name"
+                  :subtitle="`來自 ${d.owner}`"
+                  :active="current?.id === d.id"
+                  prepend-icon="mdi-view-dashboard-outline"
+                  @click="open(d.id)"
+                />
+              </v-list>
+            </template>
           </aside>
           <div class="dash-main">
             <!-- spec 10.2：換一份儀表板就整個重建，卡片不會從上一份的位置滑過來；預覽裡的 DashboardView 不加 key -->
             <!-- 移除單張圖存檔後，換成後端回傳的設定；同一份儀表板，key 不變、不重建 -->
-            <DashboardView v-if="current" :key="current.id" :config="current" @updated="(c) => (current = c)" />
+            <DashboardView v-if="current" :key="current.id" :config="current" :readonly="readonly" @updated="(c) => (current = c)" />
             <div v-else class="cc-panel cc-empty empty-start">
               <div class="cc-empty__icon"><v-icon icon="mdi-view-dashboard-outline" size="30" /></div>
-              <h2>{{ dashboards.length ? '從左邊選一份儀表板' : '還沒有儀表板' }}</h2>
-              <ol class="empty-steps">
+              <h2>{{ dashboards.length || shared.length ? '從左邊選一份儀表板' : '還沒有儀表板' }}</h2>
+              <ol v-if="!dashboards.length && !shared.length" class="empty-steps">
                 <li>到「資料」上傳 CSV / Excel，或註冊外部 API，順手設好欄位的顯示名稱。</li>
                 <li>到「製圖」選來源、挑欄位、寫一句需求，按「分析」。</li>
                 <li>預覽滿意就存成儀表板，會出現在這一頁。</li>
@@ -216,6 +315,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <ReloginDialog v-model="relogin" :me="me" @done="afterRelogin" />
+    <ShareDialog v-if="current" v-model="sharing" :dashboard="current" />
+    </template>
   </v-app>
 </template>
 
@@ -246,8 +348,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   box-shadow: 0 0 28px -6px rgba(var(--tc-accent-rgb), 0.8);
 }
 .cc-rail__nav { display: flex; flex-direction: column; gap: 6px; }
-/* 主題切換放在導覽列最下面 */
-.cc-rail__theme { margin-top: auto; }
+/* 帳號鈕和主題鈕放在導覽列最下面（唯讀分享 spec 7.3） */
+.cc-rail__account { margin-top: auto; }
 .cc-rail__item {
   position: relative;
   display: flex;
@@ -286,4 +388,5 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   line-height: 1.9;
   color: var(--tc-text-2);
 }
+.boot { min-height: 100vh; display: grid; place-items: center; }
 </style>
