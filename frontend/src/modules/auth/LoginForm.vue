@@ -7,8 +7,10 @@ import { oidcButtonText, startOidc } from './session.js'
 const props = defineProps({
   username: { type: String, default: '' },
   oidc: { type: Object, default: null },
+  // 父元件在 done 之後還在處理（重新登入要再打一次 me）：這段時間也不能再送
+  pending: Boolean,
 })
-const emit = defineEmits(['done'])
+const emit = defineEmits(['done', 'submit'])
 
 const name = ref(props.username)
 const password = ref('')
@@ -16,9 +18,10 @@ const busy = ref(false)
 const error = ref('')
 
 async function submit() {
-  if (busy.value) return
+  if (busy.value || props.pending) return
   busy.value = true
   error.value = ''
+  emit('submit')
   try {
     await api.login(name.value, password.value)
     emit('done')
@@ -43,7 +46,7 @@ async function submit() {
         autocomplete="current-password"
         :autofocus="!!username"
       />
-      <v-btn type="submit" color="primary" block :loading="busy" :disabled="busy">登入</v-btn>
+      <v-btn type="submit" color="primary" block :loading="busy || pending" :disabled="busy || pending">登入</v-btn>
     </v-form>
     <template v-if="oidc">
       <v-divider class="my-4" />

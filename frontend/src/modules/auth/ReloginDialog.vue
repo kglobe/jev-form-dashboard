@@ -13,6 +13,7 @@ const emit = defineEmits(['done'])
 
 const oidc = ref(null)
 const error = ref('')
+const checking = ref(false)
 
 watch(
   () => props.modelValue,
@@ -24,14 +25,18 @@ watch(
   { immediate: true },
 )
 
-// spec 7.2：比的是 me 回來的帳號，不是輸入框的字；換了人就整頁重新載入，不留前一個人的畫面
+// spec 7.2：比的是 me 回來的帳號，不是輸入框的字；換了人就整頁重新載入，不留前一個人的畫面。
+// 同一個人就把新的 me 交給 App（管理員、密碼可能變了）
 async function onLoggedIn() {
+  checking.value = true
   try {
     const now = await api.me()
-    if (now.username === props.me.username) emit('done')
+    if (now.username === props.me.username) emit('done', now)
     else resetAndReload()
   } catch (e) {
     error.value = e.message
+  } finally {
+    checking.value = false
   }
 }
 
@@ -48,7 +53,7 @@ function reload() {
         <v-alert v-if="error" type="error" density="compact" class="mb-4">{{ error }}</v-alert>
         <template v-if="me.password">
           <p class="mb-4">登入已經逾時，請重新登入。畫面上的東西會留著。</p>
-          <LoginForm :username="me.username" :oidc="oidc" @done="onLoggedIn" />
+          <LoginForm :username="me.username" :oidc="oidc" :pending="checking" @submit="error = ''" @done="onLoggedIn" />
         </template>
         <template v-else>
           <p class="mb-4">你用單一登入，請按下面的按鈕重新登入。「製圖」頁還沒存的預覽會不見。</p>

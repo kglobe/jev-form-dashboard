@@ -70,6 +70,17 @@ describe('LoginPage', () => {
     expect(location.search).toBe('')
   })
 
+  it('送出帳密時 login_error 的訊息拿掉，不會跟帳密登入的錯誤一起出現', async () => {
+    history.replaceState(null, '', '/?login_error=account_disabled')
+    api.login.mockRejectedValue(new Error('帳號或密碼錯誤'))
+    const w = await mountPage()
+    await w.find('form').trigger('submit')
+    await flushPromises()
+    const alerts = w.findAll('.v-alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0].text()).toContain('帳號或密碼錯誤')
+  })
+
   it('error prop 有值時只顯示訊息和「重試」，不顯示表單；按「重試」emit retry', async () => {
     const w = await mountPage({ error: '無法連線到伺服器' })
     expect(w.find('.v-alert').text()).toContain('無法連線到伺服器')

@@ -113,6 +113,7 @@ async function copy() {
             ref="linkField"
             :model-value="link"
             readonly
+            aria-label="分享連結"
             density="compact"
             :hint="copyFailed ? '瀏覽器不讓網頁直接複製，請按 Ctrl+C' : undefined"
             persistent-hint

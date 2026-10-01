@@ -122,7 +122,7 @@ const loginMethod = (a) => (a.password ? (a.sso ? '兩者' : '密碼') : '單一
               <th>身分</th>
               <th>登入方式</th>
               <th>狀態</th>
-              <th />
+              <th>動作</th>
             </tr>
           </thead>
           <tbody>

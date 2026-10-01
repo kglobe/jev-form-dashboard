@@ -79,8 +79,9 @@ async function boot() {
   openFromHash()
 }
 
-// spec 7.2：重新登入的是同一個帳號；剛才失敗的動作不會自動重送
-function afterRelogin() {
+// spec 7.2：重新登入的是同一個帳號，但管理員、密碼可能變了，換成剛拿到的 me；剛才失敗的動作不會自動重送
+function afterRelogin(now) {
+  me.value = now
   relogin.value = false
   reloadDashboards()
   if (current.value) open(current.value.id)
@@ -92,27 +93,38 @@ const readonly = computed(() => !!current.value && current.value.createdBy !== m
 
 // 最後一次 open() 的 id（plan「實作上的決定」第 23 點）
 let lastOpened = null
+// 每次 open() 加一；晚回來的舊回應不蓋掉後來打開的那份
+let openSeq = 0
 
 // spec 7.9：只認 #/d/<uuid>；格式不對的直接說找不到，不打 API；其他 hash 不理
 function openFromHash() {
   if (!me.value || !location.hash.startsWith('#/d/')) return
-  // open() 自己改的 hash：happy-dom 的 replaceState 會補發 hashchange（瀏覽器不會），不再打開一次
-  if (location.hash === `#/d/${lastOpened}`) return
+  // open() 自己改的 hash：happy-dom 的 replaceState 會補發 hashchange（瀏覽器不會），不再打開一次。
+  // 只在儀表板頁跳過：在「資料」「製圖」頁按上一頁回到同一份，還是要切回來打開
+  if (view.value === 'dashboards' && location.hash === `#/d/${lastOpened}`) return
   view.value = 'dashboards'
+  // 換了一份：分享對話框還開著的話，會拿前一份的設定存到這一份
+  sharing.value = false
   const m = location.hash.match(DASHBOARD_HASH)
   if (m) return open(m[1])
   current.value = null
+  // 按上一頁回到剛才那份時要再打開
+  lastOpened = null
   error.value = NOT_FOUND
 }
 
 async function open(id) {
+  const seq = ++openSeq
   lastOpened = id
   // spec 7.8、7.9：先改網址再抓，404 時 hash 才是失敗的那份，重新整理會再試它
   history.replaceState(null, '', `#/d/${id}`)
   try {
-    current.value = await api.getDashboard(id)
+    const d = await api.getDashboard(id)
+    if (seq !== openSeq) return
+    current.value = d
     error.value = ''
   } catch (e) {
+    if (seq !== openSeq) return
     if (e.status === 404) current.value = null
     error.value = e.status === 404 ? NOT_FOUND : e.message
   }
@@ -321,7 +333,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
       </v-card>
     </v-dialog>
     <ReloginDialog v-model="relogin" :me="me" @done="afterRelogin" />
-    <ShareDialog v-if="current" v-model="sharing" :dashboard="current" />
+    <ShareDialog v-if="current" :key="current.id" v-model="sharing" :dashboard="current" />
     </template>
   </v-app>
 </template>

@@ -50,7 +50,7 @@ onMounted(async () => {
         </template>
         <template v-else>
           <v-alert v-if="message" type="error" density="compact" class="mb-4">{{ message }}</v-alert>
-          <LoginForm :oidc="oidc" @done="emit('logged-in')" />
+          <LoginForm :oidc="oidc" @submit="message = null" @done="emit('logged-in')" />
         </template>
       </v-card-text>
     </v-card>
@@ -78,12 +78,11 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 .login-title { font-size: 20px; font-weight: 600; }
-/* ponytail: 從 App.vue 照抄的標誌樣式，兩邊要一起改 */
+/* ponytail: 從 App.vue 照抄的標誌樣式，兩邊要一起改；只拿掉 margin-right，這裡是置中的直排，留著會偏左 */
 .cc-logo {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-right: 12px;
   font: 400 15px/1 var(--tc-display);
   letter-spacing: 0.06em;
   color: var(--tc-text);

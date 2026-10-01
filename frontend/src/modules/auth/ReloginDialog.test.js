@@ -48,14 +48,41 @@ describe('ReloginDialog', () => {
     expect(api.authOptions).toHaveBeenCalledOnce()
   })
 
-  it('登入後 me 還是同一個帳號：emit done，不重新載入', async () => {
-    api.me.mockResolvedValue({ username: 'u1', admin: false, password: true })
+  it('登入後 me 還是同一個帳號：emit done 帶新的 me（身分可能變了），不重新載入', async () => {
+    api.me.mockResolvedValue({ username: 'u1', admin: true, password: true })
     const w = await mountDialog()
     await loginAgain(w)
     expect(api.login).toHaveBeenCalledWith('u1', 'pw')
     expect(api.me).toHaveBeenCalledOnce()
-    expect(w.emitted('done')).toHaveLength(1)
+    expect(w.emitted('done')).toEqual([[{ username: 'u1', admin: true, password: true }]])
     expect(resetAndReload).not.toHaveBeenCalled()
+  })
+
+  it('me 還沒回來時「登入」不能按，再送一次也不會再登入、不會 emit 兩次 done', async () => {
+    let resolve
+    api.me.mockReturnValue(new Promise((r) => (resolve = r)))
+    const w = await mountDialog()
+    await loginAgain(w)
+    expect(bodyButton('登入').disabled).toBe(true)
+    await w.findComponent({ name: 'LoginForm' }).find('form').trigger('submit')
+    await flushPromises()
+    expect(api.login).toHaveBeenCalledOnce()
+
+    resolve(PASSWORD_USER)
+    await flushPromises()
+    expect(w.emitted('done')).toHaveLength(1)
+    expect(bodyButton('登入').disabled).toBe(false)
+  })
+
+  it('me 失敗的錯誤在下一次送出時拿掉', async () => {
+    api.me.mockRejectedValue(new Error('無法連線到伺服器'))
+    const w = await mountDialog()
+    await loginAgain(w)
+    expect(document.body.textContent).toContain('無法連線到伺服器')
+    api.login.mockRejectedValue(new Error('帳號或密碼錯誤'))
+    await loginAgain(w)
+    expect(document.body.textContent).toContain('帳號或密碼錯誤')
+    expect(document.body.textContent).not.toContain('無法連線到伺服器')
   })
 
   it('換了另一個帳號：呼叫 resetAndReload，不 emit done', async () => {

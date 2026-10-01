@@ -61,7 +61,7 @@ describe('AccountsDialog', () => {
     expect(w.findComponent({ name: 'VDialog' }).props('maxWidth')).toBe('720')
     expect(document.body.querySelector('.v-card-title').textContent.trim()).toBe('帳號管理')
     const headers = [...document.body.querySelectorAll('thead th')].map((th) => th.textContent.trim())
-    expect(headers).toEqual(['帳號', '身分', '登入方式', '狀態', ''])
+    expect(headers).toEqual(['帳號', '身分', '登入方式', '狀態', '動作'])
     expect(rows().map((tr) => cells(tr).slice(0, 4))).toEqual([
       ['boss（你）', '管理員', '密碼', '啟用'],
       ['sso-a', '一般', '單一登入', '啟用'],

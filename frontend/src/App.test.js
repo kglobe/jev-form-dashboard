@@ -346,12 +346,15 @@ describe('App', () => {
     await item('Dash One').trigger('click')
     await flushPromises()
     const first = wrapper.findComponent({ name: 'DashboardView' }).vm
+    const firstShare = wrapper.findComponent({ name: 'ShareDialog' }).vm
 
     await item('Dash Two').trigger('click')
     await flushPromises()
     const second = wrapper.findComponent({ name: 'DashboardView' })
     expect(second.props('config').id).toBe('d2')
     expect(second.vm).not.toBe(first)
+    // 分享對話框也照 id 重建：前一份晚回來的分享設定不會填進這一份
+    expect(wrapper.findComponent({ name: 'ShareDialog' }).vm).not.toBe(firstShare)
   })
 
   it('passes the dashboard list to ChartBuilder and reloads it when ChartBuilder says it changed', async () => {
@@ -442,7 +445,7 @@ describe('App', () => {
     expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(true)
   })
 
-  it('重新登入的是同一個帳號：關掉對話框，重抓清單，重新打開目前那份', async () => {
+  it('重新登入的是同一個帳號：關掉對話框，換成新的 me，重抓清單，重新打開目前那份', async () => {
     api.getDashboard.mockResolvedValue({ id: 'd1', name: 'Dash One', datasourceId: 'ds1', layout: [] })
     const wrapper = mountApp()
     await flushPromises()
@@ -454,9 +457,12 @@ describe('App', () => {
     await flushPromises()
     expect(wrapper.find('.relogin-stub').exists()).toBe(true)
 
-    wrapper.findComponent({ name: 'ReloginDialog' }).vm.$emit('done')
+    // spec 2.1：設成管理員也會讓工作階段失效，重新登入後帳號選單要看到新的身分
+    const now = { username: 'u1', admin: true, password: true }
+    wrapper.findComponent({ name: 'ReloginDialog' }).vm.$emit('done', now)
     await flushPromises()
     expect(wrapper.find('.relogin-stub').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UserMenu' }).props('me')).toEqual(now)
     expect(api.listDashboards).toHaveBeenCalledTimes(2)
     expect(api.getDashboard).toHaveBeenCalledTimes(2)
     expect(api.getDashboard).toHaveBeenLastCalledWith('d1')
@@ -643,6 +649,85 @@ describe('App', () => {
         expect(currentView(wrapper)).toBe('資料')
         expect(api.getDashboard).toHaveBeenCalledTimes(1)
       }
+    })
+
+    it('格式不對的 hash 之後按上一頁回到剛才那份，會再打開它', async () => {
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+      goTo(`/#/d/${ID}`)
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+
+      goTo('/#/d/abc')
+      await settle()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(false)
+      expect(wrapper.get('.v-alert').text()).toBe(NOT_FOUND)
+
+      goTo(`/#/d/${ID}`)
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(2)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('config').id).toBe(ID)
+    })
+
+    it('在「資料」頁按上一頁回到剛才打開的那份，切回儀表板頁再打開', async () => {
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+      goTo(`/#/d/${ID}`)
+      await settle()
+      pressKey({ altKey: true, key: '1' })
+      await flushPromises()
+      goTo('/#/other')
+      await settle()
+      expect(currentView(wrapper)).toBe('資料')
+
+      goTo(`/#/d/${ID}`)
+      await settle()
+      expect(currentView(wrapper)).toBe('儀表板')
+      expect(api.getDashboard).toHaveBeenCalledTimes(2)
+    })
+
+    it('先點的那份比較慢回來時，不會蓋掉後來點的那份', async () => {
+      api.listDashboards.mockResolvedValue([{ id: 'd1', name: 'Dash One' }, { id: 'd2', name: 'Dash Two' }])
+      let slow
+      api.getDashboard
+        .mockReturnValueOnce(new Promise((r) => (slow = r)))
+        .mockResolvedValueOnce({ id: 'd2', name: 'Dash Two', createdBy: 'u1', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+      await item(wrapper, 'Dash One').trigger('click')
+      await item(wrapper, 'Dash Two').trigger('click')
+      await flushPromises()
+      slow({ id: 'd1', name: 'Dash One', createdBy: 'u1', layout: [] })
+      await settle()
+      expect(api.getDashboard).toHaveBeenCalledTimes(2)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('config').id).toBe('d2')
+      expect(location.hash).toBe('#/d/d2')
+    })
+
+    it('分享對話框開著時網址換到別份或格式不對，對話框關掉，下次打開儀表板也不會自己跳出來', async () => {
+      api.getDashboard.mockImplementation(async (id) => ({ id, name: id, createdBy: 'u1', layout: [] }))
+      const wrapper = mountApp()
+      await flushPromises()
+      await findDashboardItem(wrapper).trigger('click')
+      await flushPromises()
+      await findButton(wrapper, '分享').trigger('click')
+      expect(wrapper.find('.share-stub').exists()).toBe(true)
+
+      goTo(`/#/d/${ID}`)
+      await settle()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('config').id).toBe(ID)
+      expect(wrapper.find('.share-stub').exists()).toBe(false)
+
+      await findButton(wrapper, '分享').trigger('click')
+      expect(wrapper.find('.share-stub').exists()).toBe(true)
+      goTo('/#/d/abc')
+      await settle()
+      expect(wrapper.findComponent({ name: 'ShareDialog' }).exists()).toBe(false)
+      await findDashboardItem(wrapper).trigger('click')
+      await flushPromises()
+      expect(wrapper.find('.share-stub').exists()).toBe(false)
     })
 
     it('卸載時拿掉 hashchange 的 listener', async () => {

@@ -114,6 +114,30 @@ describe('ShareDialog', () => {
     expect(w.emitted('update:modelValue')).toEqual([[false]])
   })
 
+  it('分享設定抓回來之前不能儲存，免得用空的清單蓋掉原本的分享', async () => {
+    let resolve
+    api.getShare.mockReturnValue(new Promise((r) => (resolve = r)))
+    await mountDialog()
+    expect(bodyButton('儲存').disabled).toBe(true)
+    bodyButton('儲存').click()
+    await flushPromises()
+    expect(api.setShare).not.toHaveBeenCalled()
+
+    resolve({ publicLink: true, users: ['alice'] })
+    await flushPromises()
+    expect(bodyButton('儲存').disabled).toBe(false)
+  })
+
+  it('分享設定抓不到時顯示錯誤，一樣不能儲存', async () => {
+    api.getShare.mockRejectedValue(new Error('找不到儀表板'))
+    const w = await mountDialog()
+    expect(w.findComponent({ name: 'VAlert' }).text()).toBe('找不到儀表板')
+    expect(bodyButton('儲存').disabled).toBe(true)
+    bodyButton('儲存').click()
+    await flushPromises()
+    expect(api.setShare).not.toHaveBeenCalled()
+  })
+
   it('儲存失敗時錯誤留在對話框裡，對話框不關', async () => {
     const msg = '找不到帳號「x」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結'
     api.setShare.mockRejectedValue(new Error(msg))
@@ -133,6 +157,7 @@ describe('ShareDialog', () => {
     const w = await mountDialog()
     const link = `${location.origin}/app/#/d/${ID}`
     expect(linkField(w).find('input').element.value).toBe(link)
+    expect(linkField(w).find('input').attributes('aria-label')).toBe('分享連結')
     expect(bodyButton('複製連結').querySelector('.mdi-link-variant')).toBeTruthy()
 
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
