@@ -1,0 +1,60 @@
+package jev.dashboard.auth;
+
+import java.security.Principal;
+import jev.dashboard.ApiException;
+import org.springframework.http.HttpStatus;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 登入、登出由 Spring Security 的 formLogin、logout 處理（SecurityConfig），這裡只有其他的 /api/auth。 */
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+    /** 唯讀分享 spec 4.1：三個值都讀資料庫；password 是這個帳號有沒有密碼。 */
+    public record Me(String username, boolean admin, boolean password) {}
+
+    public record PasswordChange(String current, String password) {}
+
+    /** 唯讀分享 spec 4.1：沒啟用 OIDC 時 oidc 是 null（用 record，null 才寫得出來）。 */
+    public record Options(OidcOption oidc) {}
+
+    public record OidcOption(String label) {}
+
+    private final AccountRepository accounts;
+    private final AccountService service;
+    private final AuthProperties props;
+
+    public AuthController(AccountRepository accounts, AccountService service, AuthProperties props) {
+        this.accounts = accounts;
+        this.service = service;
+        this.props = props;
+    }
+
+    /** 唯讀分享 spec 4.1：不用登入（SecurityConfig）。 */
+    @GetMapping("/options")
+    public Options options() {
+        AuthProperties.Oidc oidc = props.oidc();
+        if (oidc == null || !oidc.enabled()) return new Options(null);
+        // spec 第 3 節：.env 寫了空的 OIDC_LABEL= 也當作沒設
+        return new Options(new OidcOption(StringUtils.hasText(oidc.label()) ? oidc.label() : "公司帳號"));
+    }
+
+    @GetMapping("/me")
+    public Me me(Principal principal) {
+        Account a = accounts.find(principal.getName())
+            .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "請先登入"));
+        return new Me(a.username(), a.admin(), a.passwordHash() != null);
+    }
+
+    /** 唯讀分享 spec 4.1：自己改密碼。 */
+    @PostMapping("/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void changePassword(Principal principal, @RequestBody PasswordChange body) {
+        service.changeOwnPassword(principal.getName(), body.current(), body.password());
+    }
+}

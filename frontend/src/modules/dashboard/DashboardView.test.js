@@ -21,7 +21,7 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly'],
     emits: ['remove'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
@@ -665,5 +665,40 @@ describe('DashboardView', () => {
     const single = mountView({ config: { id: 'd2', name: 'n', layout: [withSource(bar('c1', 0), 'ds1'), withSource(bar('c2', 1), 'ds1')] }, preview: false })
     await flushPromises()
     expect(['c1', 'c2'].map((id) => chartCard(single, id).props('source'))).toEqual([null, null])
+  })
+
+  it('readonly 時不能拖拉、不能縮放、卡片沒有 ✕，也把 readonly 傳給卡片', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    const wrapper = mountView({ config: makeConfig(), readonly: true })
+    await flushPromises()
+
+    const grid = wrapper.get('.grid-layout-stub')
+    expect(grid.attributes('data-is-draggable')).toBe('false')
+    expect(grid.attributes('data-is-resizable')).toBe('false')
+    expect(wrapper.findAllComponents({ name: 'ChartCard' }).map((c) => [c.props('removable'), c.props('readonly')]))
+      .toEqual([[false, true], [false, true]])
+  })
+
+  it('readonly 時 moved、resized 不送 PUT', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    api.updateDashboard.mockResolvedValue(undefined)
+    const wrapper = mountView({ config: makeConfig(), readonly: true })
+    await flushPromises()
+
+    const [firstItem] = wrapper.findAllComponents({ name: 'GridItem' })
+    await firstItem.vm.$emit('moved')
+    await firstItem.vm.$emit('resized')
+    await flushPromises()
+    expect(api.updateDashboard).not.toHaveBeenCalled()
+  })
+
+  it('readonly 而且沒有圖表時顯示「這份儀表板沒有圖表。」', async () => {
+    api.dashboardData.mockResolvedValue([])
+    api.highlights.mockResolvedValue([])
+    const wrapper = mountView({ config: { ...makeConfig(), layout: [] }, readonly: true })
+    await flushPromises()
+    expect(wrapper.get('.v-alert').text()).toBe('這份儀表板沒有圖表。')
   })
 })

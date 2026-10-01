@@ -6,13 +6,19 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
+import jev.dashboard.auth.Account;
+import jev.dashboard.auth.AccountRepository;
 import jev.dashboard.dashboard.DashboardConfig.Basis;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
 import jev.dashboard.dashboard.DashboardRepository.DatasourceUse;
+import jev.dashboard.dashboard.DashboardRepository.Share;
+import jev.dashboard.dashboard.DashboardRepository.SharedDashboard;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.jev.ConfigAssembler;
 import jev.dashboard.transform.ChartSpec;
@@ -28,10 +34,12 @@ public class DashboardService {
 
     private final DashboardRepository repo;
     private final DatasourceService datasources;
+    private final AccountRepository accounts;
 
-    public DashboardService(DashboardRepository repo, DatasourceService datasources) {
+    public DashboardService(DashboardRepository repo, DatasourceService datasources, AccountRepository accounts) {
         this.repo = repo;
         this.datasources = datasources;
+        this.accounts = accounts;
     }
 
     /** body 的 intents 變成第一組依據；body 帶了 basis 也不理。 */
@@ -45,6 +53,11 @@ public class DashboardService {
 
     public DashboardConfig get(String userId, UUID id) {
         return repo.find(id, userId).orElseThrow(DashboardService::notFound);
+    }
+
+    /** 唯讀分享 spec 6.3：唯讀的存取檢查，回傳的 createdBy 就是擁有者。get 照舊只認擁有者。 */
+    public DashboardConfig view(String userId, UUID id) {
+        return repo.findViewable(id, userId).orElseThrow(DashboardService::notFound);
     }
 
     public List<DashboardSummary> list(String userId) {
@@ -105,6 +118,38 @@ public class DashboardService {
 
     public void delete(String userId, UUID id) {
         if (!repo.delete(id, userId)) throw notFound();
+    }
+
+    /** 唯讀分享 spec 4.3：只有擁有者看得到分享設定，別人 404。 */
+    public Share share(String userId, UUID id) {
+        get(userId, id);
+        return repo.share(id);
+    }
+
+    /**
+     * 唯讀分享 spec 4.3：整份取代。users 沒給當作空的，丟掉 null 和空白，照 2.1 轉換、去重複、排序；
+     * 停用的帳號可以加。更新 public_link、刪掉舊的、寫入新的在同一個 transaction。
+     */
+    @Transactional
+    public Share setShare(String userId, UUID id, Share s) {
+        get(userId, id);
+        Set<String> users = new TreeSet<>();
+        if (s.users() != null) {
+            s.users().stream().filter(Objects::nonNull).filter(u -> !u.isBlank()).map(Account::normalize).forEach(users::add);
+        }
+        if (users.contains(userId)) throw new ApiException(BAD_REQUEST, "不用分享給自己");
+        for (String u : users) {
+            if (accounts.find(u).isEmpty()) {
+                throw new ApiException(BAD_REQUEST, "找不到帳號「" + u + "」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結");
+            }
+        }
+        repo.setShare(id, new Share(s.publicLink(), List.copyOf(users)));
+        return repo.share(id);
+    }
+
+    /** 唯讀分享 spec 4.3：分享給我的。 */
+    public List<SharedDashboard> shared(String userId) {
+        return repo.sharedWith(userId);
     }
 
     /** 存檔和預覽前檢查每張卡片，免得存進去的配置之後每次載入 /data 都 500。 */

@@ -1,20 +1,39 @@
-const USER_ID = import.meta.env.VITE_USER_ID || 'demo-user'
+// 唯讀分享 spec 7.10：401 時通知 App 跳出重新登入；登入、開機的 me 自己處理 401
+const SELF_HANDLED_401 = ['/api/auth/login', '/api/auth/me']
+let unauthorized = () => {}
+export function onUnauthorized(handler) {
+  unauthorized = handler
+}
+
+function xsrfToken() {
+  if (typeof document === 'undefined') return null // vitest 的 node 環境沒有 document
+  const m = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/)
+  return m ? decodeURIComponent(m[1]) : null
+}
 
 async function request(method, url, body) {
-  const isForm = body instanceof FormData
-  const headers = { 'X-User-Id': USER_ID }
-  if (body != null && !isForm) headers['Content-Type'] = 'application/json'
+  // FormData、URLSearchParams 原樣送出，瀏覽器自己設 Content-Type
+  const raw = body instanceof FormData || body instanceof URLSearchParams
+  const headers = {}
+  if (body != null && !raw) headers['Content-Type'] = 'application/json'
+  // 每次都重讀：登入時 token 會換
+  const token = method === 'GET' ? null : xsrfToken()
+  if (token) headers['X-XSRF-TOKEN'] = token
   let res
   try {
     res = await fetch(url, {
       method,
       headers,
-      body: body == null ? undefined : isForm ? body : JSON.stringify(body),
+      body: body == null ? undefined : raw ? body : JSON.stringify(body),
     })
   } catch {
     throw new Error('無法連線到伺服器')
   }
   if (!res.ok) {
+    if (res.status === 401 && !SELF_HANDLED_401.includes(url)) {
+      unauthorized()
+      throw Object.assign(new Error('登入逾時，重新登入後請再操作一次'), { status: 401 })
+    }
     const err = await res.json().catch(() => ({}))
     // 帶上狀態碼，呼叫端才分得出「找不到」（例如儀表板在別的分頁被刪了）
     throw Object.assign(new Error(err.error || `HTTP ${res.status}`), { status: res.status })
@@ -23,6 +42,22 @@ async function request(method, url, body) {
 }
 
 export const api = {
+  // 唯讀分享 spec 4.1：登入
+  me: () => request('GET', '/api/auth/me'),
+  authOptions: () => request('GET', '/api/auth/options'),
+  login: (username, password) => request('POST', '/api/auth/login', new URLSearchParams({ username, password })),
+  logout: () => request('POST', '/api/auth/logout'),
+  changePassword: (current, password) => request('POST', '/api/auth/password', { current, password }),
+  // 唯讀分享 spec 4.2：帳號管理
+  listAccounts: () => request('GET', '/api/admin/accounts'),
+  createAccount: ({ username, password, admin }) => request('POST', '/api/admin/accounts', { username, password, admin }),
+  updateAccount: (username, patch) => request('PATCH', `/api/admin/accounts/${encodeURIComponent(username)}`, patch),
+  setAccountPassword: (username, password) =>
+    request('PUT', `/api/admin/accounts/${encodeURIComponent(username)}/password`, { password }),
+  // 唯讀分享 spec 4.3：分享
+  getShare: (id) => request('GET', `/api/dashboards/${id}/share`),
+  setShare: (id, { publicLink, users }) => request('PUT', `/api/dashboards/${id}/share`, { publicLink, users }),
+  sharedDashboards: () => request('GET', '/api/dashboards/shared'),
   listDatasources: () => request('GET', '/api/datasources'),
   uploadDatasource: (form) => request('POST', '/api/datasources/upload', form),
   registerApi: (body) => request('POST', '/api/datasources/api', body),

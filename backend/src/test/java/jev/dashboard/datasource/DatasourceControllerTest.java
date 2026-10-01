@@ -44,7 +44,7 @@ class DatasourceControllerTest {
     @Test
     void uploadInfersSchemaStoresRowsAndIsPrivateToTheUser() throws Exception {
         String id = TestData.uploadSales(mvc, "u1");
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].id").value(id))
             .andExpect(jsonPath("$[0].kind").value("upload"))
@@ -54,19 +54,19 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$[0].schema[1].type").value("number"))
             .andExpect(jsonPath("$[0].schema[2].distinctCount").value(4));
         assertThat(jdbc.sql("select count(*) from datasource_rows").query(Long.class).single()).isEqualTo(12L);
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u2"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u2")))
             .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
     void markSensitiveFields() throws Exception {
         String id = TestData.uploadSales(mvc, "u1");
-        mvc.perform(patch("/api/datasources/" + id + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.schema[5].sensitive").value(true))
             .andExpect(jsonPath("$.schema[0].sensitive").value(false));
-        mvc.perform(patch("/api/datasources/" + id + "/sensitive").header("X-User-Id", "u2")
+        mvc.perform(patch("/api/datasources/" + id + "/sensitive").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[]}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
@@ -75,13 +75,13 @@ class DatasourceControllerTest {
     @Test
     void setFieldLabels() throws Exception {
         String id = TestData.uploadSales(mvc, "u1");
-        mvc.perform(patch("/api/datasources/" + id + "/labels").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/labels").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"labels\":{\"order_date\":\" 訂單日期 \",\"amount\":\"  \"}}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.schema[0].label").value("訂單日期"))
             .andExpect(jsonPath("$.schema[1].label").doesNotExist());
         // 顯示名稱不能和另一個欄位重複
-        mvc.perform(patch("/api/datasources/" + id + "/labels").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/labels").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"labels\":{\"order_date\":\"amount\"}}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("顯示名稱「amount」重複"));
@@ -90,7 +90,7 @@ class DatasourceControllerTest {
     @Test
     void badCsvReportsLineNumber() throws Exception {
         mvc.perform(multipart("/api/datasources/upload").file(csv("bad.csv", "a,b\n1,2\n3\n"))
-                .param("name", "壞檔").header("X-User-Id", "u1"))
+                .param("name", "壞檔").with(TestData.as("u1")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error", containsString("第 3 行")));
     }
@@ -100,7 +100,7 @@ class DatasourceControllerTest {
         StringBuilder sb = new StringBuilder("a\n");
         for (int i = 0; i < 21; i++) sb.append(i).append('\n');
         mvc.perform(multipart("/api/datasources/upload").file(csv("big.csv", sb.toString()))
-                .param("name", "大檔").header("X-User-Id", "u1"))
+                .param("name", "大檔").with(TestData.as("u1")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error", containsString("超過上限 20 筆")));
     }
@@ -108,13 +108,13 @@ class DatasourceControllerTest {
     @Test
     void unsupportedExtensionIsRejected() throws Exception {
         mvc.perform(multipart("/api/datasources/upload").file(csv("data.txt", "a\n1\n"))
-                .param("name", "文字檔").header("X-User-Id", "u1"))
+                .param("name", "文字檔").with(TestData.as("u1")))
             .andExpect(status().isBadRequest());
     }
 
     @Test
     void registerApiRejectsHostNotInAllowList() throws Exception {
-        mvc.perform(post("/api/datasources/api").header("X-User-Id", "u1")
+        mvc.perform(post("/api/datasources/api").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"erp\",\"url\":\"https://evil.example/sales\",\"headers\":{}}"))
             .andExpect(status().isBadRequest())
@@ -123,7 +123,7 @@ class DatasourceControllerTest {
 
     @Test
     void registerApiRejectsLiteralHeaderValues() throws Exception {
-        mvc.perform(post("/api/datasources/api").header("X-User-Id", "u1")
+        mvc.perform(post("/api/datasources/api").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"erp\",\"url\":\"http://10.0.0.5/sales\",\"headers\":{\"Authorization\":\"Bearer x\"}}"))
             .andExpect(status().isBadRequest())
@@ -137,7 +137,7 @@ class DatasourceControllerTest {
           {"name":"memo","from":{"%1$s":"memo"}}],"sourceColumn":"來源"}""";
 
     void mergeIsRejected(String body, int status, String message) throws Exception {
-        mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().is(status))
             .andExpect(jsonPath("$.error").value(message));
@@ -149,7 +149,7 @@ class DatasourceControllerTest {
         String s = TestData.uploadCsv(mvc, "u1", "南區", "area,amount\n南區,50\n");
         String body = "{\"name\":\"全區\",\"merge\":" + NORTH_SOUTH.formatted(n, s) + "}";
 
-        mvc.perform(post("/api/datasources/merged/preview").header("X-User-Id", "u1")
+        mvc.perform(post("/api/datasources/merged/preview").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.rowCount").value(3))
@@ -160,10 +160,10 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$.schema[3].name").value("來源"));
         assertThat(jdbc.sql("select count(*) from datasource").query(Long.class).single()).isEqualTo(2L);
 
-        mvc.perform(patch("/api/datasources/" + n + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + n + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"memo\"]}"))
             .andExpect(status().isOk());
-        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String created = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.kind").value("merged"))
@@ -172,7 +172,7 @@ class DatasourceControllerTest {
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(created, "$.id");
 
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(jsonPath("$[0].id").value(id))
             .andExpect(jsonPath("$[0].merge.inputs[1]").value(s))
             .andExpect(jsonPath("$[0].schema[2].sensitive").value(true))
@@ -203,14 +203,14 @@ class DatasourceControllerTest {
               {"name":"銷售·amount","from":{"%1$s":"amount"}},
               {"name":"退貨·amount","from":{"%2$s":"amount"}}],"sourceColumn":"來源"}""".formatted(sales, refunds);
 
-        String created = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String created = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"銷售／退貨 對照\",\"merge\":" + merge + "}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.merge.compare").value(true))
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(created, "$.id");
 
-        String list = mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        String list = mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString(UTF_8);
         List<Boolean> compare = JsonPath.read(list, "$[?(@.id == '" + id + "')].merge.compare");
@@ -220,10 +220,10 @@ class DatasourceControllerTest {
     @Test
     void ratiosArePatchedAsAWholeListValidatedAndListedWithTheirSensitivity() throws Exception {
         String id = TestData.uploadSales(mvc, "u1");
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(jsonPath("$[0].ratios.length()").value(0));
 
-        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ratios\":[{\"name\":\" 單價 \",\"numerator\":\"amount\",\"denominator\":\"qty\"}]}"))
             .andExpect(status().isOk())
@@ -233,25 +233,25 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$.ratios[0].sensitive").value(false));
 
         // 分母標成敏感，比率跟著敏感
-        mvc.perform(patch("/api/datasources/" + id + "/sensitive").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/sensitive").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"qty\"]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ratios[0].sensitive").value(true));
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(jsonPath("$[0].ratios[0].sensitive").value(true));
 
-        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ratios\":[{\"name\":\"x\",\"numerator\":\"region\",\"denominator\":\"qty\"}]}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("分子「region」不是這個來源的數字欄位"));
-        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u2")
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"ratios\":[]}"))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
 
         // 沒帶 ratios 就是清空
-        mvc.perform(patch("/api/datasources/" + id + "/ratios").header("X-User-Id", "u1")
+        mvc.perform(patch("/api/datasources/" + id + "/ratios").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.ratios.length()").value(0));
@@ -265,7 +265,7 @@ class DatasourceControllerTest {
             + "{\"name\":\"region\",\"from\":{" + from.formatted((Object[]) java.util.Collections.nCopies(inputs.length, "region").toArray()) + "}},"
             + "{\"name\":\"amount\",\"from\":{" + from.formatted((Object[]) java.util.Collections.nCopies(inputs.length, "amount").toArray()) + "}}"
             + "],\"sourceColumn\":\"來源\"}";
-        String body = mvc.perform(post("/api/datasources/merged").header("X-User-Id", "u1")
+        String body = mvc.perform(post("/api/datasources/merged").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"" + name + "\",\"merge\":" + merge + "}"))
             .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8);
         return JsonPath.read(body, "$.id");
@@ -279,7 +279,7 @@ class DatasourceControllerTest {
     }
 
     void createDashboard(String name, String... cards) throws Exception {
-        mvc.perform(post("/api/dashboards").header("X-User-Id", "u1").contentType(MediaType.APPLICATION_JSON)
+        mvc.perform(post("/api/dashboards").with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"" + name + "\",\"layout\":[" + String.join(",", cards) + "]}"))
             .andExpect(status().isOk());
     }
@@ -294,7 +294,7 @@ class DatasourceControllerTest {
         createDashboard("週報", card("c1", sales, "bar", 0), card("c2", sales, "bar", 4), card("c3", sales, "table", 8));
         createDashboard("月報", card("c1", all, "bar", 0));
 
-        mvc.perform(get("/api/datasources/" + sales + "/usage").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources/" + sales + "/usage").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.mergedBy.length()").value(1))
             .andExpect(jsonPath("$.mergedBy[0].name").value("全區"))
@@ -302,7 +302,7 @@ class DatasourceControllerTest {
             .andExpect(jsonPath("$.dashboards.length()").value(1))
             .andExpect(jsonPath("$.dashboards[0].name").value("週報"))
             .andExpect(jsonPath("$.dashboards[0].charts").value(3));
-        mvc.perform(get("/api/datasources/" + idle + "/usage").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources/" + idle + "/usage").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.mergedBy.length()").value(0))
             .andExpect(jsonPath("$.dashboards.length()").value(0));
@@ -315,10 +315,10 @@ class DatasourceControllerTest {
         union("全區", sales, north);
         union("全區B", sales, north);
 
-        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1"))
+        mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u1")))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.error").value("「銷售」是這些合併來源的輸入，要先刪掉：全區B、全區"));
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1"))
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
             .andExpect(jsonPath("$[?(@.id == '" + sales + "')]").isNotEmpty());
     }
 
@@ -326,17 +326,17 @@ class DatasourceControllerTest {
     void deleteRemovesTheSourceAndItsRowsButLeavesDashboards() throws Exception {
         String sales = TestData.uploadSales(mvc, "u1");
         createDashboard("週報", card("c1", sales, "bar", 0), card("c2", sales, "bar", 4));
-        String dash = JsonPath.read(mvc.perform(get("/api/dashboards").header("X-User-Id", "u1"))
+        String dash = JsonPath.read(mvc.perform(get("/api/dashboards").with(TestData.as("u1")))
             .andReturn().getResponse().getContentAsString(UTF_8), "$[0].id");
 
-        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1")).andExpect(status().isNoContent());
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u1"))).andExpect(status().isNoContent());
+        mvc.perform(get("/api/datasources").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(0));
         assertThat(jdbc.sql("select count(*) from datasource_rows where datasource_id = :id")
             .param("id", java.util.UUID.fromString(sales)).query(Long.class).single()).isZero();
-        mvc.perform(get("/api/dashboards/" + dash).header("X-User-Id", "u1"))
+        mvc.perform(get("/api/dashboards/" + dash).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.layout.length()").value(2));
-        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u1"))
+        mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u1")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到資料源"));
     }
@@ -344,10 +344,10 @@ class DatasourceControllerTest {
     @Test
     void deleteAndUsageAreScopedToTheOwner() throws Exception {
         String sales = TestData.uploadSales(mvc, "u1");
-        mvc.perform(get("/api/datasources/" + sales + "/usage").header("X-User-Id", "u2"))
+        mvc.perform(get("/api/datasources/" + sales + "/usage").with(TestData.as("u2")))
             .andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到資料源"));
-        mvc.perform(delete("/api/datasources/" + sales).header("X-User-Id", "u2"))
+        mvc.perform(delete("/api/datasources/" + sales).with(TestData.as("u2")))
             .andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到資料源"));
-        mvc.perform(get("/api/datasources").header("X-User-Id", "u1")).andExpect(jsonPath("$.length()").value(1));
+        mvc.perform(get("/api/datasources").with(TestData.as("u1"))).andExpect(jsonPath("$.length()").value(1));
     }
 }

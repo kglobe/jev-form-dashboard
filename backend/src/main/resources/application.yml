@@ -1,6 +1,8 @@
-# 身分只靠 X-User-Id header，預設只聽本機；要對外開用 --server.address=0.0.0.0（或 SERVER_ADDRESS）
+# 預設只聽本機；要對外開用 --server.address=0.0.0.0（或 SERVER_ADDRESS），開之前先設好管理員帳號（README「登入與帳號」）
 server:
   address: 127.0.0.1
+  tomcat:
+    max-swallow-size: 50MB   # 沒登入時上傳大檔，401 才回得到前端，不會變成連線被切斷
 
 spring:
   config:
@@ -28,3 +30,11 @@ jev:
     max-rows: 100000
   datasource:
     allowed-hosts: []
+  auth:
+    admin-username: ${ADMIN_USERNAME:}
+    admin-password: ${ADMIN_PASSWORD:}
+    oidc:
+      issuer-uri: ${OIDC_ISSUER_URI:}
+      client-id: ${OIDC_CLIENT_ID:}
+      client-secret: ${OIDC_CLIENT_SECRET:}
+      label: ${OIDC_LABEL:公司帳號}

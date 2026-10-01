@@ -1,5 +1,6 @@
 package jev.dashboard.jev;
 
+import java.security.Principal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
@@ -26,7 +27,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -61,16 +61,16 @@ public class JevController {
     }
 
     @PostMapping("/analyze")
-    public DashboardConfig analyze(@RequestHeader("X-User-Id") String userId, @RequestBody AnalyzeRequest body) {
+    public DashboardConfig analyze(Principal principal, @RequestBody AnalyzeRequest body) {
         List<String> intents = clean(body.intents());
         DashboardService.requireValidIntents(intents);
         if (body.current() != null) {
             if (intents.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "請輸入想怎麼調整");
             DashboardService.requireValidCards(body.current());
         }
-        Datasource ds = datasources.get(userId, body.datasourceId());
+        Datasource ds = datasources.get(principal.getName(), body.datasourceId());
         // 筆數用建立時記下來的，外部 API 不用為了算筆數整批抓回來；V5 之前的外部 API、合併來源沒記，才載入來算
-        long rowCount = ds.rowCount() != null ? ds.rowCount() : datasources.load(userId, ds.id()).rows().size();
+        long rowCount = ds.rowCount() != null ? ds.rowCount() : datasources.load(principal.getName(), ds.id()).rows().size();
         return analyzer.analyze(ds.name() + " 總覽", ds.id(), ds.schema(), rowCount, intents, body.current(),
             body.fields() == null ? Set.of() : body.fields().stream().filter(Objects::nonNull).collect(Collectors.toSet()),
             MergeEngine.comparison(ds), ds.ratios());
@@ -78,9 +78,9 @@ public class JevController {
 
     /** 不快取：同樣的來源再按一次，就再問一次（C2 spec 第 4 節）。 */
     @PostMapping("/mapping")
-    public MappingResult mapping(@RequestHeader("X-User-Id") String userId, @RequestBody MappingRequest body) {
+    public MappingResult mapping(Principal principal, @RequestBody MappingRequest body) {
         MergeEngine.requireUnionInputs(body.inputs());
-        List<Datasource> inputs = body.inputs().stream().map(id -> datasources.get(userId, id)).toList();
+        List<Datasource> inputs = body.inputs().stream().map(id -> datasources.get(principal.getName(), id)).toList();
         return new MappingResult(mappings.suggest(inputs, body.compare()));
     }
 
@@ -91,10 +91,12 @@ public class JevController {
     }
 
     @GetMapping("/highlight/{dashboardId}")
-    public List<Highlight> highlight(@RequestHeader("X-User-Id") String userId, @PathVariable UUID dashboardId) {
-        DashboardConfig c = dashboards.get(userId, dashboardId);
+    public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId) {
+        DashboardConfig c = dashboards.view(principal.getName(), dashboardId);
+        // 唯讀分享 spec 6.3：敏感欄位和資料都照擁有者的來源；recent 的 key 跟 /data 一樣是擁有者
+        String owner = c.createdBy();
         // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
-        Map<UUID, Set<String>> sensitive = datasources.list(userId).stream().collect(Collectors.toMap(Datasource::id,
+        Map<UUID, Set<String>> sensitive = datasources.list(owner).stream().collect(Collectors.toMap(Datasource::id,
             ds -> Stream.concat(ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name),
                 ds.ratios().stream().filter(Ratio::sensitive).map(Ratio::name)).collect(Collectors.toSet())));
 
@@ -106,7 +108,14 @@ public class JevController {
                 && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
         }).toList();
         if (eligible.isEmpty()) return List.of();
-        List<ChartData> data = dashboardData.load(userId, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
+        List<ChartData> data;
+        try {
+            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
+        } catch (ApiException e) {
+            // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
+            if (owner.equals(principal.getName())) throw e;
+            throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
+        }
 
         List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
         return result == null ? List.of() : result;

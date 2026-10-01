@@ -11,6 +11,8 @@ const props = defineProps({
   preview: { type: Boolean, default: false },
   // 預覽等 JEV 回應時：圖表區變淡、標 aria-busy、「✕」停用
   busy: { type: Boolean, default: false },
+  // 唯讀分享 spec 7.8：檢視者只能看
+  readonly: { type: Boolean, default: false },
 })
 // remove：預覽的「✕」交給製圖頁處理；updated：已存儀表板移除一張圖後，後端回傳的新設定
 const emit = defineEmits(['remove', 'updated'])
@@ -153,7 +155,7 @@ function currentLayout() {
 }
 
 async function saveLayout() {
-  if (props.preview || removing.value) return
+  if (props.preview || props.readonly || removing.value) return
   error.value = ''
   await api.updateDashboard(props.config.id, { ...props.config, layout: currentLayout() }).catch((e) => (error.value = e.message))
 }
@@ -186,7 +188,7 @@ async function removeCard() {
   <v-alert v-if="loadError || error" type="error" class="mb-4">{{ loadError || error }}</v-alert>
   <!-- 多來源 spec 3.5：已存的儀表板連最後一張圖也拿掉了 -->
   <v-alert v-if="!preview && !config.layout.length" type="info" class="mb-4">
-    這份儀表板沒有圖表了。到「製圖」分析後，用「加到既有儀表板」把圖加回來。
+    {{ readonly ? '這份儀表板沒有圖表。' : '這份儀表板沒有圖表了。到「製圖」分析後，用「加到既有儀表板」把圖加回來。' }}
   </v-alert>
   <v-alert v-else-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
   <!-- spec 3.3：已存的儀表板顯示這份設定是依據哪些需求做的，每次分析一行 -->
@@ -199,8 +201,8 @@ async function removeCard() {
       :col-num="12"
       :row-height="80"
       :margin="[14, 14]"
-      :is-draggable="!preview"
-      :is-resizable="!preview"
+      :is-draggable="!preview && !readonly"
+      :is-resizable="!preview && !readonly"
       @layout-ready="onLayoutReady"
     >
       <GridItem
@@ -222,7 +224,8 @@ async function removeCard() {
           :data="dataById[item.i]"
           :highlight="highlightById[item.i]"
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
-          :removable="!preview || specById[item.i].type !== 'table'"
+          :removable="!readonly && (!preview || specById[item.i].type !== 'table')"
+          :readonly="readonly"
           :remove-disabled="busy || removing"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"

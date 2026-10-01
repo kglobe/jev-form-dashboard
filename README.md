@@ -31,8 +31,18 @@ cp backend/.env.example backend/.env
 | `DB_URL` | PostgreSQL JDBC 連線字串 | `jdbc:postgresql://localhost:5432/postgres` |
 | `DB_USER` | 資料庫帳號 | `postgres` |
 | `DB_PASSWORD` | 資料庫密碼 | 空 |
+| `ADMIN_USERNAME` | 第一個管理員的帳號，後端啟動時建立。用一個專用的名稱（例如 `admin`），不要用自己單一登入的帳號名稱（見「登入與帳號」） | 空，不建立管理員 |
+| `ADMIN_PASSWORD` | 第一個管理員的初始密碼，至少 12 個字元，不能有空白和中文 | 空。要建立管理員時沒填，後端會起不來 |
+| `OIDC_ISSUER_URI` | 單一登入（OIDC）的 issuer，例如 `https://login.microsoftonline.com/<tenant>/v2.0`。跟 `OIDC_CLIENT_ID` 都填了才啟用單一登入 | 空，不啟用 |
+| `OIDC_CLIENT_ID` | 在 IdP 登記的 client id | 空，不啟用 |
+| `OIDC_CLIENT_SECRET` | client secret | 空，當成 public client，靠 PKCE |
+| `OIDC_LABEL` | 登入頁按鈕上「用」和「登入」中間的字，例如填 `Microsoft`，按鈕就是「用 Microsoft 登入」 | 「公司帳號」（寫在 `application.yml`） |
 
 `application.yml` 裡設定了 `spring.config.import: optional:file:.env[.properties]`，啟動時（工作目錄在 `backend/`）會把 `.env` 當成 properties 檔讀進來，成為設定的一部分。檔案不存在也不會讓啟動失敗（`optional:` 的效果），只是上面幾個值會維持空字串或預設值。
+
+properties 檔是用 ISO-8859-1 讀的，所以 `.env` 有幾個限制：
+- 只能寫英數字和符號。`OIDC_LABEL` 要用中文，就寫成 `\uXXXX`（「公司帳號」是 `\u516C\u53F8\u5E33\u865F`），或直接改 `application.yml` 的預設值。
+- `\` 是跳脫字元，`${…}` 會被當成變數替換。管理員密碼不要用 `\` 和 `${`；client secret 裡有 `\` 的話，寫成 `\\`。
 
 ### `application.yml` 常用設定
 
@@ -40,7 +50,7 @@ cp backend/.env.example backend/.env
 
 | Key | 預設值 | 說明 |
 |---|---|---|
-| `server.address` | `127.0.0.1` | 只聽本機連線；對外開放前看下面的身分識別警語 |
+| `server.address` | `127.0.0.1` | 只聽本機連線；對外開放前先設好管理員帳號（見「登入與帳號」） |
 | `jev.api-url` | `https://api.typesafe.ai/v1/systemone` | JEV 分析 API 端點 |
 | `jev.model` | `jev-1.13.0` | 呼叫 JEV 用的模型版本。信心門檻是照 `jev-1.13.0` 調的；換成別的版本（包括 `jev-latest`），啟動時會印警告，門檻也要重新調校 |
 | `jev.upload.max-rows` | `100000` | 上傳檔案或外部 API 回應可接受的最大列數 |
@@ -52,7 +62,7 @@ cp backend/.env.example backend/.env
 | `spring.flyway.create-schemas` | `true` | 啟動時自動建立 schema，不用手動下 `CREATE SCHEMA` |
 | `spring.flyway.table` | `jev_flyway_history` | Flyway history table 名稱 |
 
-`server.address` 比較特別：預設 `127.0.0.1`，只有本機連得到。要讓區網其他機器連，啟動時加 `--server.address=0.0.0.0`，或設定環境變數 `SERVER_ADDRESS=0.0.0.0`。開放前請注意，身分目前只靠 `X-User-Id` header（見下面「前端設定」），不是真的登入驗證，對外開放等於讓任何人都能改這個 header 冒充別人的儀表板。
+`server.address` 比較特別：預設 `127.0.0.1`，只有本機連得到。要讓區網其他機器連，啟動時加 `--server.address=0.0.0.0`，或設定環境變數 `SERVER_ADDRESS=0.0.0.0`。對外開放前先設好管理員帳號（見「登入與帳號」）。
 
 命令列覆寫範例（開放 `erp.example.com` 這個外部 API host）：
 
@@ -104,20 +114,16 @@ export DS_ERP_AUTH="Bearer xxx"
 
 ## 前端設定
 
-| 變數 | 預設值 | 說明 |
-|---|---|---|
-| `VITE_USER_ID` | `demo-user` | 每個 API 請求都會帶在 `X-User-Id` header 裡 |
-
-要改的話在 `frontend/.env` 加一行 `VITE_USER_ID=xxx`，或啟動前用 shell 設定同名環境變數（Vite 只會把 `VITE_` 開頭的變數暴露給前端程式碼）。這只是示範用的使用者識別，後端拿它來判斷「這是誰的儀表板」，並不是真正的登入驗證，換一個字串就能看到別人的資料。
-
-開發伺服器（`vite.config.js`）把 `/api` proxy 到 `http://127.0.0.1:8080`（不是 `localhost`：後端現在只聽 `127.0.0.1`，`localhost` 在某些系統會先解析成 `::1`，反而連不到），本機開發不用另外處理 CORS。
+開發伺服器（`vite.config.js`）把 `/api`、`/oauth2`、`/login/oauth2` proxy 到 `http://127.0.0.1:8080`（不是 `localhost`：後端現在只聽 `127.0.0.1`，`localhost` 在某些系統會先解析成 `::1`，反而連不到），本機開發不用另外處理 CORS。`/oauth2`、`/login/oauth2` 是單一登入用的，兩條都設成 `changeOrigin: false`，不改 Host，後端算出來的 redirect URI 才會是瀏覽器看到的網址（`http://localhost:5173/login/oauth2/code/oidc`）。
 
 介面分成三個工作區，用頂部導覽列切換，也可以按 Alt+1／2／3：
 - 「資料」：新增來源（上傳 CSV／Excel、註冊外部 API，或把現有的來源合併），右邊的欄位表可以改顯示名稱、設定敏感欄位，下面的「比率」區可以加比率。按「用這個來源製圖」會帶著這個來源切到製圖頁。
 - 「製圖」：選來源、點選想看的欄位、寫一句需求，按「分析」（或在需求框按 Ctrl+Enter），圖表會出現在右邊。滿意就「存成新儀表板」，或用「加到既有儀表板」接在某份儀表板的最下面。切到別頁再回來，預覽還在。
-- 「儀表板」：列出存好的儀表板，卡片可以拖拉、縮放，版面會自動存。按卡片右上角的「✕」可以移除單張圖，會先跳確認。
+- 「儀表板」：列出存好的儀表板，卡片可以拖拉、縮放，版面會自動存。按卡片右上角的「✕」可以移除單張圖，會先跳確認。標題列的「分享」可以把儀表板分享出去（見「分享」）。別人分享給你的儀表板列在左邊的「分享給我的」，只能看。
 
 導覽列最右邊的按鈕可以切換淺色和深色主題，圖表配色會跟著換。瀏覽器會記住上次選的主題，預設是淺色。
+
+主題鈕左邊的「帳號」會打開帳號選單。第一行是你的帳號名稱，管理員後面會標「· 管理員」；下面是「改密碼」（用密碼登入的帳號才有）、「帳號管理」（管理員才有）和「登出」。螢幕寬度不到 600px 時，帳號鈕和主題鈕只留圖示。
 
 幾個介面上的小提示：
 - 上傳檔案送出前會先在瀏覽器檢查大小，超過 50MB 直接顯示「檔案太大，上限 50MB」，不會先送到後端才被拒絕。
@@ -149,7 +155,64 @@ export DS_ERP_AUTH="Bearer xxx"
 
    `npm install` 若印出 EBADENGINE 警告可以忽略（見「前置需求」）。裝完後 `npm run dev` 會印出 Vite 的 `Local: http://localhost:5173/`。
 
-5. 開瀏覽器到 `http://localhost:5173`，會先看到「儀表板」頁；到「資料」頁就能開始上傳資料或註冊外部 API。
+5. 開瀏覽器到 `http://localhost:5173`，會先看到登入頁。第一次用 `.env` 裡的 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 登入（見「登入與帳號」），進去是「儀表板」頁；到「資料」頁就能開始上傳資料或註冊外部 API。
+
+## 登入與帳號
+
+每個人都要登入才能用。帳號由管理員在帳號選單的「帳號管理」建立，也可以接公司的單一登入（OIDC）。帳號名稱一律轉成小寫，第一個字是英文字母或數字，後面可以用英文字母、數字和 `.` `_` `@` `-`，長度 2～64，建立後不能改。密碼至少 12 個字元，不能跟帳號名稱一樣。閒置 30 分鐘會自動登出，後端重啟後所有人都要重新登入。
+
+### 第一個管理員
+
+第一次啟動前，在 `backend/.env` 填 `ADMIN_USERNAME`、`ADMIN_PASSWORD`。後端啟動時，資料庫還沒有這個帳號就建立一個管理員；已經有了就不動它，也不看 `ADMIN_PASSWORD`。所以第一次登入、用「改密碼」換掉初始密碼之後，可以把 `ADMIN_PASSWORD` 從 `.env` 拿掉，重啟也不會被改回去。
+
+`ADMIN_USERNAME` 用一個專用的名稱，例如 `admin`，不要用自己單一登入的帳號名稱：已經有同名帳號時，單一登入會被擋下來（見下面「單一登入（OIDC）」）。
+
+`ADMIN_USERNAME` 沒填就不會建立管理員。資料庫裡也沒有任何管理員時，log 會寫一行 WARN「沒有管理員帳號：在 backend/.env 設定 ADMIN_USERNAME、ADMIN_PASSWORD」。
+
+### 讓單一登入的人當管理員
+
+請他先用單一登入登入一次，系統才會有他的帳號。接著由管理員打開「帳號管理」，在他那一列按「設成管理員」。他目前的登入會馬上失效，重新登入後就是管理員。
+
+### 舊資料
+
+登入功能上線前，資料是用 user ID 記擁有者的，例如 `demo-user`。管理員建一個同名的密碼帳號，這個帳號登入後就看得到原本的來源和儀表板。升級時不會自動建任何帳號。
+
+只有密碼帳號接得到舊資料。用單一登入的人，帳號名稱跟舊資料同名時會被擋下來，這時要由管理員建同名的密碼帳號，請他改用密碼登入。擁有者是空字串的舊資料，沒有人能接手。
+
+### 單一登入（OIDC）
+
+`backend/.env` 的 `OIDC_ISSUER_URI` 和 `OIDC_CLIENT_ID` 都填了，登入頁才會出現「用公司帳號登入」的按鈕，少一個就沒有。IdP 那邊要注意三件事：
+- 只接公司自己的單一租戶 IdP，issuer 要用 https。
+- IdP 上的應用程式要設成只有被指派的人能登入（Entra ID 是 Assignment required = Yes）。能登入 IdP 的每個人，第一次登入都會自動有一個一般帳號，也看得到所有公開連結。
+- 在 IdP 登記的 redirect URI 是 `<網站網址>/login/oauth2/code/oidc`，本機開發是 `http://localhost:5173/login/oauth2/code/oidc`。
+
+帳號名稱取 IdP 給的 `preferred_username`，沒有的話用驗證過的 `email`。同名的帳號或舊資料已經存在時會擋下來，不會自動接上。IdP 上的人可能改得了自己的 `preferred_username`，靠名稱對應，等於讓他冒用別人的帳號。
+
+IdP 連不上時，帳密登入照常能用，後端也照常啟動。
+
+### 部署在 HTTPS 反向代理後面
+
+- 代理要把 `/api`、`/oauth2`、`/login/oauth2` 都轉給後端。
+- 後端要設 `server.forward-headers-strategy: native`（或啟動時加 `--server.forward-headers-strategy=native`），代理要帶 `X-Forwarded-Proto` 和 `X-Forwarded-Host`（或保留原本的 Host）。只保留 Host 不夠：後端會以為是 http，redirect URI 和 cookie 的 Secure 都會錯。
+- 設好之後用 curl 打一次，看 Location 裡的 `redirect_uri` 是不是 `https://dashboard.example.com/login/oauth2/code/oidc`：
+
+  ```bash
+  curl -s -o /dev/null -D - https://dashboard.example.com/oauth2/authorization/oidc | grep -i '^location'
+  ```
+
+## 分享
+
+打開自己的儀表板，按標題列「新增儀表板」左邊的「分享」。有兩種方式，可以同時開，設好之後按「儲存」：
+- 分享給指定帳號：輸入對方的帳號名稱，按「加入」。對方登入後，在儀表板頁左邊的「分享給我的」就看得到。對方的帳號名稱在他帳號選單的第一行。
+- 公開連結：打開開關後，有帳號的人拿到連結就能看，但不會出現在別人的「分享給我的」。沒有免登入的連結。
+
+連結是 `<網站網址>/#/d/<儀表板 id>`，對話框裡可以按「複製連結」。用 http 開在區網上時，瀏覽器可能不讓網頁直接複製，這時連結會被選取起來，按 Ctrl+C 就好。打開任何一份儀表板時，網址列也會變成這個連結。
+
+被分享的人只能看：圖表、異常標註和「依據」都看得到，不能拖拉、縮放、移除卡片，也不能刪除，看不到你的資料來源清單。他看到的資料跟你一樣，包括明細表和散佈圖的原始資料列，還有標成敏感的欄位值。「敏感」只管不送 JEV，不是權限。他打開時，後端用你的身分載入資料，你的外部 API 來源一樣會去抓。
+
+還沒用單一登入登入過的人沒有帳號，加不進清單，可以先給他公開連結。
+
+把對方從清單移掉，或關掉公開連結，對方下次打開或重新整理就看不到了，已經開著的畫面不會自己消失。關掉公開連結再打開，同一個連結又能用。擁有者的帳號被停用，或儀表板被刪掉，分享出去的也一起看不到。完整規則見 [`docs/superpowers/specs/2026-10-01-auth-sharing-design.md`](docs/superpowers/specs/2026-10-01-auth-sharing-design.md)。
 
 ## 依需求分析與調整
 
@@ -222,6 +285,12 @@ cd backend
 ./mvnw test
 ```
 
+測試的管理員帳號和密碼固定寫在 `application-test.yml`，不受 `.env` 的 `ADMIN_*` 影響，也不會開單一登入。有 migration 的 branch 要用自己的 schema（Flyway 會自己建），不要跟其他 branch 共用 `jev_dashboard_test`：
+
+```bash
+export SPRING_DATASOURCE_HIKARI_SCHEMA=jev_dashboard_test_auth SPRING_FLYWAY_SCHEMAS=jev_dashboard_test_auth
+```
+
 前端：
 
 ```bash
@@ -236,6 +305,8 @@ npm run build
 
 | 訊息 | 原因 | 處理方式 |
 |---|---|---|
+| `401`、`請先登入`，或畫面跳出「請重新登入」 | 沒登入，或登入已經失效：閒置超過 30 分鐘、後端重啟過，或管理員停用了帳號、改了權限、重設了密碼（自己改密碼也一樣） | 重新登入。跳出「請重新登入」時畫面上的東西會留著，但剛才失敗的動作要再做一次 |
+| 忘記管理員密碼 | 密碼查不回來；`ADMIN_PASSWORD` 只在建立帳號時用一次，改 `.env` 不會重設已經存在的帳號 | 請另一位管理員在「帳號管理」按「重設密碼」。沒有別的管理員時，在 `backend/.env` 換一個新的 `ADMIN_USERNAME`（加上 `ADMIN_PASSWORD`）重啟後端，用新的管理員登入，再替原本的帳號重設密碼 |
 | `503`、`未設定 TYPESAFE_API_KEY` | `backend/.env` 裡 `TYPESAFE_API_KEY` 是空的 | 申請 JEV 金鑰後填入 `.env`，重啟後端 |
 | `503`、`JEV 目前請求太多，請稍後再試` | 超過 JEV 的速率限制（每分鐘 1,200 次請求、每秒 250,000 tokens）。後端已經照 `retry-after` 等過並重試一次；要等太久（分析超過 10 秒、異常檢查超過 2 秒）就不等，直接回這個訊息 | 等一下再按一次 |
 | `413`、`送給 JEV 的資料太大…` | 欄位太多或樣本太長，state 加上最長的一題，估算超過 JEV 單次 32k tokens 的上限（題目加總超過 64k 的話，後端會自己拆成幾次送，不會報錯） | 減少欄位，或把長文字欄位標成敏感（敏感欄位不送樣本） |

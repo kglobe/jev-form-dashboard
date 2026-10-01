@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.lang.Nullable;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
-import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -52,7 +51,6 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleExceptionInternal(
             Exception ex, @Nullable Object body, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         String message = switch (ex) {
-            case MissingRequestHeaderException e -> "缺少 header：" + e.getHeaderName();
             case NoResourceFoundException e -> "找不到這個 API";
             case HttpRequestMethodNotSupportedException e -> "不支援這個 HTTP 方法";
             case MaxUploadSizeExceededException e -> "檔案太大，上限 " + maxFileSize;
