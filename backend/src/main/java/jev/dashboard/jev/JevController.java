@@ -92,9 +92,11 @@ public class JevController {
 
     @GetMapping("/highlight/{dashboardId}")
     public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId) {
-        DashboardConfig c = dashboards.get(principal.getName(), dashboardId);
+        DashboardConfig c = dashboards.view(principal.getName(), dashboardId);
+        // 唯讀分享 spec 6.3：敏感欄位和資料都照擁有者的來源；recent 的 key 跟 /data 一樣是擁有者
+        String owner = c.createdBy();
         // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
-        Map<UUID, Set<String>> sensitive = datasources.list(principal.getName()).stream().collect(Collectors.toMap(Datasource::id,
+        Map<UUID, Set<String>> sensitive = datasources.list(owner).stream().collect(Collectors.toMap(Datasource::id,
             ds -> Stream.concat(ds.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name),
                 ds.ratios().stream().filter(Ratio::sensitive).map(Ratio::name)).collect(Collectors.toSet())));
 
@@ -106,7 +108,14 @@ public class JevController {
                 && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
         }).toList();
         if (eligible.isEmpty()) return List.of();
-        List<ChartData> data = dashboardData.load(principal.getName(), new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
+        List<ChartData> data;
+        try {
+            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
+        } catch (ApiException e) {
+            // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
+            if (owner.equals(principal.getName())) throw e;
+            throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
+        }
 
         List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
         return result == null ? List.of() : result;

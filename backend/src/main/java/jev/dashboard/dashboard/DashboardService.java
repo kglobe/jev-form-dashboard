@@ -55,6 +55,11 @@ public class DashboardService {
         return repo.find(id, userId).orElseThrow(DashboardService::notFound);
     }
 
+    /** 唯讀分享 spec 6.3：唯讀的存取檢查，回傳的 createdBy 就是擁有者。get 照舊只認擁有者。 */
+    public DashboardConfig view(String userId, UUID id) {
+        return repo.findViewable(id, userId).orElseThrow(DashboardService::notFound);
+    }
+
     public List<DashboardSummary> list(String userId) {
         return repo.list(userId);
     }

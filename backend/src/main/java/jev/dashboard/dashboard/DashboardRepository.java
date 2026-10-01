@@ -59,6 +59,18 @@ public class DashboardRepository {
             .query(this::map).optional();
     }
 
+    /** 唯讀分享 spec 4.5：擁有者、被指定的帳號、公開連結打開時任何人都能看；擁有者停用就當作不存在（2.4）。 */
+    public Optional<DashboardConfig> findViewable(UUID id, String userId) {
+        return jdbc.sql("""
+                select d.* from dashboard d
+                join account o on o.username = d.created_by and o.enabled
+                where d.id = :id
+                  and (d.created_by = :by or d.public_link
+                       or exists (select 1 from dashboard_share s where s.dashboard_id = d.id and s.username = :by))""")
+            .param("id", id).param("by", userId)
+            .query(this::map).optional();
+    }
+
     /** 加到既有儀表板用：讀的時候鎖住那一列，同一個 transaction 寫回之前，另一次加入要等。 */
     public Optional<DashboardConfig> findForUpdate(UUID id, String userId) {
         return jdbc.sql("select * from dashboard where id = :id and created_by = :by for update")

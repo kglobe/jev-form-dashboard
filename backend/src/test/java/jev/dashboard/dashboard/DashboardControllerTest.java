@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -200,6 +201,96 @@ class DashboardControllerTest {
         assertThat(jdbc.sql("select count(*) from dashboard_share").query(Integer.class).single()).isEqualTo(2);
         mvc.perform(delete("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(status().isNoContent());
         assertThat(jdbc.sql("select count(*) from dashboard_share").query(Integer.class).single()).isZero();
+    }
+
+    void notFound(MockHttpServletRequestBuilder req) throws Exception {
+        mvc.perform(req).andExpect(status().isNotFound()).andExpect(jsonPath("$.error").value("找不到儀表板"));
+    }
+
+    @Test
+    void aViewerReadsTheDashboardAndItsDataAsTheOwner() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.createdBy").value("u1"));
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(4))
+            .andExpect(jsonPath("$[0].error").doesNotExist());
+    }
+
+    @Test
+    void aViewerCannotChangeAnything() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String json = TestData.dashboardJson(ds);
+        String id = create("u1", json);
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        String moved = json.replaceFirst("\\{\"x\":0,\"y\":0,", "{\"x\":6,\"y\":8,");
+        notFound(put("/api/dashboards/" + id).with(TestData.as("u2")).contentType(MediaType.APPLICATION_JSON).content(moved));
+        notFound(delete("/api/dashboards/" + id).with(TestData.as("u2")));
+        notFound(post("/api/dashboards/" + id + "/charts").with(TestData.as("u2"))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":[" + card("c1", ds, 0) + "]}"));
+        notFound(get("/api/dashboards/" + id + "/share").with(TestData.as("u2")));
+        notFound(put("/api/dashboards/" + id + "/share").with(TestData.as("u2"))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"users\":[\"u3\"]}"));
+
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
+            .andExpect(jsonPath("$.layout.length()").value(4))
+            .andExpect(jsonPath("$.layout[0].gridPos.x").value(0))
+            .andExpect(jsonPath("$.layout[0].gridPos.y").value(0));
+        mvc.perform(get("/api/datasources").with(TestData.as("u2"))).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void notSharedIs404AndThePublicLinkOpensItToAnyAccount() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        notFound(get("/api/dashboards/" + id).with(TestData.as("u3")));
+        notFound(get("/api/dashboards/" + id + "/data").with(TestData.as("u3")));
+
+        putShare("u1", id, "{\"publicLink\":true,\"users\":[]}", 200);
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u3"))).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u3"))).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboards/shared").with(TestData.as("u3"))).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void revokingOrDisablingTheOwnerMakesIt404Again() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u2"))).andExpect(status().isOk());
+
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[]}", 200);
+        notFound(get("/api/dashboards/" + id).with(TestData.as("u2")));
+
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u2"))).andExpect(status().isOk());
+        jdbc.sql("update account set enabled = false where username = 'u1'").update();
+        notFound(get("/api/dashboards/" + id).with(TestData.as("u2")));
+        notFound(get("/api/dashboards/" + id + "/data").with(TestData.as("u2")));
+    }
+
+    @Test
+    void aViewerSeesAGenericMessageWhenTheOwnersSourcesFail() throws Exception {
+        // 測試的允許清單有 10.0.0.5；抓之前就因為環境變數不存在而失敗，不會連網路
+        UUID ds = UUID.randomUUID();
+        jdbc.sql("""
+                insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by)
+                values (:id, '外部', 'api', '[]', 'http://10.0.0.5/sales', '{"Authorization":"${DS_JEV_TEST_UNSET}"}', 'u1')""")
+            .param("id", ds).update();
+        String id = create("u1", TestData.dashboardJson(ds.toString()));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        for (String path : new String[] {"/api/dashboards/" + id + "/data", "/api/jev/highlight/" + id}) {
+            mvc.perform(get(path).with(TestData.as("u1")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("環境變數 DS_JEV_TEST_UNSET 未設定"));
+            mvc.perform(get(path).with(TestData.as("u2")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("資料來源載入失敗，請聯絡儀表板擁有者"));
+        }
     }
 
     @Test
