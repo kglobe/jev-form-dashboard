@@ -130,13 +130,14 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
     }
 
     /**
-     * 密鑰綁定 spec 3.2：密鑰有開放給這個 host 才讀它的值。註冊和之後每次載入都走這裡，
+     * 密鑰綁定 spec 3.2：每一把密鑰都有開放給這個 host，才開始讀值。註冊和之後每次載入都走這裡，
      * 所以 .env 拿掉綁定、重啟後端，已經註冊的來源下次載入就會被擋。
      */
     Map<String, String> resolveHeaders(String host, Map<String, String> headers) {
         Map<String, String> out = new LinkedHashMap<>();
         if (headers == null) return out;
         validateHeaders(headers);
+        Map<String, String> varNames = new LinkedHashMap<>();
         headers.forEach((name, value) -> {
             Matcher m = ENV_REF.matcher(value);
             m.matches();
@@ -145,6 +146,9 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
                 throw new ApiException(BAD_REQUEST, "密鑰 " + varName + " 沒有開放給 " + host
                     + "：請在 backend/.env 加上 jev.datasource.secret-hosts.[" + varName + "]=" + host);
             }
+            varNames.put(name, varName);
+        });
+        varNames.forEach((name, varName) -> {
             String resolved = env.getProperty(varName);
             if (resolved == null) throw new ApiException(INTERNAL_SERVER_ERROR, "環境變數 " + varName + " 未設定");
             out.put(name, resolved);

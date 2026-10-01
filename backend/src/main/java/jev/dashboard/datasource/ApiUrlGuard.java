@@ -34,8 +34,10 @@ public class ApiUrlGuard {
     }
 
     ApiUrlGuard(List<String> allowedHosts) {
+        // API_ALLOWED_HOSTS=, 綁定出來是 ["", ""]：空白的項目不算，才會走到「未開放」那句訊息
         this.allowedHosts = allowedHosts == null ? Set.of()
-            : allowedHosts.stream().map(h -> h.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+            : allowedHosts.stream().filter(h -> !h.isBlank()).map(h -> h.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
     }
 
     public URI check(String url) {

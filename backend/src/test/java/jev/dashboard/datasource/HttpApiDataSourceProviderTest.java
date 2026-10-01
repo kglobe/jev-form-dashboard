@@ -17,6 +17,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -240,6 +241,21 @@ class HttpApiDataSourceProviderTest {
                 Map.of("Authorization", "${DS_ERP_TOKEN}", "X-Key", "${DS_HR_KEY}")))
             .hasMessage(notBound("DS_HR_KEY", "erp.example.com"));
         assertThat(read).doesNotContain("DS_HR_KEY");
+    }
+
+    @Test
+    void everyBindingIsCheckedBeforeAnyValueIsRead() {
+        // spec 3.2：先查完全部綁定才讀值；前一把綁了但沒設定值，也要回後一把沒綁定的 400，不是 500
+        List<String> read = new ArrayList<>();
+        HttpApiDataSourceProvider provider = provider(recording(read), Map.of("DS_A", List.of("10.0.0.5")));
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("X-A", "${DS_A}");
+        headers.put("X-B", "${DS_B}");
+        assertThatThrownBy(() -> provider.resolveHeaders("10.0.0.5", headers))
+            .isInstanceOf(ApiException.class)
+            .hasMessage(notBound("DS_B", "10.0.0.5"))
+            .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_REQUEST));
+        assertThat(read).isEmpty();
     }
 
     @Test

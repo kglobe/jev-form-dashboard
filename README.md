@@ -111,8 +111,8 @@ DS_ERP_AUTH=Bearer xxx
 jev.datasource.secret-hosts.[DS_ERP_AUTH]=erp.example.com
 ```
 
-- `API_ALLOWED_HOSTS` 和 `secret-hosts` 的 host 都用逗號分隔，前後空白不算，大小寫不分。
-- `secret-hosts` 的 key 要保留方括號，`DS_ERP_AUTH` 才不會被改掉。這一項不能用作業系統環境變數設定（名稱裡的 `_` 會被當成 `.`），只能寫在 `.env`、`application.yml`（`"[DS_ERP_AUTH]": [erp.example.com]`）或命令列參數。
+- `API_ALLOWED_HOSTS` 和 `secret-hosts` 的 host 都用逗號分隔，前後空白不算，大小寫不分。同一把密鑰要開放給好幾個 host，就接在同一行後面，不要再加一行 `[DS_ERP_AUTH]=`：同一個 key 只認最後一行，前一行綁的 host 會失效。
+- `secret-hosts` 的 key 建議加方括號，Spring 只保證加了方括號的 key 原樣保留。這一項不能用作業系統環境變數設定（名稱裡的 `_` 會被當成 `.`），只能寫在 `.env`、`application.yml`（`"[DS_ERP_AUTH]": [erp.example.com]`）或命令列參數。
 - `DS_ERP_AUTH` 可以改用作業系統環境變數，例如 `export DS_ERP_AUTH="Bearer xxx"`。
 
 ### 敏感欄位
@@ -323,7 +323,7 @@ npm run build
 | `413`、`送給 JEV 的資料太大…` | 欄位太多或樣本太長，state 加上最長的一題，估算超過 JEV 單次 32k tokens 的上限（題目加總超過 64k 的話，後端會自己拆成幾次送，不會報錯） | 減少欄位，或把長文字欄位標成敏感（敏感欄位不送樣本） |
 | 想看 JEV 每一題的完整機率（例如 Choice 第二名是誰） | 預設不記錄 | 啟動後端時加 `--logging.level.jev.dashboard.jev.JevClient=DEBUG`，log 會印出每題的 `probabilities` 和 `legend` |
 | `未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS` | 允許清單預設是空的，`backend/.env` 沒有設 `API_ALLOWED_HOSTS` | 在 `backend/.env` 加上 `API_ALLOWED_HOSTS=要開放的 host`，重啟後端（見「外部 API 資料源的規則」） |
-| `密鑰 DS_... 沒有開放給 ...：請在 backend/.env 加上 ...` | header 用的 `DS_` 密鑰沒有綁定這個網址的 host。已經註冊的來源突然抓不到，也可能是綁定被拿掉了 | 照訊息在 `backend/.env` 加上那一行，重啟後端 |
+| `密鑰 DS_... 沒有開放給 ...：請在 backend/.env 加上 ...` | header 用的 `DS_` 密鑰沒有綁定這個網址的 host。已經註冊的來源突然抓不到，也可能是綁定被拿掉了 | 照訊息在 `backend/.env` 加上那一行，重啟後端。已經有 `[DS_...]=` 那一行的話，把 host 用逗號接在後面，不要再加一行（同一個 key 只認最後一行） |
 | `header「...」的值只能寫 ${DS_環境變數名}` | 註冊外部 API 時 header 值寫了字面字串，不是 `${DS_XXX}` 格式 | 改成 `${DS_你的變數名}`，實際值透過同名環境變數提供 |
 | `網址不能包含帳密或 token，請改放在 headers，值寫 ${DS_環境變數名}` | 註冊外部 API 時網址裡帶了 `user:pass@`，或帶了 `token`／`api_key`／`password` 之類的 query 參數 | 把驗證資訊改放進 headers，值寫成 `${DS_你的變數名}` |
 | `CSV 第 N 行格式錯誤` | 引號沒對齊等，CSV 格式跟 commons-csv 的預期不符 | 用試算表軟體另存一次，或檢查該行的逗號、引號有沒有用對 |
