@@ -309,4 +309,25 @@ describe('ChartCard', () => {
     expect(caption({ from: '2026-08', to: '2026-01' }).text()).toBe('分子、分母的資料期間沒有重疊')
     expect(caption(undefined).exists()).toBe(false)
   })
+
+  it('readonly 時 SOURCE_DELETED 只說「資料來源已刪除」，不提 ✕', () => {
+    const card = mountCard({ spec: barSpec, data: { chartId: 'c1', type: 'bar', error: 'SOURCE_DELETED' }, highlight: null, readonly: true })
+    expect(card.get('.v-alert').text()).toBe('資料來源已刪除')
+  })
+
+  it('readonly 時 SOURCE_FAILED 改成請聯絡擁有者', () => {
+    const failed = (source) => mountCard({
+      spec: barSpec,
+      data: { chartId: 'c1', type: 'bar', error: 'SOURCE_FAILED', ...(source && { source }) },
+      highlight: null,
+      readonly: true,
+    }).get('.v-alert').text()
+    expect(failed('銷售')).toBe('資料來源「銷售」載入失敗，請聯絡儀表板擁有者')
+    expect(failed()).toBe('資料來源載入失敗，請聯絡儀表板擁有者')
+  })
+
+  it('readonly 時標題列沒有 card-drag（沒有移動游標）', () => {
+    expect(mountCard({ spec: barSpec, data: null, highlight: null, readonly: true }).get('.tc-card-title').classes()).not.toContain('card-drag')
+    expect(mountCard({ spec: barSpec, data: null, highlight: null }).get('.tc-card-title').classes()).toContain('card-drag')
+  })
 })

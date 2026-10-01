@@ -19,6 +19,8 @@ const props = defineProps({
   removeDisabled: { type: Boolean, default: false },
   // 多來源的儀表板才傳：這張圖的來源名稱
   source: { type: String, default: null },
+  // 唯讀分享 spec 7.8：檢視者看的卡片，沒有移動游標，錯誤訊息不叫他按 ✕、改成請聯絡擁有者
+  readonly: { type: Boolean, default: false },
 })
 const emit = defineEmits(['remove'])
 
@@ -74,7 +76,7 @@ const ratioPeriodNote = computed(() => {
 
 <template>
   <v-card class="fill-height d-flex flex-column">
-    <v-card-title class="card-drag tc-card-title d-flex align-center">
+    <v-card-title class="tc-card-title d-flex align-center" :class="{ 'card-drag': !readonly }">
       <span class="text-truncate">{{ data?.title ?? spec.title }}</span>
       <!-- 多來源 spec 3.2：名稱太長就截斷，滑鼠移上去看得到全名 -->
       <span v-if="source" class="tc-source text-truncate" :title="source">{{ source }}</span>
@@ -105,10 +107,11 @@ const ratioPeriodNote = computed(() => {
         欄位「{{ data.missingField }}」不是日期，不能按日、月或季分組
       </v-alert>
       <v-alert v-else-if="data.error === 'SOURCE_FAILED'" type="warning" density="compact" class="tc-fade-in">
-        {{ data.source ? `資料來源「${data.source}」載入失敗，請稍後重新整理` : '資料來源載入失敗，請稍後重新整理' }}
+        <template v-if="readonly">{{ data.source ? `資料來源「${data.source}」載入失敗，請聯絡儀表板擁有者` : '資料來源載入失敗，請聯絡儀表板擁有者' }}</template>
+        <template v-else>{{ data.source ? `資料來源「${data.source}」載入失敗，請稍後重新整理` : '資料來源載入失敗，請稍後重新整理' }}</template>
       </v-alert>
       <v-alert v-else-if="data.error === 'SOURCE_DELETED'" type="warning" density="compact" class="tc-fade-in">
-        資料來源已刪除，可以按右上角 ✕ 移除這張圖
+        {{ readonly ? '資料來源已刪除' : '資料來源已刪除，可以按右上角 ✕ 移除這張圖' }}
       </v-alert>
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
