@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import { ChartBuilder, DashboardView, DatasourcePanel, api, onUnauthorized } from './modules/dashboard/index.js'
-import { LoginPage, ReloginDialog, UserMenu } from './modules/auth/index.js'
+import { LoginPage, ReloginDialog, ShareDialog, UserMenu } from './modules/auth/index.js'
 import { DASHBOARD_HASH, restoreSavedHash } from './modules/auth/session.js'
 
 const VIEWS = [
@@ -22,6 +22,8 @@ const shared = ref([])
 const current = ref(null)
 const error = ref('')
 const confirmDelete = ref(null)
+// 唯讀分享 spec 7.6：分享對話框
+const sharing = ref(false)
 
 // 唯讀分享 spec 7.1：me 拿到之前，App 的其他元件都不掛；needLogin 是 me 回 401，bootError 是其他錯誤
 const me = ref(null)
@@ -231,7 +233,11 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
             <h1 class="cc-title">{{ current ? current.name : '儀表板' }}</h1>
             <p class="cc-desc">{{ readonly ? `「${current.createdBy}」分享給你的儀表板，只能檢視。` : '卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。' }}</p>
           </div>
+          <!-- 唯讀分享 spec 7.6、7.8：只有擁有者打開自己的儀表板才有「分享」 -->
+          <div class="d-flex ga-2">
+          <v-btn v-if="current && !readonly" variant="tonal" prepend-icon="mdi-share-variant-outline" @click="sharing = true">分享</v-btn>
           <v-btn color="primary" prepend-icon="mdi-plus" @click="view = 'build'">新增儀表板</v-btn>
+          </div>
         </header>
         <v-alert v-if="error" type="error" density="compact">{{ error }}</v-alert>
         <div class="cc-split">
@@ -310,6 +316,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
       </v-card>
     </v-dialog>
     <ReloginDialog v-model="relogin" :me="me" @done="afterRelogin" />
+    <ShareDialog v-if="current" v-model="sharing" :dashboard="current" />
     </template>
   </v-app>
 </template>

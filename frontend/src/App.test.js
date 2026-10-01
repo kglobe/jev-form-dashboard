@@ -36,6 +36,7 @@ vi.mock('./modules/auth/index.js', () => ({
   LoginPage: { name: 'LoginPage', props: ['error', 'isLight'], emits: ['logged-in', 'retry', 'toggle-theme'], template: '<div class="login-page-stub">{{ error }}</div>' },
   ReloginDialog: { name: 'ReloginDialog', props: ['modelValue', 'me'], emits: ['done'], template: '<div v-if="modelValue" class="relogin-stub" />' },
   UserMenu: { name: 'UserMenu', props: ['me'], template: '<div class="user-menu-stub"><slot name="activator" :props="{}" /></div>' },
+  ShareDialog: { name: 'ShareDialog', props: ['modelValue', 'dashboard'], template: '<div v-if="modelValue" class="share-stub" />' },
 }))
 
 const dashboards = [{ id: 'd1', name: 'Dash One' }]
@@ -653,6 +654,41 @@ describe('App', () => {
       const handler = addSpy.mock.calls.find(([type]) => type === 'hashchange')[1]
       wrapper.unmount()
       expect(removeSpy).toHaveBeenCalledWith('hashchange', handler)
+    })
+
+    it('擁有者打開自己的儀表板時「新增儀表板」左邊有「分享」，按了打開分享對話框', async () => {
+      const config = { id: 'd1', name: 'Dash One', createdBy: 'u1', layout: [] }
+      api.getDashboard.mockResolvedValue(config)
+      const wrapper = mountApp()
+      await flushPromises()
+      await findDashboardItem(wrapper).trigger('click')
+      await flushPromises()
+
+      const share = findButton(wrapper, '分享')
+      expect(share.classes()).toContain('v-btn--variant-tonal')
+      expect(share.find('.mdi-share-variant-outline').exists()).toBe(true)
+      const add = findButton(wrapper, '新增儀表板')
+      expect(share.element.compareDocumentPosition(add.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(wrapper.find('.share-stub').exists()).toBe(false)
+
+      await share.trigger('click')
+      expect(wrapper.find('.share-stub').exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'ShareDialog' }).props('dashboard')).toEqual(config)
+    })
+
+    it('檢視者和還沒打開儀表板時沒有「分享」', async () => {
+      api.sharedDashboards.mockResolvedValue([sharedItem])
+      api.getDashboard.mockResolvedValue({ id: ID, name: '各區營收', createdBy: 'boss', layout: [] })
+      const wrapper = mountApp()
+      await flushPromises()
+      expect(findButton(wrapper, '分享')).toBeUndefined()
+      expect(wrapper.findComponent({ name: 'ShareDialog' }).exists()).toBe(false)
+
+      await item(wrapper, '各區營收').trigger('click')
+      await flushPromises()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(true)
+      expect(findButton(wrapper, '分享')).toBeUndefined()
+      expect(findButton(wrapper, '新增儀表板')).toBeDefined()
     })
   })
 })
