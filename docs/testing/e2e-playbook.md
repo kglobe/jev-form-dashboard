@@ -3,7 +3,7 @@
 日期：2026-10-02
 對象：用 Chrome DevTools MCP 操作瀏覽器的 agent。照章節順序跑完，App 現有的每個功能都會走過一次。
 
-S16～S18 寫的是還在其他 branch 開發中的功能（外部 API 允許清單、登入失敗鎖定、更新資料），步驟照規劃中的行為寫，標「規劃中」。功能合併之後，要照最後的畫面文字再對一次。
+S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。
 
 ## 1. 怎麼跑
 
@@ -14,7 +14,6 @@ S16～S18 寫的是還在其他 branch 開發中的功能（外部 API 允許清
   - API：用第 5 節的 helper 在頁面裡呼叫 API，比對回傳的資料。
   - 截圖：`take_screenshot` 存到這次的執行資料夾（第 2.4 節），存完一定要用 Read 打開來看，照第 6 節的規則判斷。沒打開看過的截圖，那一步不能記 PASS。
 - 標〔JEV〕的預期取決於 JEV 的判斷（挑哪幾張圖、要不要標異常），沒出現記在備註，不算 FAIL；有出現的話，它的資料一樣要對。
-- 標〔待對齊〕的是規劃中功能還沒定案的細節，照實記下看到的畫面文字。
 - 每一步都要記結果（第 9 節的範本）。FAIL 不用停下來，記好之後繼續；後面的步驟因此跑不下去時，記「BLOCKED（因為 Sxx-n）」。
 
 ## 2. 環境
@@ -91,12 +90,14 @@ L1 登入：在登入頁 `fill`「帳號」和「密碼」，按「登入」，`
 ```bash
 SPRING_DATASOURCE_HIKARI_SCHEMA=<schema> SPRING_FLYWAY_SCHEMAS=<schema> \
 ADMIN_USERNAME=e2e-admin ADMIN_PASSWORD=E2eAdmin-2026 \
-API_ALLOWED_HOSTS=example.com DS_E2E_TOKEN=dummy-token \
+API_ALLOWED_HOSTS=example.com,www.example.com DS_E2E_TOKEN=dummy-token \
 java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.datasource.secret-hosts.[DS_E2E_TOKEN]=example.com'
 ```
 
-- 外部 API 允許清單（S16）合併之前，`API_ALLOWED_HOSTS` 和 `secret-hosts` 都還沒有作用。這時在同一行前面再加 `JEV_DATASOURCE_ALLOWED_HOSTS=example.com`，S15 才測得到。
-- 環境變數優先於 `backend/.env`，所以 `.env` 裡的 `ADMIN_USERNAME` 不會蓋掉 `e2e-admin`。
+- 允許清單有 `example.com` 和 `www.example.com` 兩個 host，`DS_E2E_TOKEN` 只綁 `example.com`。S16 要靠這個差別測「密鑰綁到別的 host」。
+- `secret-hosts` 不能用作業系統環境變數設定（名稱裡的 `_` 會被當成 `.`），所以寫成命令列參數，方括號要留著。
+- checkout 裡還沒有 `feat/api-secret-hosts` 時，`API_ALLOWED_HOSTS` 沒有作用。這時在同一行前面再加 `JEV_DATASOURCE_ALLOWED_HOSTS=example.com,www.example.com`，S15 才測得到。
+- 環境變數優先於 `backend/.env`，所以 `.env` 裡的 `ADMIN_USERNAME`、`API_ALLOWED_HOSTS` 不會蓋掉這裡的值。
 - `.env` 有設單一登入（`OIDC_ISSUER_URI`）的話，同一行前面再加 `OIDC_ISSUER_URI= OIDC_CLIENT_ID=` 關掉，不然 S01-1 會多一顆「用公司帳號登入」。
 
 留下的狀態：後端 8081、前端 5181 在跑；schema 裡只有 `e2e-admin`；固定資料在 `<scratchpad>/e2e-fixtures/`。
@@ -178,7 +179,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 () => {
   const xsrf = () => decodeURIComponent((document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/) || [])[1] || '')
   const api = async (method, url, body) => {
-    const form = body instanceof URLSearchParams
+    const form = body instanceof URLSearchParams || body instanceof FormData
     const headers = {}
     if (body !== undefined && !form) headers['Content-Type'] = 'application/json'
     if (method !== 'GET') headers['X-XSRF-TOKEN'] = xsrf()
@@ -211,6 +212,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
     seen: window.jev?.seen ?? [],
     last: (part) => [...jev.seen].reverse().find((e) => e.url.includes(part)),
     login: async (username, password) => {
+      await api('GET', '/api/auth/me') // 登出會清掉 XSRF-TOKEN，先拿一個，不然 POST 會被當成過期頁面擋下
       const r = await api('POST', '/api/auth/login', new URLSearchParams({ username, password }))
       await api('GET', '/api/auth/me') // 登入後 XSRF-TOKEN 會換，先拿一個新的
       return r
@@ -312,7 +314,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 
 | 要做什麼 | function |
 |---|---|
-| 呼叫 API（POST／PUT／PATCH／DELETE 會自動帶 `X-XSRF-TOKEN`） | `async () => window.jev.api('PATCH', '/api/admin/accounts/e2e-admin', { enabled: false })` |
+| 呼叫 API（POST／PUT／PATCH／DELETE 會自動帶 `X-XSRF-TOKEN`；body 是 `FormData` 時原樣送出） | `async () => window.jev.api('PATCH', '/api/admin/accounts/e2e-admin', { enabled: false })` |
 | 剛才的分析結果送去 `/preview/data`，每張卡片摘要 | `async () => window.jev.preview()` |
 | 目前打開的儀表板：設定、版面、每張卡片摘要 | `async () => window.jev.dashboard()` |
 | 用名稱找來源 | `async () => window.jev.source('銷售')` |
@@ -697,7 +699,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | S15-2 | alice：`jev.api('POST', '/api/datasources/api', { name: 'x', url: 'https://example.com/', headers: {} })` | 403，「沒有權限」 | API |
 | S15-3 | `e2e-admin`：切到「資料」 | 空白狀態「上傳 CSV / Excel，或註冊一個外部 API，欄位會自動判斷型別。」 | 畫面 |
 | S15-4 | 按「新增來源」 | 分頁「上傳檔案」「外部 API」「合併」 | 畫面 |
-| S15-5 | 「外部 API」分頁 | 欄位「名稱」「網址」「headers（JSON，值只能寫 ${DS_環境變數名}）」，預設 `{}`，提示 `範例：{"Authorization":"${DS_ERP_AUTH}"}`；按鈕「註冊」 | 畫面、截圖 |
+| S15-5 | 「外部 API」分頁 | 欄位「名稱」「網址」「headers（JSON，值只能寫 ${DS_環境變數名}）」，預設 `{}`，提示 `範例：{"Authorization":"${DS_ERP_AUTH}"}。密鑰還要在 backend/.env 綁定這個網址的 host`；按鈕「註冊」 | 畫面、截圖 |
 | S15-6 | 名稱 `E2E API`、網址 `https://example.com/`、headers 改成 `not json`，按「註冊」 | 「headers 必須是 JSON 物件」 | 畫面 |
 | S15-7 | headers 改成 `[]` | 一樣是「headers 必須是 JSON 物件」 | 畫面 |
 | S15-8 | headers 改回 `{}`，網址 `ftp://example.com/x` | 「只允許 http 或 https」 | 畫面 |
@@ -710,72 +712,108 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 
 留下的狀態：沒有新增任何東西。外部 API 在本機抓不到資料（loopback 會被擋，也不能把 mock 開在區網），所以這一節只驗誰看得到這個分頁，以及各種錯誤訊息。
 
-### S16 外部 API 允許清單、DS_ 密鑰綁 host（規劃中）
+### S16 外部 API 允許清單、DS_ 密鑰綁 host
 
-- 目的：`API_ALLOWED_HOSTS` 環境變數、`jev.datasource.secret-hosts.[DS_X]=host` 綁定、沒綁的密鑰被擋、清單空的時候的訊息。
+- 目的：允許清單（`API_ALLOWED_HOSTS`）和密鑰綁 host（`jev.datasource.secret-hosts.[DS_X]`）。要測的情況有：密鑰沒綁、綁到別的 host、兩個 header 有一個沒綁、host 大小寫不同，以及允許清單是空的。
 - 帳號／context：`e2e-admin`；`admin-8082`。
-- 前置條件：S15 完成；這個功能已經合併，S00 用 `API_ALLOWED_HOSTS` 和 `secret-hosts` 啟動（不靠 `JEV_DATASOURCE_ALLOWED_HOSTS`）。
+- 前置條件：S15 完成；S00 照指令啟動，允許清單是 `example.com,www.example.com`，`DS_E2E_TOKEN` 只綁 `example.com`；這台機器查得到 `example.com` 的 DNS。查不到的話，S16-1～4 都會先回「無法解析 host：…」，記 BLOCKED。
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S16-1 | `e2e-admin`：外部 API 分頁，名稱 `E2E API`、網址 `https://example.com/`、headers `{"Authorization":"${DS_E2E_UNBOUND}"}`（這個變數故意沒設，也沒綁 host），註冊 | 400，「密鑰 DS_E2E_UNBOUND 沒有開放給 example.com：…」〔待對齊：冒號後面的說明〕 | 畫面 |
-| S16-2 | headers 改成 `{"Authorization":"${DS_E2E_TOKEN}"}`（綁了 example.com） | 過了綁定檢查，502「外部 API 呼叫失敗（回應必須是 JSON 陣列）」 | 畫面 |
-| S16-3 | 網址改成 `https://EXAMPLE.com/`，headers 同上 | 跟 S16-2 一樣（host 不分大小寫）〔待對齊〕 | 畫面 |
-| S16-4 | 在 `backend/` 用 `run_in_background` 開第二個後端（同一個 schema，不給允許清單）：`SPRING_DATASOURCE_HIKARI_SCHEMA=<schema> SPRING_FLYWAY_SCHEMAS=<schema> ADMIN_USERNAME= API_ALLOWED_HOSTS= java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8082`；等 `http://127.0.0.1:8082/api/auth/options` 回 200 | 啟動成功 | API |
-| S16-5 | `new_page` `http://127.0.0.1:8082/api/auth/options`（`isolatedContext: "admin-8082"`）；跑 helper；`jev.login('e2e-admin', 'E2eAdmin-2026')` | 頁面是 `{"oidc":null}`；登入回 204 | API |
-| S16-6 | `jev.api('POST', '/api/datasources/api', { name: 'x', url: 'https://example.com/', headers: {} })` | 400，「未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS」 | API |
-| S16-7 | `close_page` 這個分頁；TaskStop 停掉 8082 的後端；`netstat` 確認 8082 沒人聽 | 8082 釋放 | API |
+| S16-1 | `e2e-admin`：資料頁「新增來源」→「外部 API」；名稱 `E2E API`、網址 `https://example.com/`、headers `{"Authorization":"${DS_E2E_UNBOUND}"}`（這個變數沒設，也沒綁 host），按「註冊」 | 對話框裡「密鑰 DS_E2E_UNBOUND 沒有開放給 example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_E2E_UNBOUND]=example.com」，對話框沒關。不是「環境變數 DS_E2E_UNBOUND 未設定」，代表沒綁的密鑰在檢查階段就被擋下，值也沒讀 | 畫面、截圖 |
+| S16-2 | headers 改成 `{"Authorization":"${DS_E2E_TOKEN}","X-Trace":"${DS_E2E_UNBOUND}"}`（用 setField） | 一樣是 DS_E2E_UNBOUND 那句，只要有一把沒綁就整個擋下 | 畫面 |
+| S16-3 | 網址改成 `https://www.example.com/`，headers 改成 `{"Authorization":"${DS_E2E_TOKEN}"}` | 「密鑰 DS_E2E_TOKEN 沒有開放給 www.example.com：請在 backend/.env 加上 jev.datasource.secret-hosts.[DS_E2E_TOKEN]=www.example.com」。`www.example.com` 在允許清單裡，但密鑰只綁 `example.com` | 畫面 |
+| S16-4 | 網址改成 `https://EXAMPLE.com/`，headers 不變 | 過了綁定檢查，等幾秒後「外部 API 呼叫失敗（回應必須是 JSON 陣列）」，跟 S15-13 一樣，可見 host 大小寫不分 | 畫面 |
+| S16-5 | 按「取消」；`jev.api('GET', '/api/datasources')` | `e2e-admin` 還是沒有任何來源 | API |
+| S16-6 | 在 `backend/` 用 `run_in_background` 開第二個後端（同一個 schema，允許清單留空）：`SPRING_DATASOURCE_HIKARI_SCHEMA=<schema> SPRING_FLYWAY_SCHEMAS=<schema> ADMIN_USERNAME= API_ALLOWED_HOSTS= java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8082`（S00 有加 OIDC 那兩個變數的話，這裡也要加）；等 `http://127.0.0.1:8082/api/auth/options` 回 200 | 啟動成功 | API |
+| S16-7 | `new_page` `http://127.0.0.1:8082/api/auth/options`（`isolatedContext: "admin-8082"`）；跑 helper；`jev.login('e2e-admin', 'E2eAdmin-2026')` | 頁面是 `{"oidc":null}`；登入回 204 | API |
+| S16-8 | `jev.api('POST', '/api/datasources/api', { name: 'x', url: 'https://example.com/', headers: {} })` | 400，`{"error":"未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS"}` | API |
+| S16-9 | `close_page` 這個分頁；TaskStop 停掉 8082 的後端；`netstat` 確認 8082 沒人聽 | 8082 釋放 | API |
 
-留下的狀態：沒有新增任何東西；8082 已停。
+留下的狀態：沒有新增任何東西；8082 已停。外部 API 在本機抓不到資料，所以「拿掉綁定、重啟後端之後，已經註冊的來源會被擋」這條規則只有後端測試驗得到。
 
-### S17 登入失敗鎖定（規劃中）
+### S17 登入失敗鎖定
 
-- 目的：連續 5 次密碼錯誤鎖 15 分鐘、鎖住時對的密碼也進不去、不存在的帳號不會鎖、管理員重設密碼就解鎖。
-- 帳號／context：`carol`；`dave`；`e2e-admin`。
+- 目的：同一個帳號的密碼連續錯 5 次就鎖 15 分鐘，改密碼時輸錯「目前的密碼」也算一次。鎖住時密碼對了也進不去，改密碼也改不了，但已經登入的畫面照常能用。不存在的帳號和別的帳號都不受影響。管理員重設密碼就解鎖，登入成功後次數從 0 重新算。
+- 帳號／context：`carol`（已經登入的分頁）；`anon`（送登入請求）；`e2e-admin`（重設密碼）。
 - 前置條件：S16 完成；carol 從來沒登入失敗過。
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S17-1 | `new_page`（`isolatedContext: "carol"`）；跑 helper；`jev.login('carol', 'wrong-pass-' + n)`，n 從 1 到 5 | 5 次都是 401「帳號或密碼錯誤」〔待對齊：第 5 次會不會就回 429〕 | API |
-| S17-2 | `jev.login('carol', 'Carol-pass-01')`（密碼是對的） | 429，訊息符合 `/^登入失敗太多次，請 \d+ 分鐘後再試$/`，N 是 15 或 14 | API |
-| S17-3 | 在登入頁用 `Carol-pass-01` 按「登入」 | 畫面顯示「登入失敗太多次，請 N 分鐘後再試」 | 畫面、截圖 |
-| S17-4 | 同一個分頁：`jev.login('ghost', 'wrong-pass-' + n)`，n 從 1 到 6 | 6 次都是 401「帳號或密碼錯誤」，不會出現 429 | API |
-| S17-5 | `new_page`（`isolatedContext: "dave"`），用 `Dave-pass-01` 登入 | 登入成功，別的帳號不受影響 | 畫面 |
-| S17-6 | `e2e-admin`：帳號管理，carol 那列「重設密碼」→ `Carol-reset-02` →「儲存」 | 「已重設「carol」的密碼」 | 畫面 |
-| S17-7 | carol 分頁：`jev.login('carol', 'Carol-reset-02')` | 204，馬上能登入（重設密碼就解鎖） | API |
-| S17-8 | `jev.api('POST', '/api/auth/logout')`；錯一次 `jev.login('carol', 'wrong-pass-9')`，再用 `Carol-reset-02` 登入 | 錯的那次 401，對的那次 204（登入成功之後失敗次數歸零）〔待對齊〕 | API |
-| S17-9 | `jev.login('carol', 'Carol-pass-01')`（舊密碼） | 401「帳號或密碼錯誤」 | API |
+| S17-1 | `new_page` `http://localhost:5181`（`isolatedContext: "carol"`），L1 登入 carol／`Carol-pass-01` | 進到 App | 畫面 |
+| S17-2 | `new_page` `http://localhost:5181`（`isolatedContext: "anon"`），停在登入頁；跑 helper；`async () => { const out = []; for (let n = 1; n <= 4; n++) out.push(await window.jev.login('carol', 'wrong-pass-' + n)); return out }` | 4 次都是 401，`{"error":"帳號或密碼錯誤"}` | API |
+| S17-3 | carol 分頁：「帳號」→「改密碼」；目前的密碼 `wrong-pass-5`，新密碼兩欄都填 `Carol-new-03`，按「更新密碼」 | 「目前的密碼不對」。這是第 5 次錯，帳號從這時開始鎖；後端背景程序的輸出多一行 WARN「帳號「carol」密碼連續錯了 5 次，鎖住 15 分鐘」 | 畫面、API |
+| S17-4 | 同一個對話框：目前的密碼改成 `Carol-pass-01`（對的，用 setField），按「更新密碼」 | 對話框裡「登入失敗太多次，請 15 分鐘後再試」，對話框沒關，密碼沒改。按「取消」，再按導覽列「資料」：照常切過去，沒有跳出「請重新登入」 | 畫面、截圖 |
+| S17-5 | anon 分頁：`jev.login('carol', 'Carol-pass-01')`（密碼是對的） | 429，`{"error":"登入失敗太多次，請 15 分鐘後再試"}`。N 是剩下的分鐘數無條件進位，離 S17-3 超過 1 分鐘才送的話是 14 | API |
+| S17-6 | anon 分頁的登入頁：帳號 `carol`、密碼 `Carol-pass-01`，按「登入」 | 卡片裡「登入失敗太多次，請 N 分鐘後再試」，還在登入頁；欄位留著，「登入」按鈕還能按 | 畫面、截圖 |
+| S17-7 | `async () => { const out = []; for (let n = 1; n <= 6; n++) out.push(await window.jev.login('ghost', 'wrong-pass-' + n)); return out }` | 6 次都是 401「帳號或密碼錯誤」，沒有 429（不存在的帳號不會被鎖） | API |
+| S17-8 | `jev.login('dave', 'Dave-pass-01')`；`jev.api('GET', '/api/auth/me')`；`jev.api('POST', '/api/auth/logout')` | 登入 204，`me` 的 `username` 是 `dave`，登出 204。別的帳號不受影響 | API |
+| S17-9 | `e2e-admin`：「帳號」→「帳號管理」，carol 那列「重設密碼」，新密碼 `Carol-reset-02`，按「儲存」 | 綠色訊息「已重設「carol」的密碼」 | 畫面 |
+| S17-10 | anon 分頁：`jev.login('carol', 'Carol-reset-02')`；`jev.api('POST', '/api/auth/logout')` | 登入 204，鎖馬上解開（還沒過 15 分鐘）；登出 204 | API |
+| S17-11 | `jev.login('carol', 'Carol-pass-01')`（舊密碼） | 401「帳號或密碼錯誤」 | API |
+| S17-12 | 再錯 3 次（`wrong-pass-1`～`3`），用 `Carol-reset-02` 登入、登出；接著錯 4 次（`wrong-pass-4`～`7`）；最後用 `Carol-reset-02` 登入、登出 | 前 3 次 401，登入、登出都是 204；後 4 次都是 401，沒有 429；最後的登入、登出也是 204。登入成功會把次數歸零；沒歸零的話，後 4 次的第 2 次就會變成 429 | API |
+| S17-13 | `close_page` carol 和 anon 這兩個分頁 | 只關自己開的分頁 | 畫面 |
 
-留下的狀態：carol 的密碼是 `Carol-reset-02`，沒有被鎖。
+留下的狀態：carol 的密碼是 `Carol-reset-02`，沒有被鎖，失敗次數是 0。
 
-### S18 更新資料（規劃中）
+### S18 更新資料
 
-- 目的：上傳來源的「更新資料」：整份覆蓋、接在後面，欄位或型別不符的錯誤，用到它的儀表板和合併來源跟著更新。
+- 目的：上傳來源的「更新資料」，包括對話框、接在後面、整份覆蓋和 Excel 指定工作表，以及各種錯誤。用到它的儀表板和合併來源要跟著更新。
 - 帳號／context：`alice`；`bob`。
-- 前置條件：S17 完成；「E2E 銷售總覽」分享給 bob。
+- 前置條件：S17 完成；「E2E 銷售總覽」分享給 bob（S13-18）。
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S18-1 | alice 資料頁依序選「銷售」「高雄店」「銷售／退貨 對照」 | 上傳來源（銷售、高雄店）的標題列有「更新資料」；合併來源沒有 | 畫面 |
-| S18-2 | 選「銷售」，按「更新資料」 | 對話框：選檔案的欄位，「整份覆蓋」「接在後面」兩個選項；還沒選檔案和方式時，確認按鈕停用〔待對齊：對話框標題和確認按鈕的文字〕 | 畫面、截圖 |
-| S18-3 | `upload_file` 選 `sales-07.csv`，先不選方式 | 確認按鈕還是停用 | 畫面 |
-| S18-4 | 檔案換成 `sales-07-missing-column.csv`，選「接在後面」，按確認 | 對話框裡顯示欄位不一樣的錯誤，點出缺「毛利」〔待對齊：訊息文字〕；對話框沒關 | 畫面、截圖 |
-| S18-5 | 跑 helper；`jev.source('銷售')` | `rowCount` 還是 54 | API |
-| S18-6 | 檔案換成 `sales-07-text-number.csv`，「接在後面」，確認 | 對話框裡顯示型別不符的錯誤，點出「營收」〔待對齊〕；`rowCount` 還是 54 | 畫面、API |
-| S18-7 | 檔案換成 `sales-07.csv`，「接在後面」，確認 | 對話框關掉，提示「已更新「銷售」：共 63 筆」 | 畫面、截圖 |
-| S18-8 | `jev.source('銷售')` | `rowCount: 63`；營收的顯示名稱「營收（元）」、數量的敏感、比率「毛利率」都還在 | API |
-| S18-9 | 打開「E2E 銷售總覽」；`jev.dashboard()` | 依月份的銷售卡片 `x` 是 2026-01～2026-07；`sum` 卡片：營收（元）394600、毛利 148783、數量 8877；毛利率 2026-07 是 0.405；退貨卡片不變 | API |
-| S18-10 | 每張銷售圖卡各截一張 | X 軸多了 2026-07，排在最後，前面 6 期一個都沒少 | 截圖 |
-| S18-11 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 現在比的是 2026-06 和 2026-07〔JEV〕 | API |
-| S18-12 | 打開「E2E 對照」；`jev.dashboard()` | 雙數值卡片多一列 2026-07 [73600, null]；依區域的退貨率不變（還是只算 2026-02～06） | API |
-| S18-13 | 截雙數值那張 | X 軸到 2026-07，7 月只有營收 | 截圖 |
-| S18-14 | bob 重新整理「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 跟 S18-9 一樣的數字 | API |
-| S18-15 | alice：新增來源 `sales-h1.csv`，名稱 `覆蓋測試`；選它，按「更新資料」，`sales-07.csv`，「整份覆蓋」，確認 | 「已更新「覆蓋測試」：共 9 筆」 | 畫面 |
-| S18-16 | `jev.card((await jev.source('覆蓋測試')).id, { x: '日期', value: '營收', timeGrain: 'month' })` | `x` 只有 2026-07，營收 73600 | API |
-| S18-17 | 「覆蓋測試」按「更新資料」，選 `sales-07-missing-column.csv`、「整份覆蓋」，確認 | 一樣顯示欄位不一樣的錯誤〔待對齊：整份覆蓋要不要擋〕 | 畫面 |
-| S18-18 | 按「更新資料」，選了檔案和方式後按「取消」 | 對話框關掉，`rowCount` 還是 9 | 畫面、API |
+| S18-1 | alice 資料頁依序選「銷售」「高雄店」「退貨（補產品主檔）」「銷售／退貨 對照」 | 上傳來源（銷售、高雄店）的標題列是「更新資料」「刪除來源」「用這個來源製圖」；兩個合併來源沒有「更新資料」 | 畫面 |
+| S18-2 | 跑 helper；`jev.source('銷售')`、`jev.source('銷售／退貨 對照')`、`jev.source('退貨（補產品主檔）')` | `rowCount` 依序是 54、65、11；記下銷售的 `id`（S18-18 要用） | API |
+| S18-3 | 選「銷售」，按「更新資料」 | 對話框「更新資料」，說明兩行：「「銷售」目前有 54 筆資料。新檔案的欄位名稱要跟原本一樣。」「更新後，用到它的圖和合併來源都會顯示新的資料。」；欄位「CSV / Excel」「工作表（Excel 選填）」；選項「整份覆蓋」「接在後面」，兩個都沒選；按鈕「取消」和「更新」，「更新」是停用的 | 畫面、截圖 |
+| S18-4 | 選「接在後面」，不選檔案就按「更新」 | 選了方式之後「更新」才能按；按下去對話框裡出現「請先選擇檔案」 | 畫面 |
+| S18-5 | `upload_file` 到對話框裡的「CSV / Excel」（uid 認明是這個對話框的，不是「新增來源」留在 DOM 裡的那個）：`sales-07-missing-column.csv`；按「更新」 | 對話框裡「欄位跟原本的不一樣：少了 毛利」，對話框沒關 | 畫面、截圖 |
+| S18-6 | 檔案換成 `sales-07-text-number.csv`，按「更新」；`jev.source('銷售')` | 「欄位「營收」原本是數字，新檔案裡有不是數字的值」，用的是欄位名稱，不是顯示名稱；`rowCount` 還是 54 | 畫面、API |
+| S18-7 | 檔案換成 `sales-07.csv`，按「更新」 | 對話框關掉；頁面上方綠色訊息「已更新「銷售」：共 63 筆」，右邊有 ✕ | 畫面、截圖 |
+| S18-8 | `jev.source('銷售')`；`(await jev.api('GET', '/api/datasources')).body.find((d) => d.name === '銷售').schema.find((f) => f.name === '日期')` | `rowCount: 63`；營收的 `label` 還是「營收（元）」，數量還是 `sensitive: true`，`ratios` 還是只有毛利率；日期的 `min` 是 `2026-01-05`，`max` 是 `2026-07-25` | API |
+| S18-9 | `jev.source('銷售／退貨 對照')`、`jev.source('退貨（補產品主檔）')` | 對照的 `rowCount` 是 null（輸入來源更新過，筆數清掉了）；退貨（補產品主檔）沒用到銷售，還是 11 | API |
+| S18-10 | 再按一次「更新資料」 | 上方的成功訊息收起來了；說明變成「「銷售」目前有 63 筆資料。…」；沒有檔案、沒選方式、沒有錯誤訊息 | 畫面 |
+| S18-11 | 按「取消」；`jev.source('銷售')` | 對話框關掉，`rowCount` 還是 63 | 畫面、API |
+| S18-12 | 打開「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 依月份的銷售卡片 `x` 是 2026-01～2026-07；`sum` 卡片：營收（元）394600、毛利 148783、數量 8877；有毛利率卡片的話，`data` 最後一個是 0.405；退貨卡片跟 S09-3 一樣（5150） | API |
+| S18-13 | 每張銷售圖卡各截一張 | X 軸多了 2026-07，排在最後，前面 6 期一個都沒少 | 截圖 |
+| S18-14 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 現在比的是 2026-06 和 2026-07〔JEV〕 | API |
+| S18-15 | 打開「E2E 對照」；`jev.dashboard()`；再跑 S11-7、S11-8 那兩個 `jev.card` | 雙數值卡片 7 列，多一列 2026-07 [73600, null]，`nulls` 2；每月退貨率多一期 2026-07，是 null；依區域的退貨率跟 S11-8 一樣（北區約 0.0330、中區約 0.0014、南區約 0.0231），`ratioPeriod` 還是 `{ from: "2026-02", to: "2026-06" }` | API |
+| S18-16 | 截雙數值那張 | X 軸到 2026-07，7 月只有營收 | 截圖 |
+| S18-17 | bob 重新整理「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 跟 S18-12 一樣的數字 | API |
+| S18-18 | bob：`async () => { const form = new FormData(); form.append('file', new File(['日期\n2026-08-05\n'], 'check.csv')); form.append('mode', 'append'); return window.jev.api('POST', '/api/datasources/<S18-2 的銷售 id>/rows', form) }` | 404，`{"error":"找不到資料源"}`，別人的來源不能更新 | API |
+| S18-19 | alice：跑下方的「更新資料 API 檢查」 | `noMode` 400「缺少參數：mode」；`noFile` 400「缺少參數：file」；`badMode` 400「更新方式只能是 replace（整份覆蓋）或 append（接在後面）」；`merged` 400「只有上傳的檔案可以更新資料」；`headerOnly` 400「沒有資料列」；`rowCount` 還是 63 | API |
+| S18-20 | 新增來源：`sales-h1.csv`，名稱 `覆蓋測試`；選它，按「更新資料」，檔案 `sales-07.csv`，選「整份覆蓋」，按「更新」 | 「已更新「覆蓋測試」：共 9 筆」 | 畫面 |
+| S18-21 | `jev.card((await jev.source('覆蓋測試')).id, { x: '日期', value: '營收', timeGrain: 'month' })` | `x` 只有 2026-07，營收總和 73600 | API |
+| S18-22 | 「覆蓋測試」按「更新資料」，檔案 `sales-07-missing-column.csv`，選「整份覆蓋」，按「更新」；按「取消」；`jev.source('覆蓋測試')` | 「欄位跟原本的不一樣：少了 毛利」，整份覆蓋也要同一組欄位；`rowCount` 還是 9 | 畫面、API |
+| S18-23 | 選「高雄店」，按「更新資料」，檔案 `stores.xlsx`，工作表留空，選「整份覆蓋」，按「更新」 | 「欄位跟原本的不一樣：少了 金額；多了 營收」。沒指定工作表就讀第一個（台中店） | 畫面 |
+| S18-24 | 工作表填 `台北店`，按「更新」 | 「找不到工作表：台北店」 | 畫面 |
+| S18-25 | 工作表改成 `高雄店`（setField），按「更新」；`jev.card((await jev.source('高雄店')).id, { x: '產品代碼', value: '金額' })` | 「已更新「高雄店」：共 6 筆」；金額總和 13500 | 畫面、API |
 
-留下的狀態：銷售 63 筆；覆蓋測試 9 筆。
+更新資料 API 檢查（S18-19，在 alice 分頁用 `evaluate_script` 跑）：
+
+```js
+async () => {
+  const send = async (name, mode, csv) => {
+    const form = new FormData()
+    if (csv !== null) form.append('file', new File([csv], 'check.csv'))
+    if (mode) form.append('mode', mode)
+    return window.jev.api('POST', `/api/datasources/${(await window.jev.source(name)).id}/rows`, form)
+  }
+  const head = '日期,區域,產品代碼,營收,毛利,數量\n'
+  const row = '2026-08-05,北區,P01,1,1,1\n'
+  return {
+    noMode: await send('銷售', null, head + row),
+    noFile: await send('銷售', 'append', null),
+    badMode: await send('銷售', 'merge', head + row),
+    merged: await send('銷售／退貨 對照', 'append', head + row),
+    headerOnly: await send('銷售', 'append', head),
+    rowCount: (await window.jev.source('銷售')).rowCount,
+  }
+}
+```
+
+留下的狀態：銷售 63 筆；銷售／退貨 對照的 `rowCount` 是 null；覆蓋測試 9 筆；高雄店 6 筆。
 
 ### S99 收尾
 
@@ -810,9 +848,9 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 分享給帳號、公開連結、唯讀、分享給我的 | S13 |
 | 深淺主題 | S14 |
 | 外部 API 只有管理員看得到 | S15 |
-| 外部 API 允許清單、DS_ 密鑰綁 host（規劃中） | S16 |
-| 登入失敗鎖定（規劃中） | S17 |
-| 更新資料（規劃中） | S18 |
+| 外部 API 允許清單、DS_ 密鑰綁 host | S16 |
+| 登入失敗鎖定 | S17 |
+| 更新資料：接在後面、整份覆蓋、Excel 工作表、下游跟著更新 | S18 |
 
 ## 9. 結果範本
 
