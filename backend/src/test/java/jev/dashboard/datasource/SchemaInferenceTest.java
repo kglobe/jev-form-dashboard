@@ -45,6 +45,17 @@ class SchemaInferenceTest {
     }
 
     @Test
+    void excelNumbersReadLikeCsvInSamplesAndTextColumns() {
+        // Excel 的數字儲存格讀進來是 Double；寫成文字時去掉多餘的 .0，跟同一份 CSV 一樣
+        List<Map<String, Object>> rows = List.of(Map.of("code", "A1", "qty", 1200.0), Map.of("code", 5.0, "qty", 1500.5));
+        List<FieldSchema> s = SchemaInference.infer(List.of("code", "qty"), rows);
+        assertThat(s).extracting(FieldSchema::type).containsExactly(STRING, NUMBER);
+        assertThat(s.get(0).samples()).containsExactly("A1", "5");
+        assertThat(s.get(1).samples()).containsExactly("1200", "1500.5");
+        assertThat(SchemaInference.normalize(rows, s)).extracting(r -> r.get("code")).containsExactly("A1", "5");
+    }
+
+    @Test
     void normalizeConvertsValuesByType() {
         List<FieldSchema> s = SchemaInference.infer(List.of("d", "a", "r", "m"), ROWS);
         Map<String, Object> first = SchemaInference.normalize(ROWS, s).get(0);

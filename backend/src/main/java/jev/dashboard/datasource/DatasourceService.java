@@ -80,6 +80,8 @@ public class DatasourceService {
         Datasource ds = stored(userId, id);
         if (!"upload".equals(ds.kind())) throw new ApiException(BAD_REQUEST, "只有上傳的檔案可以更新資料");
         ParsedTable table = parse(file, sheet);
+        // 更新資料 spec 2.4：只有標題列的檔案兩種方式都擋下，接在後面也不白白清掉合併來源的筆數
+        checkRows(table.rows().size());
         checkSameColumns(ds.schema(), table.headers());
         checkTypes(ds.schema(), table.rows());
         List<Map<String, Object>> added = SchemaInference.normalize(table.rows(), ds.schema());
@@ -93,7 +95,8 @@ public class DatasourceService {
             checkRows(rows.size());
             if (!append) repo.deleteRows(id);
             repo.insertRows(id, first, added);
-            repo.updateSchema(id, SchemaInference.restat(current.schema(), rows));
+            // 更新資料 spec 2.5：整份覆蓋用檔案讀出來的值算，跟第一次上傳一模一樣；接在後面時舊的列只剩整理過的值
+            repo.updateSchema(id, SchemaInference.restat(current.schema(), append ? rows : table.rows()));
             repo.updateRowCount(id, rows.size());
             // 更新資料 spec 2.6：合併來源載入時才合併，資料自己會跟上；建立時記的筆數不準了，清掉讓分析時重算
             Set<UUID> users = new HashSet<>();
@@ -198,31 +201,36 @@ public class DatasourceService {
         repo.delete(id, userId);
     }
 
+    // 更新資料 spec 4.2：改敏感設定、顯示名稱也鎖住來源再讀 schema，更新資料進行中就等它寫完，不會把重算的統計蓋回舊的
     public Datasource markSensitive(String userId, UUID id, Collection<String> fields) {
-        // spec 6.3：繼承來的不算自己勾的，輸入來源取消時，合併來源才會跟著取消
-        Set<String> inherited = get(userId, id).schema().stream().filter(f -> f.sensitiveFrom() != null)
-            .map(FieldSchema::name).collect(Collectors.toSet());
-        List<FieldSchema> schema = stored(userId, id).schema().stream()
-            .map(f -> f.withSensitive(inherited.contains(f.name()) ? f.sensitive() : fields.contains(f.name()))).toList();
-        repo.updateSchema(id, schema);
+        repo.locked(id, () -> {
+            // spec 6.3：繼承來的不算自己勾的，輸入來源取消時，合併來源才會跟著取消
+            Set<String> inherited = get(userId, id).schema().stream().filter(f -> f.sensitiveFrom() != null)
+                .map(FieldSchema::name).collect(Collectors.toSet());
+            List<FieldSchema> schema = stored(userId, id).schema().stream()
+                .map(f -> f.withSensitive(inherited.contains(f.name()) ? f.sensitive() : fields.contains(f.name()))).toList();
+            repo.updateSchema(id, schema);
+        });
         return get(userId, id);
     }
 
     /** labels 是「欄位 → 顯示名稱」；沒列到的欄位、空白的名稱都清掉。 */
     public Datasource setLabels(String userId, UUID id, Map<String, String> labels) {
-        Datasource ds = stored(userId, id);
-        List<FieldSchema> schema = ds.schema().stream().map(f -> {
-            String label = labels.get(f.name());
-            return f.withLabel(label == null || label.isBlank() ? null : label.strip());
-        }).toList();
-        // 圖表的 dataset 用顯示名稱當維度名，重複了 ECharts 會分不出來；比率名稱也會當維度名（B3）
-        Set<String> seen = ds.ratios().stream().map(Ratio::name).collect(Collectors.toCollection(HashSet::new));
-        for (FieldSchema f : schema) {
-            String shown = f.label() != null ? f.label() : f.name();
-            if (!seen.add(shown)) throw new ApiException(BAD_REQUEST, "顯示名稱「" + shown + "」重複");
-            if (shown.length() > 50) throw new ApiException(BAD_REQUEST, "顯示名稱最多 50 個字");
-        }
-        repo.updateSchema(id, schema);
+        repo.locked(id, () -> {
+            Datasource ds = stored(userId, id);
+            List<FieldSchema> schema = ds.schema().stream().map(f -> {
+                String label = labels.get(f.name());
+                return f.withLabel(label == null || label.isBlank() ? null : label.strip());
+            }).toList();
+            // 圖表的 dataset 用顯示名稱當維度名，重複了 ECharts 會分不出來；比率名稱也會當維度名（B3）
+            Set<String> seen = ds.ratios().stream().map(Ratio::name).collect(Collectors.toCollection(HashSet::new));
+            for (FieldSchema f : schema) {
+                String shown = f.label() != null ? f.label() : f.name();
+                if (!seen.add(shown)) throw new ApiException(BAD_REQUEST, "顯示名稱「" + shown + "」重複");
+                if (shown.length() > 50) throw new ApiException(BAD_REQUEST, "顯示名稱最多 50 個字");
+            }
+            repo.updateSchema(id, schema);
+        });
         return get(userId, id);
     }
 

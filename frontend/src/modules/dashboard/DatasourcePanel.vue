@@ -558,7 +558,8 @@ async function reload() {
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="reloadOpen" max-width="520" transition="tc-sheet">
+    <!-- 更新資料 spec 5.2：請求還沒回來就不能關，不然錯誤沒地方顯示，按了取消資料也照樣換掉 -->
+    <v-dialog v-model="reloadOpen" max-width="520" transition="tc-sheet" :persistent="reloading">
       <v-card v-if="reloadTarget">
         <v-card-title class="pt-5 px-6">更新資料</v-card-title>
         <v-card-text class="px-6">
@@ -574,7 +575,7 @@ async function reload() {
         </v-card-text>
         <v-card-actions class="px-6 pb-5">
           <v-spacer />
-          <v-btn variant="flat" @click="reloadOpen = false">取消</v-btn>
+          <v-btn variant="flat" :disabled="reloading" @click="reloadOpen = false">取消</v-btn>
           <v-btn variant="flat" color="primary" :disabled="!reloadMode" :loading="reloading" @click="reload">更新</v-btn>
         </v-card-actions>
       </v-card>

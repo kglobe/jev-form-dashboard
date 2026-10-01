@@ -6,6 +6,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import jev.dashboard.TestData;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +39,7 @@ class DatasourceRepositoryTest {
     @Autowired DatasourceService service;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
+    @Autowired DataSource dataSource;
 
     @BeforeEach
     void clean() {
@@ -193,6 +198,71 @@ class DatasourceRepositoryTest {
 
         assertThat(inTransaction[0]).isFalse();
         assertThat(repo.rows(id)).hasSize(2);
+    }
+
+    /** 直接或間接排在 holder 後面等鎖的連線數。 */
+    long waitingBehind(int holder) {
+        return jdbc.sql("""
+                with recursive w(pid) as (
+                    select pid from pg_stat_activity where :holder = any(pg_blocking_pids(pid))
+                    union
+                    select a.pid from pg_stat_activity a join w on w.pid = any(pg_blocking_pids(a.pid)))
+                select count(*) from w""")
+            .param("holder", holder).query(Long.class).single();
+    }
+
+    void awaitWaiting(int holder, int n) throws InterruptedException {
+        for (int i = 0; i < 400 && waitingBehind(holder) < n; i++) Thread.sleep(25);
+        assertThat(waitingBehind(holder)).as("排在鎖後面的連線").isEqualTo(n);
+    }
+
+    /**
+     * 更新資料 spec 4.2：先用另一個交易鎖住來源，讓「接在後面」卡在 for update，這時另一個分頁做 edit，
+     * 等 edit 也排到鎖後面才放開。edit 要是沒上鎖就先讀了 schema，寫回去時會蓋掉更新資料剛重算的統計。
+     */
+    void editWhileAnAppendWaits(UUID id, String file, Runnable edit) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try (Connection holder = dataSource.getConnection()) {
+            holder.setAutoCommit(false);
+            int pid;
+            try (PreparedStatement lock = holder.prepareStatement("select id from datasource where id = ? for update");
+                 PreparedStatement me = holder.prepareStatement("select pg_backend_pid()")) {
+                lock.setObject(1, id);
+                lock.executeQuery();
+                ResultSet rs = me.executeQuery();
+                rs.next();
+                pid = rs.getInt(1);
+            }
+            Future<?> reload = pool.submit(() -> service.reload("u1", id, csv(file), null, "append"));
+            awaitWaiting(pid, 1);
+            Future<?> edited = pool.submit(edit);
+            awaitWaiting(pid, 2);
+            holder.commit();
+            reload.get(10, TimeUnit.SECONDS);
+            edited.get(10, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    @Test
+    void aLabelOrSensitiveEditDuringAReloadKeepsTheNewStats() throws Exception {
+        UUID labelled = service.upload("u1", "銷售", csv("order_date,amount\n2024-01-01,1\n"), null).id();
+        UUID marked = service.upload("u1", "退貨", csv("order_date,amount\n2024-01-01,1\n"), null).id();
+
+        editWhileAnAppendWaits(labelled, "order_date,amount\n2024-05-01,2\n",
+            () -> service.setLabels("u1", labelled, Map.of("amount", "金額")));
+        editWhileAnAppendWaits(marked, "order_date,amount\n2024-05-01,2\n",
+            () -> service.markSensitive("u1", marked, List.of("amount")));
+
+        for (UUID id : List.of(labelled, marked)) {
+            List<FieldSchema> schema = repo.find(id, "u1").orElseThrow().schema();
+            assertThat(repo.rows(id)).hasSize(2);
+            assertThat(schema.get(0).max()).as("接在後面之後最晚的日期").isEqualTo("2024-05-01");
+            assertThat(schema.get(1).distinctCount()).isEqualTo(2);
+        }
+        assertThat(repo.find(labelled, "u1").orElseThrow().schema().get(1).label()).isEqualTo("金額");
+        assertThat(repo.find(marked, "u1").orElseThrow().schema().get(1).sensitive()).isTrue();
     }
 
     @Test

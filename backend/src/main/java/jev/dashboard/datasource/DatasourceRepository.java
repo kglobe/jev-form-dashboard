@@ -119,6 +119,7 @@ public class DatasourceRepository {
     /**
      * 更新資料 spec 4.2：先鎖住來源那一列（select … for update）再做 work，整段是同一個交易。
      * 同一個來源同時更新時，後到的等前一個寫完才讀現有的資料列，接在後面的 row_no 不會撞在一起。
+     * 改顯示名稱、敏感設定也走這裡，等更新寫完才讀 schema。
      */
     @Transactional
     public void locked(UUID id, Runnable work) {

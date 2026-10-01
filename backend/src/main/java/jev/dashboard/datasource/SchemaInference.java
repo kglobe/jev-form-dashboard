@@ -4,7 +4,6 @@ import java.math.BigDecimal;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,42 +27,50 @@ public final class SchemaInference {
     public static List<FieldSchema> infer(List<String> headers, List<Map<String, Object>> rows) {
         List<FieldSchema> out = new ArrayList<>();
         for (String h : headers) {
-            List<Object> values = rows.stream().map(r -> r.get(h)).filter(v -> !isBlank(v)).toList();
+            List<Object> values = values(rows, h);
             FieldType type = values.isEmpty() ? FieldType.STRING
                 // 8 碼日期也是合法的數字，要比數字先判斷
                 : values.stream().allMatch(v -> compactDate(v) != null) ? FieldType.DATE
                 : values.stream().allMatch(v -> parseNumber(v) != null) ? FieldType.NUMBER
                 : values.stream().allMatch(v -> parseDate(v) != null) ? FieldType.DATE
                 : FieldType.STRING;
-            Set<String> distinct = new LinkedHashSet<>();
-            values.forEach(v -> distinct.add(String.valueOf(v)));
-            String min = null;
-            String max = null;
-            if (type == FieldType.DATE) {
-                List<LocalDate> dates = values.stream().map(SchemaInference::parseDate).sorted().toList();
-                min = dates.getFirst().toString();
-                max = dates.getLast().toString();
-            }
-            out.add(new FieldSchema(h, type, distinct.size(), distinct.stream().limit(5).toList(), false, min, max));
+            out.add(stats(h, type, values));
         }
         return out;
     }
 
     /**
-     * 更新資料 spec 2.5：型別、顯示名稱、敏感設定照舊，相異值數、樣本、日期範圍用整份資料重算。
-     * rows 是整理過的值，數字寫回字串時去掉多餘的 .0，樣本才跟第一次上傳一樣是 1200，不是 1200.0。
+     * 更新資料 spec 2.5：型別、顯示名稱、敏感設定照舊，相異值數、樣本、日期範圍用 rows 重算，算法跟第一次上傳一樣。
+     * 整份覆蓋給檔案讀出來的值；接在後面給整理過的值（舊的資料列只剩這個）。
      */
     public static List<FieldSchema> restat(List<FieldSchema> schema, List<Map<String, Object>> rows) {
-        return schema.stream().map(f -> {
-            Set<String> distinct = new LinkedHashSet<>();
-            rows.stream().map(r -> r.get(f.name())).filter(v -> !isBlank(v))
-                .forEach(v -> distinct.add(v instanceof Number n
-                    ? BigDecimal.valueOf(n.doubleValue()).stripTrailingZeros().toPlainString() : String.valueOf(v)));
-            // 整理過的日期都是 YYYY-MM-DD，照字串排就是照日期排
-            boolean dated = f.type() == FieldType.DATE && !distinct.isEmpty();
-            return new FieldSchema(f.name(), f.type(), distinct.size(), distinct.stream().limit(5).toList(), f.sensitive(),
-                dated ? Collections.min(distinct) : null, dated ? Collections.max(distinct) : null, f.label());
-        }).toList();
+        return schema.stream().map(f -> stats(f.name(), f.type(), values(rows, f.name()))
+            .withSensitive(f.sensitive()).withLabel(f.label())).toList();
+    }
+
+    private static List<Object> values(List<Map<String, Object>> rows, String name) {
+        return rows.stream().map(r -> r.get(name)).filter(v -> !isBlank(v)).toList();
+    }
+
+    private static FieldSchema stats(String name, FieldType type, List<Object> values) {
+        Set<String> distinct = new LinkedHashSet<>();
+        values.forEach(v -> distinct.add(text(v)));
+        String min = null;
+        String max = null;
+        if (type == FieldType.DATE && !values.isEmpty()) {
+            List<LocalDate> dates = values.stream().map(SchemaInference::parseDate).sorted().toList();
+            min = dates.getFirst().toString();
+            max = dates.getLast().toString();
+        }
+        return new FieldSchema(name, type, distinct.size(), distinct.stream().limit(5).toList(), false, min, max);
+    }
+
+    /**
+     * 值寫成文字。Excel 的數字儲存格讀進來是 Double，去掉多餘的 .0（5.0 → 5），跟同一份 CSV 一樣；
+     * 不然 CSV 接 Excel 時，文字欄位裡同一個代碼會變成 5 和 5.0 兩類。
+     */
+    private static String text(Object v) {
+        return v instanceof Double d ? BigDecimal.valueOf(d).stripTrailingZeros().toPlainString() : String.valueOf(v);
     }
 
     /** 所有資料列 key 的聯集，依第一次出現的順序；外部 API 常省略值是 null 的欄位，只看第一列會漏。 */
@@ -86,7 +93,7 @@ public final class SchemaInference {
                         LocalDate d = parseDate(v);
                         yield d == null ? null : d.toString();
                     }
-                    case STRING -> String.valueOf(v);
+                    case STRING -> text(v);
                 });
             }
             out.add(m);

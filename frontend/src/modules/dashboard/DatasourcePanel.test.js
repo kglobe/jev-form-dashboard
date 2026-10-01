@@ -771,6 +771,7 @@ describe('DatasourcePanel', () => {
     await reloadDialog(wrapper).findComponent({ name: 'VRadioGroup' }).vm.$emit('update:modelValue', mode)
     await flushPromises()
   }
+  const cancelReload = (wrapper) => reloadDialog(wrapper).findAllComponents({ name: 'VBtn' }).find((b) => b.text() === '取消')
   const reloadField = (wrapper, label) =>
     reloadDialog(wrapper).findAllComponents({ name: 'VTextField' }).find((f) => f.props('label') === label)
 
@@ -907,5 +908,28 @@ describe('DatasourcePanel', () => {
     await flushPromises()
 
     expect(api.reloadDatasource).toHaveBeenCalledTimes(1)
+  })
+
+  it('更新請求還沒回來時關不掉對話框，失敗的訊息才看得到；回來之後又能關', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    let fail
+    api.reloadDatasource.mockReturnValue(new Promise((_, reject) => (fail = reject)))
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openReload(wrapper)
+    await pickReloadFile(wrapper, new File(['a,b'], 'oct.csv'))
+    await chooseMode(wrapper, 'replace')
+    await click('更新')
+
+    // 「取消」停用；persistent 讓點對話框外面、按 Esc 也不會關
+    expect(cancelReload(wrapper).element.disabled).toBe(true)
+    expect(reloadDialog(wrapper).props('persistent')).toBe(true)
+
+    fail(new Error('欄位跟原本的不一樣：少了 qty'))
+    await flushPromises()
+    expect(reloadDialog(wrapper).props('modelValue')).toBe(true)
+    expect(reloadDialog(wrapper).findComponent({ name: 'VAlert' }).text()).toBe('欄位跟原本的不一樣：少了 qty')
+    expect(cancelReload(wrapper).element.disabled).toBe(false)
+    expect(reloadDialog(wrapper).props('persistent')).toBe(false)
   })
 })

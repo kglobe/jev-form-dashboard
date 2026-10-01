@@ -455,7 +455,8 @@ class DatasourceControllerTest {
         String north = TestData.uploadCsv(mvc, "u1", "北區", "region,amount\n北區,1\n");
         String idle = TestData.uploadCsv(mvc, "u1", "沒人用", "region,amount\n北區,1\n");
         String all = union("全區", sales, north);
-        String top = union("全區二層", all, north);
+        // top 只透過 all 用到 north，沒有往上追的話 top 的筆數不會清掉
+        String top = union("全區二層", all, idle);
         String unrelated = union("不相干", sales, idle);
 
         reload("u1", north, csv("new.csv", "region,amount\n北區,2\n"), "mode", "append").andExpect(status().isOk());

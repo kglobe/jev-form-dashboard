@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.UUID;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -148,6 +149,43 @@ class ReloadServiceTest {
         Datasource ds = repo.sources.get(id);
         assertThat(ds.schema()).extracting(FieldSchema::type).containsExactly(FieldType.DATE, FieldType.NUMBER, FieldType.STRING);
         assertThat(repo.rows(id).getLast()).isEqualTo(Map.of("order_date", "2024-02-01", "amount", 1500.0, "code", "5"));
+    }
+
+    @Test
+    void anExcelNumberInATextColumnIsStoredTheWayACsvWritesIt() throws Exception {
+        // 九月是 CSV，十月是 Excel：同一個代碼不能一份是 5、一份是 5.0，圖會分成兩類
+        UUID id = upload("門市", "store,amount", "A1,1", "5,2");
+        byte[] xlsx = ExcelParserTest.sheet(new XSSFWorkbook(),
+            new Object[] {"store", "amount"}, new Object[] {5, 3}, new Object[] {12.5, 4});
+
+        service.reload("u1", id, new MockMultipartFile("file", "oct.xlsx", "application/octet-stream", xlsx), null, "append");
+
+        assertThat(repo.rows(id)).extracting(r -> r.get("store")).containsExactly("A1", "5", "5", "12.5");
+        assertThat(field(repo.sources.get(id), "store").samples()).containsExactly("A1", "5", "12.5");
+    }
+
+    @Test
+    void replacingWithTheSameFileGivesExactlyTheFirstUploadsStats() {
+        // 千分位、日期的寫法、同一天的不同時間，第一次上傳都照檔案裡的寫法算相異值
+        String file = "order_date,amount,at\n2024/3/1,\"1,200\",2024-03-01 10:00\n2024/3/2,1200,2024-03-01 11:00\n";
+        Datasource first = service.upload("u1", "銷售", csv(file), null);
+
+        assertThat(reload(first.id(), "replace", file).schema()).isEqualTo(first.schema());
+    }
+
+    @Test
+    void aFileWithOnlyTheHeaderChangesNothingInEitherMode() {
+        UUID a = upload("a", "region,amount", "北區,1");
+        UUID b = upload("b", "region,amount", "南區,2");
+        UUID m = service.createMerged("u1", "m", MergedDatasourceServiceTest.union(List.of(a, b), "region", "amount")).id();
+
+        for (String mode : List.of("append", "replace")) {
+            assertThatThrownBy(() -> reload(a, mode, "region,amount\n"))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.status()).isEqualTo(BAD_REQUEST))
+                .hasMessage("沒有資料列");
+        }
+        assertThat(repo.rows(a)).hasSize(1);
+        assertThat(repo.sources.get(m).rowCount()).isEqualTo(2);
     }
 
     @Test
