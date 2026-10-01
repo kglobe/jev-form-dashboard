@@ -20,7 +20,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 ### 補齊
 
-- P1 · 唯讀分享：把儀表板分享給主管，對方只能看、不能改。要先完成「正式上線前」的登入驗證。（對標 Grafana）
+- P1 · 唯讀分享：把儀表板分享給主管，對方只能看、不能改。要先完成「正式上線前」的登入驗證。（對標 Grafana）**執行中（2026-10-01，branch `feat/auth-sharing`）**：擁有者可以分享給指定帳號，也可以自己決定要不要公開，公開後有帳號的人拿到連結就能看；不做免登入的公開連結。
 - P2 · 儀表板篩選器：整份儀表板共用的分類篩選（例如「北區」）和期間（例如「本季」），選了之後每張圖一起變。現在每張圖的範圍是固定的。（對標 Grafana 的 variables 與時間範圍）
 - P2 · KPI 大數字卡：顯示本期數字、跟上期比的變化，超過門檻就變色，例如「本月營收 1.2 億，+5%」。現有的圖型都沒有這種呈現。（對標 Grafana 的 Stat／Gauge）
 - P2 · 更新既有來源的資料：上傳新檔時可以整份覆蓋或接在後面，用到它的圖和合併來源跟著更新。現在每次上傳都會變成新來源，合併定義又不能改，每月一個檔就得整串重建。（對標 ETL 的全量／增量載入）
@@ -70,7 +70,7 @@ Grafana 從 GrafanaCON 2026 起連 OSS 版也有 Grafana Assistant，可以用�
 
 ## 正式上線前
 
-- P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）
+- P1 · 用真正的登入驗證取代 `X-User-Id` header：現在誰都能改這個 header 看到、動到別人的儀表板，連空字串都會被當成合法使用者 `""`。（backend ledger，pre-flight／Task 5）**執行中（2026-10-01，branch `feat/auth-sharing`）**：先做帳號密碼登入，由管理員建帳號，第一個管理員寫在 `backend/.env`；另外留 OAuth2（OIDC）的設定接口，也寫在 `.env`，第一次登入自動建帳號。手邊沒有 OAuth2 server，只能用模擬的 server 測。舊的 user ID 當帳號名稱，同名帳號接手原本的資料。
 - P2 · `docker/postgres/Dockerfile` 還沒建立（這個開發環境沒裝 Docker），部署前要補。（spec §7）
 - P2 · `DS_` 環境變數目前沒有綁定特定 host，同一組密鑰理論上能被任何允許清單內的外部 API 拿去用，正式串接前要重新檢視這個設計。（backend ledger，Task 6）
 - P3 · 監控和告警：JEV 逾時、呼叫失敗、快取命中率這些現在只寫進 log，沒有任何監控或告警機制。
