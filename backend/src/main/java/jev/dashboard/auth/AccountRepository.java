@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -28,6 +29,41 @@ public class AccountRepository {
         return jdbc.sql("update account set password_hash = :h, sessions_valid_after = :t where username = :u")
             .param("h", passwordHash)
             .param("t", sessionsValidAfter.atOffset(ZoneOffset.UTC))
+            .param("u", username)
+            .update() == 1;
+    }
+
+    public List<Account> list() {
+        return jdbc.sql("select * from account order by username").query(this::map).list();
+    }
+
+    /** 帳號已經存在時，JdbcClient 丟 DuplicateKeyException。 */
+    public void insert(String username, String passwordHash, boolean admin, String oidcIssuer, String oidcSubject) {
+        jdbc.sql("""
+                insert into account (username, password_hash, admin, oidc_issuer, oidc_subject)
+                values (:u, :h, :a, :i, :s)""")
+            .param("u", username)
+            .param("h", passwordHash)
+            .param("a", admin)
+            .param("i", oidcIssuer)
+            .param("s", oidcSubject)
+            .update();
+    }
+
+    /** 唯讀分享 spec 2.1：停用、重新啟用一併更新 sessions_valid_after。 */
+    public boolean setEnabled(String username, boolean enabled, Instant validAfter) {
+        return jdbc.sql("update account set enabled = :e, sessions_valid_after = :t where username = :u")
+            .param("e", enabled)
+            .param("t", validAfter.atOffset(ZoneOffset.UTC))
+            .param("u", username)
+            .update() == 1;
+    }
+
+    /** 唯讀分享 spec 2.1：設成或取消管理員一併更新 sessions_valid_after。 */
+    public boolean setAdmin(String username, boolean admin, Instant validAfter) {
+        return jdbc.sql("update account set admin = :a, sessions_valid_after = :t where username = :u")
+            .param("a", admin)
+            .param("t", validAfter.atOffset(ZoneOffset.UTC))
             .param("u", username)
             .update() == 1;
     }

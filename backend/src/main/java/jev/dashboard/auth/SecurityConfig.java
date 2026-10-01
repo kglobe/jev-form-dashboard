@@ -60,6 +60,7 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(a -> a
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN") // spec 4.2
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()) // 之後放前端靜態檔
             .csrf(c -> c

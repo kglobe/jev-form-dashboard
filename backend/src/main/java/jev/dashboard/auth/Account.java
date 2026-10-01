@@ -12,6 +12,14 @@ import org.springframework.http.HttpStatus;
 public record Account(String username, String passwordHash, boolean admin, boolean enabled,
                       String oidcIssuer, String oidcSubject, Instant sessionsValidAfter, Instant createdAt) {
 
+    /** 唯讀分享 spec 4.2：帳號管理回傳的帳號物件。password 是有沒有密碼，sso 是有沒有接上單一登入。 */
+    public record View(String username, boolean admin, boolean enabled, boolean password, boolean sso, Instant createdAt) {
+        public static View of(Account a) {
+            return new View(a.username(), a.admin(), a.enabled(), a.passwordHash() != null, a.oidcSubject() != null,
+                a.createdAt());
+        }
+    }
+
     /** 唯讀分享 spec 2.1：轉換後的帳號名稱。 */
     public static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9._@-]{1,63}$");
 

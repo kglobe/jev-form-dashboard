@@ -36,6 +36,11 @@ public final class TestData {
         return req -> csrf().postProcessRequest(user(username).postProcessRequest(req));
     }
 
+    /** 同 as，但帶 ROLE_ADMIN（唯讀分享 spec 4.2）。 */
+    public static RequestPostProcessor asAdmin(String username) {
+        return req -> csrf().postProcessRequest(user(username).roles("ADMIN").postProcessRequest(req));
+    }
+
     public static String uploadSales(MockMvc mvc, String userId) throws Exception {
         byte[] csv;
         try (InputStream in = TestData.class.getResourceAsStream("/sales.csv")) {
