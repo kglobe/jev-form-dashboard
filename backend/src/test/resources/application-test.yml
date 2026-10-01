@@ -11,3 +11,9 @@ jev:
     max-rows: 20
   datasource:
     allowed-hosts: [10.0.0.5]
+  auth:
+    admin-username: test-admin
+    admin-password: test-admin-password
+    oidc:
+      issuer-uri: ""
+      label: 公司帳號   # 開發者的 .env 有 OIDC_LABEL 時，OidcLoginTest 的按鈕文字才不會跟著變

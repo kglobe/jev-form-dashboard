@@ -60,6 +60,7 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(a -> a
                 .dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll()
+                .requestMatchers("/api/auth/options").permitAll() // spec 4.1：登入頁要先知道有沒有單一登入
                 .requestMatchers("/api/admin/**").hasRole("ADMIN") // spec 4.2
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()) // 之後放前端靜態檔

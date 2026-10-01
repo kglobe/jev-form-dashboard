@@ -19,12 +19,26 @@ public class AuthController {
 
     public record PasswordChange(String current, String password) {}
 
+    /** 唯讀分享 spec 4.1：沒啟用 OIDC 時 oidc 是 null（用 record，null 才寫得出來）。 */
+    public record Options(OidcOption oidc) {}
+
+    public record OidcOption(String label) {}
+
     private final AccountRepository accounts;
     private final AccountService service;
+    private final AuthProperties props;
 
-    public AuthController(AccountRepository accounts, AccountService service) {
+    public AuthController(AccountRepository accounts, AccountService service, AuthProperties props) {
         this.accounts = accounts;
         this.service = service;
+        this.props = props;
+    }
+
+    /** 唯讀分享 spec 4.1：不用登入（SecurityConfig）。 */
+    @GetMapping("/options")
+    public Options options() {
+        AuthProperties.Oidc oidc = props.oidc();
+        return new Options(oidc != null && oidc.enabled() ? new OidcOption(oidc.label()) : null);
     }
 
     @GetMapping("/me")

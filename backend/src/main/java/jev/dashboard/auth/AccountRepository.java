@@ -68,6 +68,11 @@ public class AccountRepository {
             .update() == 1;
     }
 
+    /** 唯讀分享 spec 2.1：沒填 ADMIN_USERNAME 時，用它決定要不要寫 WARN。 */
+    public boolean anyEnabledAdmin() {
+        return jdbc.sql("select exists(select 1 from account where admin and enabled)").query(Boolean.class).single();
+    }
+
     private Account map(ResultSet rs, int rowNum) throws SQLException {
         return new Account(rs.getString("username"), rs.getString("password_hash"), rs.getBoolean("admin"),
             rs.getBoolean("enabled"), rs.getString("oidc_issuer"), rs.getString("oidc_subject"),

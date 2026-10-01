@@ -26,6 +26,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -123,6 +124,13 @@ class AuthControllerTest {
             .andExpect(status().isUnauthorized())
             .andExpect(header().string("Content-Type", "application/json;charset=UTF-8"))
             .andExpect(content().string("{\"error\":\"請先登入\"}"));
+    }
+
+    @Test
+    void optionsNeedNoLoginAndHaveNoOidcByDefault() throws Exception { // spec 4.1
+        mvc.perform(get("/api/auth/options"))
+            .andExpect(status().isOk())
+            .andExpect(content().json("{\"oidc\":null}", JsonCompareMode.STRICT));
     }
 
     @Test
