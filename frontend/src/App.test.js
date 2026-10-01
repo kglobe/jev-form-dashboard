@@ -31,6 +31,7 @@ vi.mock('./modules/dashboard/index.js', () => ({
 vi.mock('./modules/auth/index.js', () => ({
   LoginPage: { name: 'LoginPage', props: ['error', 'isLight'], emits: ['logged-in', 'retry', 'toggle-theme'], template: '<div class="login-page-stub">{{ error }}</div>' },
   ReloginDialog: { name: 'ReloginDialog', props: ['modelValue', 'me'], emits: ['done'], template: '<div v-if="modelValue" class="relogin-stub" />' },
+  UserMenu: { name: 'UserMenu', props: ['me'], template: '<div class="user-menu-stub"><slot name="activator" :props="{}" /></div>' },
 }))
 
 const dashboards = [{ id: 'd1', name: 'Dash One' }]
@@ -453,5 +454,15 @@ describe('App', () => {
     expect(api.listDashboards).toHaveBeenCalledTimes(2)
     expect(api.getDashboard).toHaveBeenCalledTimes(2)
     expect(api.getDashboard).toHaveBeenLastCalledWith('d1')
+  })
+
+  it('導覽列的帳號鈕排在主題鈕前面，title 是帳號名稱', async () => {
+    const wrapper = mountApp()
+    await flushPromises()
+    const account = wrapper.get('button[title="u1"]')
+    expect(account.text()).toBe('帳號')
+    const theme = wrapper.get('button[aria-label^="切換成"]')
+    expect(account.element.compareDocumentPosition(theme.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(wrapper.findComponent({ name: 'UserMenu' }).props('me')).toEqual({ username: 'u1', admin: false, password: true })
   })
 })

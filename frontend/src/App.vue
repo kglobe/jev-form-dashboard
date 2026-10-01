@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import { ChartBuilder, DashboardView, DatasourcePanel, api, onUnauthorized } from './modules/dashboard/index.js'
-import { LoginPage, ReloginDialog } from './modules/auth/index.js'
+import { LoginPage, ReloginDialog, UserMenu } from './modules/auth/index.js'
 import { restoreSavedHash } from './modules/auth/session.js'
 
 const VIEWS = [
@@ -160,6 +160,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
           <span>{{ v.label }}</span>
         </button>
       </nav>
+      <UserMenu :me="me">
+        <template #activator="{ props }">
+          <button type="button" class="cc-rail__item cc-rail__account" v-bind="props" :title="me.username">
+            <v-icon icon="mdi-account-circle-outline" size="22" />
+            <span>帳號</span>
+          </button>
+        </template>
+      </UserMenu>
       <button
         type="button"
         class="cc-rail__item cc-rail__theme"
@@ -285,8 +293,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
   box-shadow: 0 0 28px -6px rgba(var(--tc-accent-rgb), 0.8);
 }
 .cc-rail__nav { display: flex; flex-direction: column; gap: 6px; }
-/* 主題切換放在導覽列最下面 */
-.cc-rail__theme { margin-top: auto; }
+/* 帳號鈕和主題鈕放在導覽列最下面（唯讀分享 spec 7.3） */
+.cc-rail__account { margin-top: auto; }
 .cc-rail__item {
   position: relative;
   display: flex;
