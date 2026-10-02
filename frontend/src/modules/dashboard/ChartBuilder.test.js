@@ -344,6 +344,27 @@ describe('ChartBuilder', () => {
     expect(wrapper.emitted('saved')).toEqual([['d9']])
   })
 
+  it('does not start a new analysis or adjustment while a save is pending', async () => {
+    api.analyze.mockResolvedValue({ name: 'preview', intents: ['一'], layout: layout4() })
+    let resolveCreate
+    api.createDashboard.mockImplementation(() => new Promise((resolve) => { resolveCreate = resolve }))
+    const wrapper = await openPreview()
+    await field(wrapper, '想怎麼調整？').find('input').setValue('二')
+
+    button('存成新儀表板').click()
+    await flushPromises()
+    expect(analyzeButton().disabled).toBe(true)
+    expect(button('調整').disabled).toBe(true)
+    analyzeButton().click()
+    button('調整').click()
+    await flushPromises()
+    expect(api.analyze).toHaveBeenCalledTimes(1)
+
+    resolveCreate({ id: 'd9' })
+    await flushPromises()
+    expect(wrapper.emitted('saved')).toEqual([['d9']])
+  })
+
   it('shows the error message and no preview when analyze rejects', async () => {
     api.analyze.mockRejectedValue(new Error('未設定 TYPESAFE_API_KEY'))
 

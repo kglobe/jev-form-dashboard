@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
+import org.apache.hc.client5.http.SystemDefaultDnsResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.env.MockEnvironment;
@@ -33,9 +34,10 @@ class HttpApiDataSourceProviderTest {
         return new JevProperties(null, null, null, new JevProperties.Upload(maxRows), null);
     }
 
-    /** 直接打 fetchFrom（繞過 guard，因為測試 server 在 loopback），其他照正式設定。 */
+    /** 直接打 fetchFrom（測試 server 在 loopback），只替換連線的 DNS resolver。 */
     private static HttpApiDataSourceProvider provider(int maxRows) {
-        return new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), new MockEnvironment(), props(maxRows));
+        return new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), new MockEnvironment(), props(maxRows),
+            SystemDefaultDnsResolver.INSTANCE);
     }
 
     /** 允許清單只有 10.0.0.5；secretHosts 是 jev.datasource.secret-hosts。 */
@@ -125,6 +127,39 @@ class HttpApiDataSourceProviderTest {
                 .hasMessage("外部 API 回應錯誤（HTTP 302）")
                 .satisfies(e -> assertThat(((ApiException) e).status()).isEqualTo(HttpStatus.BAD_GATEWAY));
             assertThat(targetRequests).hasValue(0);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void dnsChangingToLoopbackBeforeConnectionIsRejected() throws Exception {
+        AtomicInteger lookups = new AtomicInteger();
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/x", exchange -> {
+            requests.incrementAndGet();
+            byte[] body = "[{\"a\":1}]".getBytes(UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ApiUrlGuard guard = new ApiUrlGuard(List.of("localhost")) {
+                @Override
+                InetAddress[] lookup(String host) throws java.net.UnknownHostException {
+                    return lookups.getAndIncrement() == 0
+                        ? new InetAddress[] { InetAddress.getByName("10.0.0.5") }
+                        : new InetAddress[] { InetAddress.getLoopbackAddress() };
+                }
+            };
+            HttpApiDataSourceProvider provider = new HttpApiDataSourceProvider(guard, new MockEnvironment(), props(100));
+            Datasource ds = api("http://localhost:" + server.getAddress().getPort() + "/x", Map.of());
+
+            assertThatThrownBy(() -> provider.fetchRows(ds)).isInstanceOf(ApiException.class);
+            assertThat(lookups).hasValue(2);
+            assertThat(requests).hasValue(0);
         } finally {
             server.stop(0);
         }
@@ -308,8 +343,7 @@ class HttpApiDataSourceProviderTest {
         });
         server.start();
         try {
-            HttpApiDataSourceProvider provider =
-                new HttpApiDataSourceProvider(new ApiUrlGuard(List.of()), new MockEnvironment(), props(100));
+            HttpApiDataSourceProvider provider = provider(100);
             URI uri = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/x");
             assertThatThrownBy(() -> provider.fetchFrom(uri, Map.of()))
                 .isInstanceOf(ApiException.class)

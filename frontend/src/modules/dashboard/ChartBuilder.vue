@@ -39,9 +39,9 @@ const nameInvalid = computed(() => !preview.value?.name || !preview.value.name.t
 const history = computed(() => preview.value?.intents ?? [])
 const historyFull = computed(() => history.value.length >= MAX_INTENTS)
 const noFocus = computed(() => history.value.length > 0 && !preview.value.layout.some((s) => s.options?.focus))
-const canAnalyze = computed(() => !!datasourceId.value && !busy.value && !adjusting.value)
+const canAnalyze = computed(() => !!datasourceId.value && !busy.value && !adjusting.value && !saving.value && !appending.value)
 // 名稱空白時 /preview/data 會拒絕，調整後的預覽就畫不出來
-const canAdjust = computed(() => !!adjustText.value.trim() && !adjusting.value && !busy.value && !historyFull.value && !nameInvalid.value)
+const canAdjust = computed(() => !!adjustText.value.trim() && !adjusting.value && !busy.value && !saving.value && !appending.value && !historyFull.value && !nameInvalid.value)
 
 // 捨棄預覽、換來源之後才回來的分析或調整結果直接丟掉；兩者不會同時進行，共用一個序號
 let pendingSeq = 0

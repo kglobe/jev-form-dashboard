@@ -517,6 +517,34 @@ describe('DashboardView', () => {
     expect(wrapper.emitted('updated')).toBeUndefined()
   })
 
+  it('saved: a remove waits for an earlier layout save before sending its PUT', async () => {
+    api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+    api.highlights.mockResolvedValue([])
+    let resolveLayout
+    const reply = { ...makeConfig(), layout: [makeConfig().layout[1]] }
+    api.updateDashboard
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveLayout = resolve }))
+      .mockResolvedValueOnce(reply)
+    const wrapper = mountView({ config: makeConfig(), preview: false })
+    await flushPromises()
+
+    await wrapper.findComponent({ name: 'GridItem' }).vm.$emit('moved')
+    await flushPromises()
+    expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+
+    chartCard(wrapper, 'c1').vm.$emit('remove')
+    await flushPromises()
+    dialogButton('移除').click()
+    await flushPromises()
+    expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+
+    resolveLayout(makeConfig())
+    await flushPromises()
+    expect(api.updateDashboard).toHaveBeenCalledTimes(2)
+    expect(api.updateDashboard.mock.calls[1][1].layout.map((s) => s.chartId)).toEqual(['c2'])
+    expect(wrapper.emitted('updated')).toEqual([[reply]])
+  })
+
   it('saved: when removing a card leaves the config from this view’s own PUT, the rest keep their data and highlight without fetching again', async () => {
     prefersReducedMotion.mockReturnValue(true)
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])

@@ -11,8 +11,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.URI;
-import java.net.http.HttpClient;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -22,10 +23,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
+import org.apache.hc.client5.http.DnsResolver;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -44,10 +49,27 @@ public class HttpApiDataSourceProvider implements DataSourceProvider {
     private final int maxRows;
     private final Map<String, List<String>> secretHosts;
 
+    @Autowired
     public HttpApiDataSourceProvider(ApiUrlGuard guard, Environment env, JevProperties props) {
-        // JDK HttpClient 預設不跟隨 redirect，符合 spec
-        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(
-            HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
+        this(guard, env, props, new DnsResolver() {
+            @Override
+            public InetAddress[] resolve(String host) throws UnknownHostException {
+                return guard.checkedAddresses(host);
+            }
+
+            @Override
+            public String resolveCanonicalHostname(String host) {
+                return host;
+            }
+        });
+    }
+
+    /** 測試可替換 resolver；正式連線每次都檢查交給 socket 的 DNS 結果。 */
+    HttpApiDataSourceProvider(ApiUrlGuard guard, Environment env, JevProperties props, DnsResolver resolver) {
+        var connections = PoolingHttpClientConnectionManagerBuilder.create().setDnsResolver(resolver).build();
+        var client = HttpClients.custom().setConnectionManager(connections).disableRedirectHandling().build();
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(client);
+        factory.setConnectTimeout(Duration.ofSeconds(5));
         factory.setReadTimeout(Duration.ofSeconds(10));
         this.http = RestClient.builder().requestFactory(factory).build();
         this.guard = guard;

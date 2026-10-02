@@ -16,10 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
-/**
- * 允許清單就是 SSRF 的防線。ERP API 多半在內網，所以私有 IP 不擋，只擋 loopback。
- * ponytail: 檢查和實際連線各解析一次 DNS，擋不了 DNS rebinding；要防就把解析結果釘在連線上
- */
+/** 允許清單就是 SSRF 的防線。ERP API 多半在內網，所以私有 IP 不擋，只擋 loopback。 */
 @Component
 public class ApiUrlGuard {
     // 網址會存進資料庫、顯示在畫面上；驗證資訊不能放在這裡（spec §6.2），要放 headers 的 ${DS_XXX}
@@ -56,16 +53,26 @@ public class ApiUrlGuard {
         if (host == null) throw bad("網址沒有 host：" + url);
         if (allowedHosts.isEmpty()) throw bad("未開放註冊外部 API：請在 backend/.env 設定 API_ALLOWED_HOSTS");
         if (!allowedHosts.contains(host.toLowerCase(Locale.ROOT))) throw bad("host 不在允許清單：" + host);
+        checkedAddresses(host);
+        return uri;
+    }
+
+    /** 連線時的 DNS resolver 也走這裡，檢查的正是交給 socket 的位址。 */
+    InetAddress[] checkedAddresses(String host) {
         InetAddress[] addresses;
         try {
-            addresses = InetAddress.getAllByName(host);
+            addresses = lookup(host);
         } catch (UnknownHostException e) {
             throw bad("無法解析 host：" + host);
         }
         for (InetAddress a : addresses) {
             if (a.isLoopbackAddress() || a.isAnyLocalAddress()) throw bad("host 解析到本機位址：" + host);
         }
-        return uri;
+        return addresses;
+    }
+
+    InetAddress[] lookup(String host) throws UnknownHostException {
+        return InetAddress.getAllByName(host);
     }
 
     private static boolean hasSecretParam(String rawQuery) {

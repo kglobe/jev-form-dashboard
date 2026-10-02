@@ -62,6 +62,13 @@ let loadSeq = 0
 let ownUpdatePending = false
 // 上一次的 highlights 還在等 JEV 回應
 let highlightsInFlight = false
+// 同一份儀表板的 PUT 依操作順序送出，舊的版面存檔才不會在移除圖表之後覆蓋新版面
+let writeTail = Promise.resolve()
+function queueUpdate(config) {
+  const write = writeTail.catch(() => {}).then(() => api.updateDashboard(config.id, config))
+  writeTail = write
+  return write
+}
 // 預覽裡最近一次被拿掉的卡片：chartId → { spec, data }；按「復原」放回同一張圖時直接沿用資料
 let removed = {}
 const sameChart = (a, b) => a.type === b.type && JSON.stringify(a.mapping) === JSON.stringify(b.mapping)
@@ -157,7 +164,9 @@ function currentLayout() {
 async function saveLayout() {
   if (props.preview || props.readonly || removing.value) return
   error.value = ''
-  await api.updateDashboard(props.config.id, { ...props.config, layout: currentLayout() }).catch((e) => (error.value = e.message))
+  await queueUpdate({ ...props.config, layout: currentLayout() }).catch((e) => {
+    if (!removing.value) error.value = e.message
+  })
 }
 
 function askRemove(chartId) {
@@ -173,7 +182,8 @@ async function removeCard() {
   removing.value = true
   try {
     const next = { ...props.config, layout: currentLayout().filter((s) => s.chartId !== chartId) }
-    const reply = await api.updateDashboard(props.config.id, next)
+    const reply = await queueUpdate(next)
+    error.value = ''
     ownUpdatePending = true
     emit('updated', reply)
   } catch (e) {
