@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "JEV 儀表板產製流程與系統架構",
+    "output": ".archify/architecture-jev-dashboard-20261003-191649/jev-dashboard.html",
+    "quality_profile": "showcase",
+    "locale": "zh-TW",
+    "repository": {
+      "url": "https://github.com/kglobe/jev-form-dashboard.git",
+      "provider": "github",
+      "revision": "40c6a67df4ba93a57280cdb368abb5abbf8ecb6e"
+    }
+  },
+  "components": [
+    { "id": "input", "type": "external", "label": "CSV／Excel／外部 API", "sublabel": "上傳或註冊資料來源", "pos": [40, 70], "size": [185, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/datasource/DatasourceController.java", "line": 44, "end_line": 73 }] },
+    { "id": "ui", "type": "frontend", "label": "Vue 儀表板介面", "sublabel": "資料源、分析、預覽、儲存", "pos": [285, 70], "size": [195, 68], "sources": [{ "path": "frontend/src/modules/dashboard/ChartBuilder.vue", "line": 72, "end_line": 107 }, { "path": "frontend/src/modules/dashboard/ChartBuilder.vue", "line": 179, "end_line": 201 }] },
+    { "id": "datasource", "type": "backend", "label": "資料源服務", "sublabel": "匯入、載入與合併", "pos": [540, 70], "size": [190, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/datasource/DatasourceService.java", "line": 60, "end_line": 66 }, { "path": "backend/src/main/java/jev/dashboard/datasource/DatasourceService.java", "line": 309, "end_line": 340 }] },
+    { "id": "schema", "type": "backend", "label": "欄位結構推斷", "sublabel": "數字／日期／文字、統計樣本", "pos": [790, 70], "size": [200, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/datasource/SchemaInference.java", "line": 27, "end_line": 70 }] },
+    { "id": "analysis", "type": "backend", "label": "兩輪分析服務", "sublabel": "重要性與角色 → 合法圖型", "pos": [1050, 70], "size": [200, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/jev/AnalyzeService.java", "line": 79, "end_line": 149 }] },
+    { "id": "client", "type": "backend", "label": "JEV Client", "sublabel": "送 state 與結構化題目", "pos": [1310, 70], "size": [180, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/jev/JevClient.java", "line": 82, "end_line": 125 }] },
+    { "id": "jev", "type": "external", "label": "JEV 判斷服務", "sublabel": "回答 score／choice／noul", "pos": [1310, 310], "size": [180, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/jev/JevClient.java", "line": 42, "end_line": 45 }, { "path": "backend/src/main/java/jev/dashboard/jev/JevClient.java", "line": 116, "end_line": 125 }] },
+    { "id": "rules", "type": "backend", "label": "固定規則與組裝", "sublabel": "篩選、mapping、gridPos", "pos": [1050, 310], "size": [200, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/jev/ConfigAssembler.java", "line": 88, "end_line": 99 }, { "path": "backend/src/main/java/jev/dashboard/jev/ConfigAssembler.java", "line": 253, "end_line": 302 }] },
+    { "id": "store", "type": "database", "label": "PostgreSQL", "sublabel": "來源資料與儀表板配置", "pos": [790, 310], "size": [190, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/datasource/DatasourceRepository.java", "line": 39, "end_line": 55 }, { "path": "backend/src/main/java/jev/dashboard/dashboard/DashboardRepository.java", "line": 43, "end_line": 53 }] },
+    { "id": "dashboard", "type": "backend", "label": "儀表板服務", "sublabel": "預覽、儲存、載入與分享", "pos": [790, 550], "size": [200, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/dashboard/DashboardController.java", "line": 33, "end_line": 97 }, { "path": "backend/src/main/java/jev/dashboard/dashboard/DashboardService.java", "line": 31, "end_line": 65 }] },
+    { "id": "transform", "type": "backend", "label": "資料轉換器", "sublabel": "彙總為圖表 dimensions／rows", "pos": [540, 550], "size": [190, 68], "sources": [{ "path": "backend/src/main/java/jev/dashboard/dashboard/DashboardDataService.java", "line": 95, "end_line": 110 }, { "path": "backend/src/main/java/jev/dashboard/transform/UniversalTransformer.java", "line": 72, "end_line": 100 }] },
+    { "id": "highlight", "type": "backend", "label": "異常檢查", "sublabel": "載入後非同步比對兩期摘要", "pos": [1050, 550], "size": [200, 68], "sources": [{ "path": "frontend/src/modules/dashboard/DashboardView.vue", "line": 121, "end_line": 142 }, { "path": "backend/src/main/java/jev/dashboard/jev/HighlightService.java", "line": 45, "end_line": 80 }] }
+  ],
+  "connections": [
+    { "id": "input-ui", "from": "input", "to": "ui", "label": "提供資料" },
+    { "id": "ui-source", "from": "ui", "to": "datasource", "label": "匯入／註冊" },
+    { "id": "source-schema", "from": "datasource", "to": "schema", "label": "推斷型別" },
+    { "id": "source-store", "from": "datasource", "to": "store", "label": "存入來源" },
+    { "id": "schema-analysis", "from": "schema", "to": "analysis", "label": "欄位摘要" },
+    { "id": "analysis-client", "from": "analysis", "to": "client", "label": "兩輪提問", "variant": "emphasis" },
+    { "id": "client-jev", "from": "client", "to": "jev", "label": "state＋questions", "variant": "emphasis" },
+    { "id": "analysis-rules", "from": "analysis", "to": "rules", "label": "篩選答案" },
+    { "id": "rules-dashboard", "from": "rules", "to": "dashboard", "label": "產生配置" },
+    { "id": "dashboard-store", "from": "dashboard", "to": "store", "label": "儲存／讀取" },
+    { "id": "dashboard-transform", "from": "dashboard", "to": "transform", "label": "載入資料" },
+    { "id": "transform-ui", "from": "transform", "to": "ui", "label": "圖表資料" },
+    { "id": "dashboard-highlight", "from": "dashboard", "to": "highlight", "label": "載入後檢查", "variant": "dashed" },
+    { "id": "highlight-client", "from": "highlight", "to": "client", "label": "兩期摘要", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "怎麼使用", "items": ["1. 匯入 CSV／Excel，或由管理員註冊外部 API；可先標記敏感欄位。", "2. 選資料源，視需要輸入分析需求或勾選想看的欄位，再按「分析」。", "3. 檢查預覽，可輸入需求調整、移除圖表，再儲存或加到既有儀表板。", "4. 載入儀表板時，先顯示圖表，再另外檢查異常。"] },
+    { "dot": "violet", "title": "JEV 怎麼分析", "items": ["第一輪：每欄詢問重要性與角色，另問圖表張數 K；有需求時再問相關性。", "後端最多選 8 個候選欄位，只保留合法組合，取排名前 2K 組。", "第二輪：每組只讓 JEV 從合法圖型與 none 中選擇；最多產生 K 張圖，K ≤ 6。"] },
+    { "dot": "emerald", "title": "後端決定什麼", "items": ["信心低於 0.5 或角色與型別不符時捨棄答案；不合法圖型也不採用。", "後端產生欄位 mapping、聚合與版面；固定加一張明細表。", "UniversalTransformer 依圖型把來源列轉成 dimensions 與 rows，明細表最多 500 筆。"] },
+    { "dot": "amber", "title": "延伸能力", "items": ["需求分析與預覽調整沿用兩輪題目，焦點欄位優先。", "合併來源可請 JEV 建議欄位對應；真正合併仍由 MergeEngine 執行。", "載入後只摘要合格的彙總圖表；JEV 判斷異常與嚴重度，失敗時圖表仍顯示。"] },
+    { "dot": "rose", "title": "資料與安全界線", "items": ["JEV 不收原始資料列；敏感欄位只送名稱與型別，異常檢查也會跳過。", "外部 API 限管理員註冊，須通過 host 與 DNS 檢查；DS_ 密鑰只在呼叫時讀取。", "分析失敗會回錯誤，不產生配置；JEV 429 可短暫重試一次。"] }
+  ]
+}
