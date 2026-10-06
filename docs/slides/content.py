@@ -1,5 +1,5 @@
 # JEV 儀表板簡報的共用文案（已過 humanizer-zh）。
-# build_pptx.py 和 build_officecli.py 都從這裡取字，兩份簡報的文字才會一模一樣。
+# build_pptx.py 從這裡取字。比較時 OfficeCLI 版也用同一份文案（建置腳本已在 OfficeCLI 移除後刪掉）。
 
 COVER = {
     "kicker": "JEV 智慧化產製儀表板",
