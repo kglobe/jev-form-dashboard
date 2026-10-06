@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="zh-CN" data-theme="blueprint" data-mode="auto" data-style="80">
+<html lang="zh-TW" data-theme="blueprint" data-mode="auto" data-style="80">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="generator" content="Answer me with HTML 0.4.8">
+<meta name="generator" content="Answer me with HTML 0.4.9">
 <title>python-pptx 和 OfficeCLI 做同一份簡報</title>
 <style>
 html[data-theme="blueprint"], html[data-theme="blueprint"][data-mode="light"] {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 0px;
   --shadow: none;
@@ -76,7 +76,7 @@ html[data-theme="blueprint"][data-mode="auto"] {
 }
 
 html[data-theme="shadcn"], html[data-theme="shadcn"][data-mode="light"] {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --radius: 8px;
   --shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
@@ -145,13 +145,10 @@ html[data-theme="shadcn"][data-mode="auto"] {
 }
 
 html[lang="ja"][data-theme][data-mode] {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", "PingFang SC", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial, sans-serif;
-}
-html[lang="ja"][data-theme="3b1b"][data-mode] {
-  --v-title-font: "CMU Serif", "Latin Modern Roman", "Iowan Old Style", "Palatino", "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", "Songti SC", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans CJK JP", "Noto Sans JP", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Answer me with HTML base — uses theme variables only, never hard-coded colors (theme tokens: themes/index.js). Exception: the var() fallbacks of diagrams (flow / sequence) equal the blueprint light tokens, guarded by a test. */
+/* Answer me with HTML base — uses theme variables only, never hard-coded colors (theme tokens and decorations: themes/<name>.js). Exception: the var() fallbacks of diagrams (flow / sequence) equal the blueprint light tokens, guarded by a test. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -188,13 +185,6 @@ code, pre, kbd { font-family: var(--font-mono); }
   gap: 20px; align-items: start;
 }
 .am-ruler { display: none; }
-html[data-theme="blueprint"] .am-frame { border: 1px solid var(--line); padding: 30px; }
-html[data-theme="blueprint"] .am-frame::before {
-  content: ""; position: absolute; inset: 18px; border: 1px solid var(--line); pointer-events: none;
-}
-html[data-theme="blueprint"] .am-ruler {
-  display: flex; position: absolute; font: 10px/1 var(--font-mono); color: var(--ink-3);
-}
 .am-ruler span { flex: 1; display: flex; align-items: center; justify-content: center; }
 .am-ruler--top, .am-ruler--bottom { left: 18px; right: 18px; height: 18px; }
 .am-ruler--top { top: 0; }
@@ -217,8 +207,6 @@ html[data-theme="blueprint"] .am-ruler {
   display: flex; align-items: center; justify-content: center; min-width: 34px; padding: 0 8px;
   background: var(--head-bg); color: var(--head-fg); font-weight: 600; font-size: 14px;
 }
-html[data-theme="shadcn"] .am-panel-id { border-radius: 6px; min-width: 24px; height: 24px; margin: 9px 0 9px 14px; font-size: 12px; }
-html[data-theme="shadcn"] .am-panel-head { border-bottom-width: 1px; }
 .am-panel-head h2 { margin: 0; padding: 7px 12px; font-size: 15px; font-weight: 600; flex: 1; display: flex; align-items: center; }
 .am-panel-meta { align-self: center; padding: 0 12px; font: 11px/1.3 var(--font-mono); color: var(--ink-2); text-align: right; }
 .am-panel-body { padding: 14px 16px 16px; }
@@ -278,7 +266,6 @@ html[data-theme="shadcn"] .am-panel-head { border-bottom-width: 1px; }
 .am-kv dt { font: 11px/1.4 var(--font-mono); color: var(--ink-2); }
 .am-kv dd { margin: 2px 0 0; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .am-kv-cell--wide dd { font-size: 17px; font-weight: 600; }
-html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var(--radius); overflow: hidden; }
 
 /* ── timeline ────────────────────────────── */
 .am-timeline { list-style: none; margin: 0; padding: 0; }
@@ -414,8 +401,6 @@ html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var
   .am-head { padding-right: 0; }
   .am-grid { grid-template-columns: minmax(0, 1fr); }
   .am-grid > .am-panel.am-span-wide { grid-column: auto !important; }
-  html[data-theme="blueprint"] .am-frame { padding: 0; border: 0; }
-  html[data-theme="blueprint"] .am-frame::before, html[data-theme="blueprint"] .am-ruler { display: none; }
   .am-doc-layout { grid-template-columns: minmax(0, 1fr); }
   .am-toc { position: static; }
   .am-timeline--h { grid-template-columns: minmax(0, 1fr); }
@@ -435,13 +420,29 @@ html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var
 .am-panel--bare > .am-panel-body { padding: 0; }
 .am-panel--bare .am-kv { background: var(--paper); }
 
+
+html[data-theme="blueprint"] .am-frame { border: 1px solid var(--line); padding: 30px; }
+html[data-theme="blueprint"] .am-frame::before {
+  content: ""; position: absolute; inset: 18px; border: 1px solid var(--line); pointer-events: none;
+}
+html[data-theme="blueprint"] .am-ruler {
+  display: flex; position: absolute; font: 10px/1 var(--font-mono); color: var(--ink-3);
+}
+@media (max-width: 760px) {
+  html[data-theme="blueprint"] .am-frame { padding: 0; border: 0; }
+  html[data-theme="blueprint"] .am-frame::before, html[data-theme="blueprint"] .am-ruler { display: none; }
+}
+
+html[data-theme="shadcn"] .am-panel-id { border-radius: 6px; min-width: 24px; height: 24px; margin: 9px 0 9px 14px; font-size: 12px; }
+html[data-theme="shadcn"] .am-panel-head { border-bottom-width: 1px; }
+html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var(--radius); overflow: hidden; }
 </style>
 </head>
 <body>
 <div class="am-toolbar">
-<button class="am-btn" type="button" data-am="theme" data-labels="{&quot;blueprint&quot;:&quot;主题：图纸&quot;,&quot;shadcn&quot;:&quot;主题：卡片&quot;}">主题：图纸</button>
-<button class="am-btn" type="button" data-am="mode" data-labels="{&quot;auto&quot;:&quot;明暗：跟随系统&quot;,&quot;light&quot;:&quot;明暗：亮&quot;,&quot;dark&quot;:&quot;明暗：暗&quot;}">明暗：跟随系统</button>
-<button class="am-btn" type="button" data-am="copy" data-done="已复制 ✓">复制源稿</button>
+<button class="am-btn" type="button" data-am="theme" data-labels="{&quot;blueprint&quot;:&quot;主題：藍圖&quot;,&quot;shadcn&quot;:&quot;主題：卡片&quot;}">主題：藍圖</button>
+<button class="am-btn" type="button" data-am="mode" data-labels="{&quot;auto&quot;:&quot;明暗：跟隨系統&quot;,&quot;light&quot;:&quot;明暗：亮&quot;,&quot;dark&quot;:&quot;明暗：暗&quot;}">明暗：跟隨系統</button>
+<button class="am-btn" type="button" data-am="copy" data-done="已複製 ✓">複製源稿</button>
 </div>
 <main class="am-sheet">
 <header class="am-head"><h1>python-pptx 和 OfficeCLI 做同一份簡報</h1><p class="am-sub">同一份規格和文案，各交給一個全新的 agent，再用 PowerPoint 交叉驗證</p><div class="am-head-meta"><span><b>date</b>2026-10-05</span><span><b>source</b>docs/JEV智慧化產製儀表板的流程與方法.md</span></div><div class="am-intro am-md"><div class="am-md"><p>兩份成品幾乎一樣：12 頁、6 種轉場、約 180 個動畫效果。python-pptx 用的 token 少 28%，製作時間少一半。OfficeCLI 多了 SVG、slide zoom 和內建檢查，但動畫的 presetID 有 bug，要用 raw-set 修。</p>
@@ -452,9 +453,9 @@ html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var
 <section class="am-panel am-span-wide" id="panel-A" style="grid-column: span 3" data-span="3">
 <header class="am-panel-head"><span class="am-panel-id">A</span><h2>結論</h2></header>
 <div class="am-panel-body"><div class="am-callout am-callout--ok" role="note"><div class="am-callout-title">怎麼選</div><div class="am-callout-body am-md"><ul>
-<li>要快、要常改、要精準控制動畫：選 python-pptx。這次寫好的動畫和轉場 XML 可以收進 ppt-master 的 pptx_fx.py，下次會更省。</li>
+<li>要快、要常改、要精準控制動畫：選 python-pptx。這次寫好的動畫和轉場已經收進 ppt-master 的 pptx_fx.py，下次不用再寫。</li>
 <li>要放 SVG、要 slide zoom、不想碰 OOXML：選 OfficeCLI。做完一定要用 <code>-Anim</code> 檢查 presetID。</li>
-<li>兩邊都還沒驗動畫播放時的方向（wipe、fly、push、split），要實際放映確認。</li>
+<li>動畫方向事後用 PowerPoint 存出的 XML 對照過。python-pptx 版的 wipe 原本整組反向，已經修正；OfficeCLI 版用 raw-set 修過的方向正確。</li>
 </ul>
 </div></div></div>
 </section>
@@ -718,21 +719,31 @@ html[data-theme="shadcn"] .am-kv { border-color: var(--line); border-radius: var
 </section>
 <section class="am-panel am-span-wide" id="panel-I" style="grid-column: span 3" data-span="3">
 <header class="am-panel-head"><span class="am-panel-id">I</span><h2>第 12 頁：zoom 和替代方案</h2></header>
-<div class="am-panel-body"><div class="am-md"><p>左邊是 python-pptx 做的連結卡。右邊是 OfficeCLI 的 slide zoom，縮圖是補上去的。</p>
+<div class="am-panel-body"><div class="am-md"><p>左邊是 python-pptx 做的連結卡。右邊是 OfficeCLI 的 slide zoom，縮圖是補上去的。python-pptx 版後來換了配色，所以兩張圖顏色不同。</p>
 </div>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">
 <figure style="margin:0"><img src="qa-python-pptx/投影片12.PNG" alt="python-pptx 第 12 頁" style="width:100%;height:auto;display:block"><figcaption>python-pptx：連結卡加跳頁</figcaption></figure>
 <figure style="margin:0"><img src="qa-officecli/投影片12.PNG" alt="OfficeCLI 第 12 頁" style="width:100%;height:auto;display:block"><figcaption>OfficeCLI：slide zoom，縮圖用 view screenshot 補</figcaption></figure>
 </div></div>
 </section>
-<section class="am-panel am-span-wide" id="panel-J" style="grid-column: span 3">
-<header class="am-panel-head"><span class="am-panel-id">J</span><h2>檔案</h2></header>
+<section class="am-panel am-span-wide" id="panel-J" style="grid-column: span 3" data-span="3">
+<header class="am-panel-head"><span class="am-panel-id">J</span><h2>10/06 後續</h2></header>
+<div class="am-panel-body"><div class="am-md"><ul>
+<li>決定只留 python-pptx，ppt-master 拿掉 OfficeCLI 的說明。</li>
+<li>動畫和轉場收進 pptx_fx.py，新增 animate()、fx()、transition()。reveal() 和 emphasize() 改走同一套引擎，兩個 demo 重新產生後，動畫跟原本一樣。</li>
+<li>用 PowerPoint COM 建效果、存檔，再對照 XML，發現 wipe 濾鏡方向寫反了，已修正。</li>
+<li>JEV 的 python-pptx 版改用 MP072 配色（深藍加橘），build_pptx.py 從 664 行減到 506 行。PowerPoint 讀到的轉場和動畫跟重構前一樣。</li>
+</ul>
+</div></div>
+</section>
+<section class="am-panel am-span-wide" id="panel-K" style="grid-column: span 3">
+<header class="am-panel-head"><span class="am-panel-id">K</span><h2>檔案</h2></header>
 <div class="am-panel-body"><dl class="am-kv" style="--kv-cols: 2"><div class="am-kv-cell am-kv-cell--wide"><dt>規格</dt><dd>docs/slides/brief.md</dd></div><div class="am-kv-cell"><dt>文案</dt><dd>docs/slides/content.py</dd></div><div class="am-kv-cell"><dt>icon</dt><dd>docs/slides/assets/</dd></div><div class="am-kv-cell"><dt>python-pptx</dt><dd>build_pptx.py → JEV儀表板_python-pptx.pptx</dd></div><div class="am-kv-cell"><dt>OfficeCLI</dt><dd>build_officecli.py → JEV儀表板_officecli.pptx</dd></div><div class="am-kv-cell"><dt>工具筆記</dt><dd>notes_python-pptx.md、notes_officecli.md</dd></div><div class="am-kv-cell"><dt>驗收截圖</dt><dd>qa-python-pptx/、qa-officecli/</dd></div></dl></div>
 </section>
 </div>
 </div>
 </main>
-<footer class="am-colophon">Generated by Answer me with HTML 0.4.8 · 2026-10-05 17:56</footer>
+<footer class="am-colophon">Generated by Answer me with HTML 0.4.9 · 2026-10-06 08:32</footer>
 <textarea id="am-source" hidden readonly aria-hidden="true">---
 template: sheet
 theme: blueprint
@@ -746,9 +757,9 @@ source: docs/JEV智慧化產製儀表板的流程與方法.md
 
 ## 結論 {span=3}
 ```callout ok 怎麼選
-- 要快、要常改、要精準控制動畫：選 python-pptx。這次寫好的動畫和轉場 XML 可以收進 ppt-master 的 pptx_fx.py，下次會更省。
+- 要快、要常改、要精準控制動畫：選 python-pptx。這次寫好的動畫和轉場已經收進 ppt-master 的 pptx_fx.py，下次不用再寫。
 - 要放 SVG、要 slide zoom、不想碰 OOXML：選 OfficeCLI。做完一定要用 `-Anim` 檢查 presetID。
-- 兩邊都還沒驗動畫播放時的方向（wipe、fly、push、split），要實際放映確認。
+- 動畫方向事後用 PowerPoint 存出的 XML 對照過。python-pptx 版的 wipe 原本整組反向，已經修正；OfficeCLI 版用 raw-set 修過的方向正確。
 ```
 
 ## Token 與時間
@@ -827,7 +838,7 @@ source: docs/JEV智慧化產製儀表板的流程與方法.md
 - 連接點只照外框算 4 個點，六角形要自己算。
 
 ## 第 12 頁：zoom 和替代方案 {span=3}
-左邊是 python-pptx 做的連結卡。右邊是 OfficeCLI 的 slide zoom，縮圖是補上去的。
+左邊是 python-pptx 做的連結卡。右邊是 OfficeCLI 的 slide zoom，縮圖是補上去的。python-pptx 版後來換了配色，所以兩張圖顏色不同。
 
 ```html
 &lt;div style=&quot;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px&quot;&gt;
@@ -835,6 +846,12 @@ source: docs/JEV智慧化產製儀表板的流程與方法.md
 &lt;figure style=&quot;margin:0&quot;&gt;&lt;img src=&quot;qa-officecli/投影片12.PNG&quot; alt=&quot;OfficeCLI 第 12 頁&quot; style=&quot;width:100%;height:auto;display:block&quot;&gt;&lt;figcaption&gt;OfficeCLI：slide zoom，縮圖用 view screenshot 補&lt;/figcaption&gt;&lt;/figure&gt;
 &lt;/div&gt;
 ```
+
+## 10/06 後續 {span=3}
+- 決定只留 python-pptx，ppt-master 拿掉 OfficeCLI 的說明。
+- 動畫和轉場收進 pptx_fx.py，新增 animate()、fx()、transition()。reveal() 和 emphasize() 改走同一套引擎，兩個 demo 重新產生後，動畫跟原本一樣。
+- 用 PowerPoint COM 建效果、存檔，再對照 XML，發現 wipe 濾鏡方向寫反了，已修正。
+- JEV 的 python-pptx 版改用 MP072 配色（深藍加橘），build_pptx.py 從 664 行減到 506 行。PowerPoint 讀到的轉場和動畫跟重構前一樣。
 
 ## 檔案
 ```kv cols=2
@@ -851,22 +868,21 @@ OfficeCLI: build_officecli.py → JEV儀表板_officecli.pptx
 (() => {
   const root = document.documentElement;
   const cycle = (list, cur) => list[(list.indexOf(cur) + 1) % list.length];
-  const label = (btn, value) => {
-    const map = JSON.parse(btn.dataset.labels || '{}');
-    btn.textContent = map[value] || value;
-  };
-  const bind = (name, attr, values) => {
+  // The button's data-labels lists every value in cycle order, so the runtime names no theme or mode.
+  const bind = (name, attr) => {
     const btn = document.querySelector(`[data-am="${name}"]`);
     if (!btn) return;
-    label(btn, root.getAttribute(attr));
+    const labels = JSON.parse(btn.dataset.labels || '{}');
+    const show = (value) => { btn.textContent = labels[value] || value; };
+    show(root.getAttribute(attr));
     btn.addEventListener('click', () => {
-      const next = cycle(values, root.getAttribute(attr));
+      const next = cycle(Object.keys(labels), root.getAttribute(attr));
       root.setAttribute(attr, next);
-      label(btn, next);
+      show(next);
     });
   };
-  bind('theme', 'data-theme', ['blueprint', 'shadcn']);
-  bind('mode', 'data-mode', ['auto', 'light', 'dark']);
+  bind('theme', 'data-theme');
+  bind('mode', 'data-mode');
 
   const copyBtn = document.querySelector('[data-am="copy"]');
   copyBtn?.addEventListener('click', async () => {

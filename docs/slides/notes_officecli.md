@@ -80,5 +80,5 @@ EffectType 對照：10 淡入、2 飛入、22 擦去、48 縮放（Zoom）、16 
 
 ## 沒能實際看到、只能靠推論的部分
 
-- wipe 動畫 filter 方向的對照（subtype 8→left、2→right、1→up、4→down）和 wipe 轉場 `dir="r"` = 從左，是照 OOXML 慣例推的。-Anim 只看得到效果類型，看不到播放方向
+- wipe 動畫 filter 方向的對照（subtype 8→left、2→right、1→up、4→down）和 wipe 轉場 `dir="r"` = 從左，是照 OOXML 慣例推的。-Anim 只看得到效果類型，看不到播放方向。2026-10-06 補驗：濾鏡對照和 PowerPoint 存出的 XML 一致
 - PowerPoint 會依 nodeType 解讀 officecli 攤平的時間樹（with/after 都放在 mainSeq 頂層），-Anim 讀出的 trigger 全部正確，但實際放映的節奏沒有逐頁看過

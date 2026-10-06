@@ -3,14 +3,12 @@
 # 執行: python build_pptx.py
 # 看圖: pwsh -File C:\Users\I26436\.claude\skills\ppt-master\scripts\pptx_export.ps1 JEV儀表板_python-pptx.pptx -OutDir qa-python-pptx -Anim
 #
-# 版面、玻璃卡、陰影、光暈、羽化、連接線用 python-pptx 加 pptx_fx；
-# 轉場、morph、pptx_fx 沒有的動畫（zoom、wipe、fly、float、split、blinds、dissolve、appear、teeter、
-# grow/shrink、transparency、退場、路徑、圖表逐類別）都在這支腳本裡手寫 OOXML。
+# 版面用 python-pptx；玻璃卡、陰影、光暈、羽化、連接線、轉場、morph 和所有動畫用 ppt-master 的 pptx_fx。
+# 配色：MP072（深藍＋橘），改色後要先刪 assets/*.png 讓 icon 重轉。
 import subprocess
 import sys
 import time
 import urllib.parse
-from itertools import count
 from pathlib import Path
 
 from lxml import etree
@@ -29,12 +27,13 @@ sys.path.insert(0, r"C:\Users\I26436\.claude\skills\ppt-master\scripts")
 sys.path.insert(0, str(HERE))
 sys.dont_write_bytecode = True  # 不在 docs/slides 留 __pycache__
 import content as C  # noqa: E402
-from pptx_fx import cjk_font, connect, corner, deck, fill_alpha, glow, gradient, shadow, soft_edge, spacing  # noqa: E402
+from pptx_fx import animate, cjk_font, connect, corner, deck, fill_alpha, glow, gradient, shadow, soft_edge, spacing, transition  # noqa: E402
+from pptx_fx import fx as _fx  # noqa: E402
 
-BG1, BG2 = "1F1C5C", "5B1F6E"
-INK, MUTE, LINE, ACC, ACC_INK, CODE_BG = "FFFFFF", "D6D3F0", "B8B4E0", "00F2FE", "1F1C5C", "0F0D2E"
-ORB = {"violet": ("667EEA", 0.55), "pink": ("F093FB", 0.45), "cyan": ("00F2FE", 0.30)}
-ORB_POS = [  # 每頁 (cx, cy, d)：violet, pink, cyan
+BG1, BG2 = "1B2632", "2C3B4D"
+INK, MUTE, LINE, ACC, ACC_INK, CODE_BG = "EEE9DF", "C9C1B1", "C9C1B1", "FFB162", "1B2632", "111921"
+ORB = {"orange": ("FFB162", 0.35), "rust": ("A35139", 0.55), "cream": ("EEE9DF", 0.12)}
+ORB_POS = [  # 每頁 (cx, cy, d)：orange, rust, cream
     [(8.3, 1.0, 4.4), (6.4, 5.2, 3.6), (0.9, 5.1, 1.8)], [(9.7, 4.9, 3.6), (0.3, 0.3, 3.2), (5.0, 5.7, 1.6)],
     [(0.2, 5.3, 3.4), (9.8, 0.2, 3.6), (5.0, 0.0, 1.4)], [(5.0, 6.0, 4.0), (-0.2, 2.8, 3.0), (10.0, 2.8, 1.8)],
     [(9.9, 0.6, 3.4), (4.6, 6.0, 3.0), (0.0, 0.4, 1.6)], [(0.0, 0.2, 3.2), (10.0, 5.4, 3.8), (6.0, 5.9, 1.4)],
@@ -46,7 +45,6 @@ TRANSITION = {1: "fade", 4: "wipe", 7: "split", 9: "zoom", 11: "push"}  # 其他
 FONT, MONO = "Noto Sans TC", "Consolas"
 DISPLAY, H1, H2, BODY, CAPTION, CODE = 54, 26, 16, 14, 10.5, 11
 MID, CENTER, RIGHT = MSO_ANCHOR.MIDDLE, PP_ALIGN.CENTER, PP_ALIGN.RIGHT
-NS = nsdecls("a", "p")
 
 
 def clr(hex_, alpha=1.0):
@@ -86,7 +84,8 @@ def card(s, x, y, w, h, kind="glass", geom=MSO_SHAPE.ROUNDED_RECTANGLE):
     if kind == "code":
         sp = box(s, x, y, w, h, geom, fill=CODE_BG, fa=0.55, line=INK, la=0.25)
     elif kind == "hot":
-        sp = box(s, x, y, w, h, geom, fill=ACC, fa=0.20, line=ACC, lw=1.25)
+        # 光暈畫在形狀後面，填色太透會整片透出來；用近不透明的深藍底，光暈只留在外框
+        sp = box(s, x, y, w, h, geom, fill=BG2, fa=0.85, line=ACC, lw=1.25)
         glow(sp, 8, ACC, 0.45)
     else:
         sp = box(s, x, y, w, h, geom, fill=INK, fa=0.12, line=INK, la=0.35)
@@ -203,164 +202,8 @@ def icons(names, hot):
     return pngs
 
 
-# ─── 轉場（全部手寫 XML，python-pptx 沒有轉場 API） ────────
-def transition(s, kind):
-    body = {"fade": "<p:fade/>", "wipe": '<p:wipe dir="r"/>',  # dir 是移動方向：r = 從左往右擦
-            "split": '<p:split orient="vert" dir="out"/>', "zoom": "<p:zoom/>",
-            "push": '<p:push dir="u"/>'}.get(kind)  # u = 新頁往上推
-    if body:
-        el = parse_xml(f'<p:transition {NS} spd="med">{body}</p:transition>')
-    else:  # morph 是 PowerPoint 2019 的擴充，要包 AlternateContent，舊版看到的是 fallback 的 fade
-        el = parse_xml(
-            f'<mc:AlternateContent {NS} xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'
-            '<mc:Choice xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main" '
-            'xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" Requires="p159">'
-            '<p:transition spd="slow" p14:dur="1200"><p159:morph option="byObject"/></p:transition></mc:Choice>'
-            '<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>')
-    s._element.find(qn("p:clrMapOvr")).addnext(el)
-
-
-# ─── 動畫（主序列手寫 XML） ─────────────────────────────────
-WIPE = {"l": (8, "right"), "r": (2, "left"), "b": (4, "up"), "t": (1, "down")}  # 從哪邊進：(presetSubtype, 濾鏡移動方向)
-
-
-def fx(shapes, effect, trigger="with", dur=400, delay=0, **opt):
-    """一筆動畫。shapes 傳多個時，第一個用 trigger，其餘 withPrevious 同效果。"""
-    shapes = shapes if isinstance(shapes, list) else [shapes]
-    return [dict(sp=sp, effect=effect, trigger=trigger if i == 0 else "with", dur=dur, delay=delay, **opt)
-            for i, sp in enumerate(shapes)]
-
-
-def _effect(e, nid):
-    """回傳 (presetID, presetClass, presetSubtype, 子節點 XML, 播放長度 ms)。"""
-    d, sp = e["dur"], e["sp"]
-    chart = e.get("chart")
-    sub = f'<p:graphicEl><a:chart seriesIdx="{chart[1]}" categoryIdx="{chart[2]}" bldStep="{chart[0]}"/></p:graphicEl>' if chart else ""
-    T = f'<p:tgtEl><p:spTgt spid="{sp.shape_id}">{sub}</p:spTgt></p:tgtEl>'
-
-    def set_(attr, val, dur=1, delay=0):
-        return (f'<p:set><p:cBhvr><p:cTn id="{nid()}" dur="{dur}" fill="hold"><p:stCondLst><p:cond delay="{delay}"/>'
-                f'</p:stCondLst></p:cTn>{T}<p:attrNameLst><p:attrName>{attr}</p:attrName></p:attrNameLst></p:cBhvr>'
-                f'<p:to><p:strVal val="{val}"/></p:to></p:set>')
-
-    def filt(name, tr="in"):
-        return f'<p:animEffect transition="{tr}" filter="{name}"><p:cBhvr><p:cTn id="{nid()}" dur="{d}"/>{T}</p:cBhvr></p:animEffect>'
-
-    def anim(attr, v0, v1, add=""):
-        val = lambda v: f'<p:fltVal val="{v}"/>' if isinstance(v, (int, float)) else f'<p:strVal val="{v}"/>'
-        return (f'<p:anim calcmode="lin" valueType="num"><p:cBhvr{add}><p:cTn id="{nid()}" dur="{d}" fill="hold"/>{T}'
-                f'<p:attrNameLst><p:attrName>{attr}</p:attrName></p:attrNameLst></p:cBhvr><p:tavLst>'
-                f'<p:tav tm="0"><p:val>{val(v0)}</p:val></p:tav><p:tav tm="100000"><p:val>{val(v1)}</p:val></p:tav>'
-                '</p:tavLst></p:anim>')
-
-    def scale(pct, dur):
-        return (f'<p:animScale><p:cBhvr><p:cTn id="{nid()}" dur="{dur}" autoRev="1" fill="hold"/>{T}</p:cBhvr>'
-                f'<p:by x="{pct * 1000}" y="{pct * 1000}"/></p:animScale>')
-
-    vis = lambda: set_("style.visibility", "visible")
-    k = e["effect"]
-    if k == "appear":
-        return 1, "entr", 0, vis(), 0
-    if k in ("fade", "dissolve"):
-        return (10 if k == "fade" else 9), "entr", 0, vis() + filt(k), d
-    if k == "blinds":
-        return 3, "entr", 10, vis() + filt("blinds(horizontal)"), d
-    if k == "split":
-        return 16, "entr", 37, vis() + filt("barn(outVertical)"), d
-    if k == "wipe":
-        st, way = WIPE[e["side"]]
-        return 22, "entr", st, vis() + filt(f"wipe({way})"), d
-    if k == "zoom":  # PowerPoint 功能區上的「縮放」= Faded Zoom，物件中心
-        return 53, "entr", 16, vis() + anim("ppt_w", 0, "#ppt_w") + anim("ppt_h", 0, "#ppt_h") + filt("fade"), d
-    if k == "fly":
-        x0, y0, st = {"b": ("#ppt_x", "1+#ppt_h/2", 4), "l": ("0-#ppt_w/2", "#ppt_y", 8)}[e["side"]]
-        add = ' additive="base"'
-        return 2, "entr", st, vis() + anim("ppt_x", x0, "#ppt_x", add) + anim("ppt_y", y0, "#ppt_y", add), d
-    if k == "float":  # Float In（往上）
-        return 42, "entr", 0, vis() + filt("fade") + anim("ppt_x", "#ppt_x", "#ppt_x") + anim("ppt_y", "#ppt_y+.1", "#ppt_y"), d
-    if k == "fade_out":
-        return 10, "exit", 0, filt("fade", "out") + set_("style.visibility", "hidden", delay=d - 1), d
-    if k == "pulse":  # 同 pptx_fx.emphasize 的結構
-        return 26, "emph", 0, (f'<p:animEffect transition="out" filter="fade"><p:cBhvr><p:cTn id="{nid()}" dur="{d}" '
-                               f'tmFilter="0, 0; .2, .5; .8, .5; 1, 0"/>{T}</p:cBhvr></p:animEffect>' + scale(105, d // 2)), d
-    if k == "grow":  # Grow/Shrink 放大 115% 再自動回來
-        return 6, "emph", 0, scale(115, d // 2), d
-    if k == "teeter":  # 左右各晃 2°，五段旋轉
-        u = d / 8
-        rot = "".join(f'<p:animRot by="{by}"><p:cBhvr><p:cTn id="{nid()}" dur="{round(n * u)}" fill="hold"><p:stCondLst>'
-                      f'<p:cond delay="{round(t * u)}"/></p:stCondLst></p:cTn>{T}<p:attrNameLst><p:attrName>r</p:attrName>'
-                      '</p:attrNameLst></p:cBhvr></p:animRot>'
-                      for by, t, n in ((120000, 0, 1), (-240000, 1, 2), (240000, 3, 2), (-240000, 5, 2), (120000, 7, 1)))
-        return 32, "emph", 0, rot, d
-    if k == "transparency":
-        a = e["to"]
-        return 9, "emph", 0, (f'<p:set><p:cBhvr><p:cTn id="{nid()}" dur="{d}" fill="hold"/>{T}<p:attrNameLst>'
-                              f'<p:attrName>style.opacity</p:attrName></p:attrNameLst></p:cBhvr><p:to><p:strVal val="{a}"/></p:to></p:set>'
-                              f'<p:animEffect filter="image" prLst="opacity: {a}"><p:cBhvr rctx="IE"><p:cTn id="{nid()}" dur="{d}" '
-                              f'fill="hold"/>{T}</p:cBhvr></p:animEffect>'), d
-    if k == "path":  # 自訂路徑，座標是投影片寬高的比例
-        dx, dy = e["by"][0] / 10, e["by"][1] / 5.625
-        return 0, "path", 0, (f'<p:animMotion origin="layout" path="M 0 0 L {dx:.5f} {dy:.5f} E" pathEditMode="relative" '
-                              f'rAng="0" ptsTypes="AA"><p:cBhvr><p:cTn id="{nid()}" dur="{d}" fill="hold"/>{T}<p:attrNameLst>'
-                              '<p:attrName>ppt_x</p:attrName><p:attrName>ppt_y</p:attrName></p:attrNameLst></p:cBhvr>'
-                              f'<p:rCtr x="{round(dx * 50000)}" y="{round(dy * 50000)}"/></p:animMotion>'), d
-    raise ValueError(k)
-
-
-def animate(s, *items):
-    """items 依播放順序；click 開新的點擊群組，after 在群組裡開新的一段，with 跟上一筆同時。"""
-    effects = [e for it in items for e in it]
-    groups = []  # [ [step, ...], ... ]，step = [effect, ...]
-    for e in effects:
-        if e["trigger"] == "click" or not groups:
-            groups.append([])
-        if e["trigger"] != "with" or not groups[-1]:
-            groups[-1].append([])
-        groups[-1][-1].append(e)
-
-    ids = count(3)
-    nid = lambda: next(ids)
-    bld, grp_of = [], {}
-    node = {"click": "clickEffect", "with": "withEffect", "after": "afterEffect"}
-    xml = ""
-    for gi, steps in enumerate(groups):
-        auto = steps[0][0]["trigger"] != "click"
-        begin = '<p:cond evt="onBegin" delay="0"><p:tn val="2"/></p:cond>' if auto else ""
-        xml += f'<p:par><p:cTn id="{nid()}" fill="hold"><p:stCondLst><p:cond delay="indefinite"/>{begin}</p:stCondLst><p:childTnLst>'
-        t = 0
-        for step in steps:
-            xml += f'<p:par><p:cTn id="{nid()}" fill="hold"><p:stCondLst><p:cond delay="{t}"/></p:stCondLst><p:childTnLst>'
-            longest = 0
-            for e in step:
-                sp = e["sp"]
-                grp = ""
-                # 有文字框的形狀和圖表要登記在 bldLst，同一形狀每多一個效果換一個 grpId（圖表逐類別共用一個）
-                if getattr(sp, "has_text_frame", False) or getattr(sp, "has_chart", False):
-                    key = (sp.shape_id, "chart") if e.get("chart") else (sp.shape_id, len(bld))
-                    if key not in grp_of:
-                        n = sum(1 for b in bld if b[0] == sp.shape_id)
-                        grp_of[key] = n
-                        bld.append((sp.shape_id, n, bool(e.get("chart"))))
-                    grp = f' grpId="{grp_of[key]}"'
-                cid = nid()
-                pid, cls, st, body, length = _effect(e, nid)
-                acc = ' accel="50000" decel="50000"' if cls == "path" else ""
-                xml += (f'<p:par><p:cTn id="{cid}" presetID="{pid}" presetClass="{cls}" presetSubtype="{st}"{acc} fill="hold"'
-                        f'{grp} nodeType="{node[e["trigger"]]}"><p:stCondLst><p:cond delay="{e["delay"]}"/></p:stCondLst>'
-                        f'<p:childTnLst>{body}</p:childTnLst></p:cTn></p:par>')
-                longest = max(longest, e["delay"] + length)
-            xml += "</p:childTnLst></p:cTn></p:par>"
-            t += longest
-        xml += "</p:childTnLst></p:cTn></p:par>"
-    blds = "".join(f'<p:bldGraphic spid="{i}" grpId="{g}"><p:bldSub><a:bldChart bld="category"/></p:bldSub></p:bldGraphic>'
-                   if ch else f'<p:bldP spid="{i}" grpId="{g}" animBg="1"/>' for i, g, ch in bld)
-    s._element.append(parse_xml(
-        f'<p:timing {NS}><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never" nodeType="tmRoot"><p:childTnLst>'
-        f'<p:seq concurrent="1" nextAc="seek"><p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>{xml}'
-        '</p:childTnLst></p:cTn><p:prevCondLst><p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>'
-        '</p:prevCondLst><p:nextCondLst><p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>'
-        f'</p:nextCondLst></p:seq></p:childTnLst></p:cTn></p:par></p:tnLst>{f"<p:bldLst>{blds}</p:bldLst>" if blds else ""}'
-        '</p:timing>'))
+def fx(shapes, effect, trigger="with", dur=400, **kw):  # brief：動畫沒寫時間就 400ms
+    return _fx(shapes, effect, trigger, dur, **kw)
 
 
 # ─── 投影片骨架 ─────────────────────────────────────────────
@@ -379,7 +222,8 @@ def new_slide(page, title=None, footer=C.FOOTER_LABEL):
         sp = box(s, cx - d / 2, cy - d / 2, d, d, MSO_SHAPE.OVAL, fill=color, fa=a)
         soft_edge(sp, d * 72 * 0.25)
         sp.name = f"!!orb-{name}"  # morph 靠名字配對
-    transition(s, TRANSITION.get(page, "morph"))
+    kind = TRANSITION.get(page, "morph")
+    transition(s, kind, dir={"wipe": "r", "push": "u"}.get(kind))  # wipe 從左、push 往上
     if title:
         text(s, 0.5, 0.4, 9.0, 0.9, title, H1, INK, True, anchor=MID, fx="shadow")
     if page > 1:
@@ -574,8 +418,7 @@ cs.find(qn("c:chart")).addnext(parse_xml(nofill))
 cs.find(qn("c:chart")).find(qn("c:plotArea")).append(parse_xml(nofill))
 text(s, 4.8, 1.5, 1.5, 0.25, d["tag"], CAPTION, MUTE, align=RIGHT)
 card(s, 6.6, 1.55, 2.9, 3.3)
-seq = [fx(cf, "wipe", "click", side="b", chart=("gridLegend", -3, -3))]
-seq += [fx(cf, "wipe", "after", side="b", chart=("category", -4, i)) for i in range(len(d["categories"]))]
+seq = [fx(cf, "wipe", "click", side="b", build="category")]
 for i, (t, y) in enumerate(zip(d["points"], (1.8, 2.8, 3.8))):
     seq.append(fx([text(s, 6.85, y + 0.03, 0.35, 0.3, f"{i + 1:02d}", CAPTION, ACC, True),
                    text(s, 7.2, y, 2.1, 0.9, t, BODY, INK)], "fade", "after"))
@@ -595,7 +438,7 @@ for i, (num, desc) in enumerate(d["kpis"]):
         arrow = box(s, 3.175 + i * 3.2, 2.65, 0.45, 0.35, MSO_SHAPE.RIGHT_ARROW, fill=INK, fa=0.5)
         seq.append(fx(arrow, "wipe", "after", side="l"))
 text(s, 0.5, 4.4, 9.0, 0.4, d["bottom"], BODY, INK, True)
-animate(s, *seq, fx(big, "grow", "click"))
+animate(s, *seq, fx(big, "grow", "click", scale=115, back=True))
 notes(s, d["notes"])
 
 # ─── 10 隱私（G2，2×3 icon 格） ────────────────────────────

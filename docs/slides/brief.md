@@ -211,3 +211,21 @@
 - 兩份都放 `docs/slides/`：`build_pptx.py` → `JEV儀表板_python-pptx.pptx`；`build_officecli.py`（或 .sh）→ `JEV儀表板_officecli.pptx`
 - 各自的驗收截圖放 `docs/slides/qa-python-pptx/`、`docs/slides/qa-officecli/`
 - 各自寫一份工具筆記 `notes_python-pptx.md` / `notes_officecli.md`：用了哪些功能、哪些要手寫 XML 或繞路、做不到什麼、踩到的 bug、腳本行數、跑一次多久
+
+## 6. 後續更新（2026-10-06，只有 python-pptx 版）
+
+比較做完後，python-pptx 版改用 MP072 配色。OfficeCLI 版保留上面的原始配色，當作比較時的紀錄。
+
+| Token | 新值 | 用途 |
+|---|---|---|
+| BG1 → BG2 | `1B2632` → `2C3B4D` | 背景深藍漸層，角度不變 |
+| INK | `EEE9DF` | 主要文字，也當玻璃卡的填色 |
+| MUTE、LINE | `C9C1B1` | 次要文字、連接線 |
+| ACC | `FFB162` | 唯一 accent（橘） |
+| ACC_INK | `1B2632` | accent 實心底上的文字 |
+| CODE_BG | `111921` | 程式碼卡 |
+| orb | `!!orb-orange` `FFB162` 35%、`!!orb-rust` `A35139` 55%、`!!orb-cream` `EEE9DF` 12% | 背景柔光團，位置表照舊 |
+
+- 亮卡改成 BG2 85% 不透明的底，外框和光暈仍用 ACC。光暈畫在形狀後面，原本 20% 的填色會讓光暈整片透出來，上面的字對比不夠
+- 動畫和轉場改用 ppt-master `pptx_fx.py` 的 `animate()`、`fx()`、`transition()`，`build_pptx.py` 從 664 行減到 506 行
+- wipe 進場的濾鏡原本整組寫反（從左寫成 `wipe(right)`）。用 PowerPoint 自己存的 XML 對照後修正為從左 `wipe(left)`、從右 `wipe(right)`、從上 `wipe(up)`、從下 `wipe(down)`

@@ -18,7 +18,7 @@
 | morph | 手寫 | 6 行 | 要包 `mc:AlternateContent`（`p159:morph`），fallback 用 fade，`p14:dur="1200"`。pptx 的 `qn()` 不認 `mc` 前綴，搜尋要寫完整命名空間 |
 | 其他轉場：fade、wipe、split、zoom、push | 手寫 | 每種 1 行，加插入位置共約 8 行 | python-pptx 沒有轉場 API。`dir` 是移動方向：從左擦 = `dir="r"`，往上推 = `dir="u"`。`<p:zoom/>` 被 VBA 回報成 ppEffectBoxOut（3073），PIA 另有 ppEffectZoomIn 等代碼，但 OOXML 沒有其他 zoom 元素可寫 |
 | 動畫序列（點擊群組、afterPrevious 分段、withPrevious、延遲、bldLst） | 手寫 | 約 85 行共用 | pptx_fx 的 reveal／emphasize 只有 fade、pulse，時序固定，沒有延遲也不能混效果，所以另寫一套。有文字的形狀每多一個效果就要換新的 grpId，不然 PowerPoint 會丟掉後面的效果 |
-| 進場：appear、fade、dissolve、blinds、split、wipe、zoom、fly、float | 手寫 | 每種 2～4 行 | zoom 用功能區上的「縮放」（presetID 53，VBA 名 FadedZoom，代碼 48），不是對話方塊裡的基本縮放（23）。float 是 presetID 42（VBA 名 Ascend，代碼 39）。wipe 的方向要寫兩次：presetSubtype 給 UI 看（從左 = 8），濾鏡 `wipe(right)` 才是實際播放方向 |
+| 進場：appear、fade、dissolve、blinds、split、wipe、zoom、fly、float | 手寫 | 每種 2～4 行 | zoom 用功能區上的「縮放」（presetID 53，VBA 名 FadedZoom，代碼 48），不是對話方塊裡的基本縮放（23）。float 是 presetID 42（VBA 名 Ascend，代碼 39）。wipe 的方向要寫兩次：presetSubtype（從左 = 8）和濾鏡。這版原本把濾鏡整組寫反，2026-10-06 對照 PowerPoint 存出的 XML 後改成從左 `wipe(left)` |
 | 強調：pulse、teeter、grow/shrink、transparency | 手寫 | 2～7 行 | pulse（presetID 26）VBA 回報 75 FlashBulb，PowerPoint 2010 起介面改叫「脈衝」。teeter 照規格只套在第 3 張卡，卡內文字不跟著晃（只晃 2°，看不太出來） |
 | 退場：fade out | 手寫 | 2 行 | 最後補一個 `style.visibility=hidden` |
 | 路徑動畫 | 手寫 | 8 行 | 路徑座標是投影片寬高的比例。規格的距離只有 0.2 in（問卡底 3.4 到答卡頂 3.6），播起來很短 |
@@ -35,7 +35,7 @@
 
 - slide zoom：見上表，用玻璃卡加連結代替
 - 霧面玻璃的背景模糊：OOXML 沒有 backdrop blur，玻璃感只靠半透明填色和外框
-- 播放方向：wipe、fly、push、split 的方向是照 OOXML 規格和 LibreOffice 的對照表寫的。-Anim 只看得到效果類型和觸發方式，PNG 也看不到動畫，方向要實際放映才能確認。原本想掃本機 PowerPoint 存出的 pptx 對照，被權限擋下
+- 播放方向：wipe、fly、push、split 的方向是照 OOXML 規格和 LibreOffice 的對照表寫的。-Anim 只看得到效果類型和觸發方式，PNG 也看不到動畫，方向要實際放映才能確認。原本想掃本機 PowerPoint 存出的 pptx 對照，被權限擋下。2026-10-06 補驗：用 PowerPoint COM 建效果再存檔對照，wipe 進場原本寫反，已修正；fly 從左、從下正確；轉場方面，VBA 的 ppEffectWipeRight 存成 `dir="r"`，ppEffectPushUp 存成 `dir="u"`
 
 ## 規格沒寫清楚、我自己定的
 
