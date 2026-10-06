@@ -228,4 +228,5 @@
 
 - 亮卡改成 BG2 85% 不透明的底，外框和光暈仍用 ACC。光暈畫在形狀後面，原本 20% 的填色會讓光暈整片透出來，上面的字對比不夠
 - 動畫和轉場改用 ppt-master `pptx_fx.py` 的 `animate()`、`fx()`、`transition()`，`build_pptx.py` 從 664 行減到 506 行
+- OfficeCLI 已從電腦移除，`build_officecli.py` 跑不起來，一併刪除；OfficeCLI 版簡報和 `notes_officecli.md` 留作紀錄
 - wipe 進場的濾鏡原本整組寫反（從左寫成 `wipe(right)`）。用 PowerPoint 自己存的 XML 對照後修正為從左 `wipe(left)`、從右 `wipe(right)`、從上 `wipe(up)`、從下 `wipe(down)`

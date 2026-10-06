@@ -1,7 +1,7 @@
 # OfficeCLI 版工具筆記
 
 - 工具：officecli 1.0.153
-- 腳本：`build_officecli.py`，605 行（含註解和空行，空行 59 行）。Python 只負責組 batch JSON、讀 `content.py`，簡報內容都由 officecli 的 `add` / `set` / `batch` / `raw-set` 寫入
+- 腳本：`build_officecli.py`，605 行（含註解和空行，空行 59 行）。2026-10-06 OfficeCLI 從電腦移除，這支腳本跑不起來，已刪除，成品 pptx 留著。Python 只負責組 batch JSON、讀 `content.py`，簡報內容都由 officecli 的 `add` / `set` / `batch` / `raw-set` 寫入
 - 跑一次約 167 秒。其中第 12 頁要用 `view screenshot` 截 3 張 zoom 縮圖，就佔了約 75 秒（走 PowerPoint 原生算繪，每張 20～25 秒）；前 11 頁合計約 77 秒。早期還沒有縮圖和收尾步驟的版本跑 67～82 秒
 - 驗收：`validate` 通過、`view issues` 0 筆、`view text` 沒有殘留字、12 頁都有備忘、`picture:no-alt` 0 筆；PowerPoint COM 能開，匯出 12 張 PNG 時沒跳修復提示（`qa-officecli\`）
 
