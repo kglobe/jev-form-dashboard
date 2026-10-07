@@ -99,7 +99,10 @@ public class DatasourceRepository {
         return jdbc.sql("select * from datasource where id = :id").param("id", id).query(this::map).optional();
     }
 
-    /** 所有人的合併來源；更新資料時找出直接或間接用到它的（spec 2.3）。 */
+    /**
+     * 所有人的合併來源；更新資料時找出直接或間接用到它的（spec 2.3）。
+     * ponytail: 整批讀出來在 Java 裡篩（MergeDefinition.inputIds）；合併來源多到上千份再改成 SQL 篩 merge_json
+     */
     public List<Datasource> allMerged() {
         return jdbc.sql("select * from datasource where kind = 'merged'").query(this::map).list();
     }
