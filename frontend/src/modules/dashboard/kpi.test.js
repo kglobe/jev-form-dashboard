@@ -28,6 +28,19 @@ describe('kpiView', () => {
     expect(kpiView(data([]))).toEqual({ value: '—', full: null, note: '還沒有已經結束的期間', alert: null })
   })
 
+  it('有篩選生效、一期都沒有時寫「篩選範圍內沒有已經結束的期間」（例如選了「本月」）', () => {
+    expect(kpiView(data([]), null, true)).toEqual({ value: '—', full: null, note: '篩選範圍內沒有已經結束的期間', alert: null })
+  })
+
+  it('兩期相減的浮點誤差不寫成「▲ 0」：格式化後是 0 就是持平，百分點和百分比都一樣', () => {
+    // 0.1 + 0.2 是 0.30000000000000004
+    expect(kpiView(data([['2026-08', 0.3], ['2026-09', 0.1 + 0.2]], true)).note).toBe('2026-09 · 比 2026-08 持平')
+    expect(kpiView(data([['2026-08', 0.1 + 0.2], ['2026-09', 0.3]], true)).note).toBe('2026-09 · 比 2026-08 持平')
+    expect(kpiView(data([['2026-08', 0.3], ['2026-09', 0.1 + 0.2]])).note).toBe('2026-09 · 比 2026-08 持平')
+    // 變化不到 0.05% 也是持平
+    expect(kpiView(data([['2026-08', 10000], ['2026-09', 10004]])).note).toBe('2026-09 · 比 2026-08 持平')
+  })
+
   it('本期是空值（比率的分母是 0）：大數字是「—」，不比；上期是空值也不比', () => {
     expect(kpiView(data([['2026-08', 0.05], ['2026-09', null]], true))).toEqual({ value: '—', full: null, note: '2026-09', alert: null })
     expect(kpiView(data([['2026-08', null], ['2026-09', 0.05]], true)).note).toBe('2026-09 · 沒有前一期可以比')

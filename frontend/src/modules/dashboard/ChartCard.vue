@@ -78,9 +78,12 @@ const ratioPeriodNote = computed(() => {
   if (p.from > p.to) return '分子、分母的資料期間沒有重疊'
   return `只算 ${p.from === p.to ? p.from : `${p.from}～${p.to}`}（分子、分母都有資料的月份）`
 })
-// 篩選器 spec 6.4：一列資料都沒有時不畫空的圖。KPI 卡的 rows 只有已經結束的期，沒篩選時是「還沒有已經結束的期間」（KPI spec 2.1）
-const empty = computed(() => ready.value && props.data.rows?.length === 0 && (props.spec.type !== 'kpi' || props.filtered))
-const kpi = computed(() => (ready.value && props.spec.type === 'kpi' ? kpiView(props.data, props.spec.options?.threshold) : null))
+// 篩選器 spec 6.4：一列資料都沒有時不畫空的圖。KPI 卡不算：它的 rows 只有已經結束的期，選「本月」時有資料、
+// 只是這期還沒結束，說明由 kpiView 寫（KPI spec 2.1）
+const empty = computed(() => ready.value && props.data.rows?.length === 0 && props.spec.type !== 'kpi')
+const kpi = computed(() =>
+  ready.value && props.spec.type === 'kpi' ? kpiView(props.data, props.spec.options?.threshold, props.filtered) : null,
+)
 const filterNote = computed(() =>
   ready.value && props.data.filterSkipped?.length
     ? `沒套用篩選：${props.data.filterSkipped.join('、')}（這張圖的來源沒有這些欄位）`

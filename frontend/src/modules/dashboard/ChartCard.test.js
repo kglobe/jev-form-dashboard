@@ -406,12 +406,16 @@ describe('ChartCard', () => {
     expect(ratio.get('.tc-kpi__alert').text()).toBe('高於門檻 5%')
   })
 
-  it('KPI 卡一期都還沒結束時寫「還沒有已經結束的期間」；篩選後一列都沒有時照篩選器 spec 6.4 寫「篩選後沒有資料」', () => {
+  it('KPI 卡一期都還沒結束時寫「還沒有已經結束的期間」；有篩選生效時寫「篩選範圍內沒有已經結束的期間」，不寫「篩選後沒有資料」', () => {
     const none = kpiCard({ data: kpiData([]) })
     expect(none.get('.tc-kpi__value').text()).toBe('—')
     expect(none.get('.tc-kpi__note').text()).toBe('還沒有已經結束的期間')
     expect(none.find('.tc-empty').exists()).toBe(false)
-    expect(kpiCard({ data: kpiData([]), filtered: true }).get('.tc-empty').text()).toBe('篩選後沒有資料')
+    // 選了「本月」時資料是有的，只是這一期還沒結束
+    const filtered = kpiCard({ data: kpiData([]), filtered: true })
+    expect(filtered.find('.tc-empty').exists()).toBe(false)
+    expect(filtered.get('.tc-kpi__value').text()).toBe('—')
+    expect(filtered.get('.tc-kpi__note').text()).toBe('篩選範圍內沒有已經結束的期間')
   })
 
   it('KPI spec 6.1：「設定」只在 configurable 時有，在「✕」左邊，名稱是「KPI 卡設定」，按了 emit configure', async () => {
