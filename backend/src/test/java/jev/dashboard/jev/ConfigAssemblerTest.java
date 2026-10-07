@@ -671,6 +671,27 @@ class ConfigAssemblerTest {
     }
 
     @Test
+    void onACompareSourceAKpiSkipsValuesWhoseSourceHasNoDateField() {
+        // order_date 只有銷售有；退貨來源沒有日期，退貨率的分子、分母交集也沒有
+        Map<String, Set<String>> datesOnlyInSales = Map.of(
+            "sales", Set.of("order_date", "region", "sales", "cost"),
+            "cost", Set.of("order_date", "region", "sales", "cost"),
+            "refund", Set.of("region", "refund", "qty"),
+            "qty", Set.of("region", "refund", "qty"));
+        List<FieldEval> cands = List.of(MONTHS,
+            focus(eval("refund", NUMBER, 5, 0.25, "measure")),
+            eval("sales", NUMBER, 9, 2.75, "measure"),
+            eval("cost", NUMBER, 9, 2.4, "measure"),
+            ratio(RETURN_RATE, 2),
+            ratio(new Ratio("成本率", "cost", "sales"), 2),
+            eval("qty", NUMBER, 5, 2, "measure"));
+
+        // 跳過的不佔 3 張的名額
+        assertThat(ConfigAssembler.kpis(cands, datesOnlyInSales)).extracting(ChartSpec::title)
+            .containsExactly("sales", "cost", "成本率");
+    }
+
+    @Test
     void aKpiIsQuarterlyOverThreeYearsOfDataAndMonthlyOtherwise() {
         FieldEval amount = eval("amount", NUMBER, 12, 3, "measure");
         assertThat(ConfigAssembler.kpis(List.of(dateSpanning("2020-01-01", "2024-06-20"), amount)).get(0).mapping().timeGrain())

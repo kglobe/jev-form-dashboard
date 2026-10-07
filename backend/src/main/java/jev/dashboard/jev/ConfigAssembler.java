@@ -303,13 +303,20 @@ public final class ConfigAssembler {
      * KPI spec 2.3：第一次分析自動放的 KPI 卡，不另外問 JEV。候選裡要有 time 欄位，用第一個（候選已經照重要性排過）；
      * 數值是候選裡的 measure（含比率），焦點優先、再照重要性，只取焦點或 round(重要性) ≥ 2 的，最多 MAX_KPIS 個。
      * 期別：timeGrain() 是季就用季，其他（月、日）用月。chartId 從 c1 編起，gridPos 先留空，由 layOut 排。
+     * B2 spec 5.5：對照來源上，數值的來源沒有這個日期欄位就畫不出東西，跳過（比率照 visible 看分子、分母的交集）。
      */
     public static List<ChartSpec> kpis(List<FieldEval> candidates) {
+        return kpis(candidates, Map.of());
+    }
+
+    public static List<ChartSpec> kpis(List<FieldEval> candidates, Map<String, Set<String>> provides) {
         FieldEval time = candidates.stream().filter(e -> e.role().equals("time")).findFirst().orElse(null);
         if (time == null) return List.of();
         String grain = timeGrain(time.field()).equals("quarter") ? "quarter" : "month";
+        Map<String, Set<String>> seen = visible(candidates, provides);
         List<FieldEval> values = candidates.stream()
             .filter(e -> e.role().equals("measure") && (e.focus() || Math.round(e.importance()) >= 2))
+            .filter(e -> !seen.containsKey(e.name()) || seen.get(e.name()).contains(time.name()))
             .sorted(Comparator.comparing(FieldEval::focus).reversed()
                 .thenComparing(Comparator.comparingDouble(FieldEval::importance).reversed()))
             .limit(MAX_KPIS).toList();
