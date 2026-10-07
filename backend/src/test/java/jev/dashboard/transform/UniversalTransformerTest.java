@@ -132,6 +132,47 @@ class UniversalTransformerTest {
         assertThat(d.rows()).isEqualTo(List.of(List.of("2024-Q1", "北", 300.0), List.of("2024-Q1", "南", 50.0)));
     }
 
+    static ChartData runWith(Map<String, Object> extra, String type, Mapping m) {
+        List<Map<String, Object>> rows = new ArrayList<>(ROWS);
+        rows.add(extra);
+        return UniversalTransformer.transform(spec(type, m), rows, FIELDS);
+    }
+
+    @Test
+    void aBlankCategoryIsItsOwnGroupInsteadOfBeingDropped() {
+        Map<String, Object> noRegion = row("2024-03-01", 150.0, null, null, 5.0);
+        String blank = UniversalTransformer.BLANK;
+        assertThat(blank).isEqualTo("（空白）");
+        // 依分類：空值那列歸到「（空白）」，合計照樣是 500
+        assertThat(runWith(noRegion, "bar", xv("region", "amount", null, null)).rows()).isEqualTo(List.of(
+            List.of("北", 300.0), List.of(blank, 150.0), List.of("南", 50.0)));
+        // 堆疊長條的 series、熱力圖的 y
+        assertThat(runWith(noRegion, "stacked_bar", new Mapping("order_date", null, "region", "amount", null, null, null, "quarter"))
+            .rows()).isEqualTo(List.of(
+                List.of("2024-Q1", "北", 300.0), List.of("2024-Q1", "南", 50.0), List.of("2024-Q1", blank, 150.0)));
+        assertThat(runWith(noRegion, "heatmap", new Mapping("region", "product", null, "amount", null, null, null, null))
+            .rows()).isEqualTo(List.of(
+                List.of("北", "A", 100.0), List.of("南", "A", 50.0), List.of("北", "B", 200.0), List.of(blank, blank, 150.0)));
+        // 兩個數值的長條圖（沒有 timeGrain）、雷達圖的 series
+        assertThat(runWith(noRegion, "bar", new Mapping("region", null, null, null, List.of("amount", "qty"), null, "sum", null))
+            .rows()).isEqualTo(List.of(List.of("北", 300.0, 4.0), List.of(blank, 150.0, 5.0), List.of("南", 50.0, 6.0)));
+        assertThat(runWith(noRegion, "radar", new Mapping(null, null, "region", null, List.of("amount", "qty"), null, null, null))
+            .rows()).isEqualTo(List.of(List.of("北", 300.0, 4.0), List.of("南", 50.0, 6.0), List.of(blank, 150.0, 5.0)));
+    }
+
+    @Test
+    void aBlankDateUnderATimeGrainIsStillSkipped() {
+        // 期別照字串排，「（空白）」會排在最後、被當成最新一期，所以分期的日期是空值時照舊不算
+        Map<String, Object> noDate = row(null, 999.0, "北", "A", 1.0);
+        assertThat(runWith(noDate, "line", xv("order_date", "amount", "sum", "month")).rows())
+            .isEqualTo(List.of(List.of("2024-01", 150.0), List.of("2024-02", 200.0)));
+        assertThat(runWith(noDate, "stacked_bar", new Mapping("order_date", null, "region", "amount", null, null, null, "quarter"))
+            .rows()).isEqualTo(List.of(List.of("2024-Q1", "北", 300.0), List.of("2024-Q1", "南", 50.0)));
+        assertThat(runWith(noDate, "line", new Mapping("order_date", null, null, null, List.of("amount", "qty"), null, "sum", "month"))
+            .rows()).isEqualTo(List.of(
+                List.of("2024-01", 150.0, 3.0), List.of("2024-02", 200.0, 3.0), Arrays.asList("2024-04", null, 4.0)));
+    }
+
     @Test
     void missingFieldIsReportedInsteadOfThrowing() {
         ChartData d = run("bar", xv("region", "profit", null, null));
