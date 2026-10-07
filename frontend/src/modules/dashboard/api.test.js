@@ -230,4 +230,25 @@ describe('api', () => {
     expect(init.method).toBe('POST')
     expect(init.body).toBe(JSON.stringify({ inputs: ['a', 'b'], compare: true }))
   })
+
+  it('篩選器 spec 4：dashboardData、highlights 把篩選編成 JSON 放進查詢字串，沒有篩選就不帶；filterOptions 用 GET', async () => {
+    const filters = { period: 'last_quarter', fields: [{ field: '地區', values: ['北區', '南&區'] }] }
+    const query = `?filters=${encodeURIComponent(JSON.stringify(filters))}`
+    fetch.mockResolvedValue(jsonResponse([]))
+
+    await api.dashboardData('d1', filters)
+    await api.highlights('d1', filters)
+    await api.dashboardData('d1', null)
+    await api.highlights('d1')
+    await api.filterOptions('d1')
+
+    expect(fetch.mock.calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', `/api/dashboards/d1/data${query}`],
+      ['GET', `/api/jev/highlight/d1${query}`],
+      ['GET', '/api/dashboards/d1/data'],
+      ['GET', '/api/jev/highlight/d1'],
+      ['GET', '/api/dashboards/d1/filter-options'],
+    ])
+    expect(new URLSearchParams(query).get('filters')).toBe(JSON.stringify(filters))
+  })
 })

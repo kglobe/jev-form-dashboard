@@ -13,6 +13,7 @@ vi.mock('./api.js', () => ({
     dashboardData: vi.fn(),
     highlights: vi.fn(),
     updateDashboard: vi.fn(),
+    filterOptions: vi.fn(),
   },
 }))
 
@@ -21,7 +22,7 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly', 'filtered'],
     emits: ['remove'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
@@ -114,13 +115,13 @@ describe('DashboardView', () => {
     const wrapper = mountView({ config: makeConfig(), preview: false })
     await flushPromises()
 
-    expect(api.dashboardData).toHaveBeenCalledWith('d1')
+    expect(api.dashboardData).toHaveBeenCalledWith('d1', null)
     expect(api.highlights).not.toHaveBeenCalled()
 
     resolveData([{ chartId: 'c1' }, { chartId: 'c2' }])
     await flushPromises()
 
-    expect(api.highlights).toHaveBeenCalledWith('d1')
+    expect(api.highlights).toHaveBeenCalledWith('d1', null)
     expect(chartCardPayload(wrapper, 'c1').highlight).toEqual({ chartId: 'c1', severity: '需要關注', noul: 0.8 })
   })
 
@@ -728,5 +729,243 @@ describe('DashboardView', () => {
     const wrapper = mountView({ config: { ...makeConfig(), layout: [] }, readonly: true })
     await flushPromises()
     expect(wrapper.get('.v-alert').text()).toBe('這份儀表板沒有圖表。')
+  })
+
+  describe('篩選器', () => {
+    const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
+    const LAST_YEAR = { period: 'last_year', fields: [] }
+    const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })
+    const withDefault = (filters) => ({ ...makeConfig(), filters })
+
+    it('打開時篩選是存著的預設，第一次 /data、/highlight 就帶著它', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: withDefault(NORTH) })
+      await flushPromises()
+
+      expect(api.dashboardData).toHaveBeenCalledWith('d1', NORTH)
+      expect(api.highlights).toHaveBeenCalledWith('d1', NORTH)
+      expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
+      expect(filterBar(wrapper).props('saved')).toEqual(NORTH)
+      expect(filterBar(wrapper).props('dashboardId')).toBe('d1')
+    })
+
+    it('篩選一變就帶著新的篩選重抓；新資料回來前卡片留著舊資料，異常標註馬上清掉', async () => {
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', rows: [['北區', 1]] }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValueOnce([{ chartId: 'c1', severity: '需要關注', noul: 0.8 }])
+      const wrapper = mountView({ config: makeConfig() })
+      await flushPromises()
+      expect(chartCardPayload(wrapper, 'c1').highlight).toBeTruthy()
+
+      let resolveData
+      api.dashboardData.mockImplementationOnce(() => new Promise((resolve) => { resolveData = resolve }))
+      api.highlights.mockResolvedValueOnce([])
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
+      expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', rows: [['北區', 1]] } })
+
+      resolveData([{ chartId: 'c1', rows: [] }, { chartId: 'c2' }])
+      await flushPromises()
+      expect(chartCardPayload(wrapper, 'c1').data).toEqual({ chartId: 'c1', rows: [] })
+      expect(api.highlights).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(api.highlights).toHaveBeenCalledTimes(2)
+    })
+
+    it('拖拉存檔帶的是存著的預設，不是臨時的篩選', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.updateDashboard.mockResolvedValue(undefined)
+      const wrapper = mountView({ config: withDefault(LAST_YEAR) })
+      await flushPromises()
+
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      await wrapper.findComponent({ name: 'GridItem' }).vm.$emit('moved')
+      await flushPromises()
+
+      expect(api.updateDashboard.mock.calls[0][1].filters).toEqual(LAST_YEAR)
+    })
+
+    it('存成預設：PUT 格線上目前的版面和目前的篩選，交給 App 換設定，不重抓資料', async () => {
+      prefersReducedMotion.mockReturnValue(true)
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      expect(filterBar(wrapper).props('owner')).toBe(true)
+
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      await wrapper.getComponent({ name: 'GridLayout' }).vm.$emit('update:layout', [
+        { i: 'c1', x: 6, y: 0, w: 6, h: 4 },
+        { i: 'c2', x: 0, y: 4, w: 12, h: 5 },
+      ])
+      let resolvePut
+      api.updateDashboard.mockImplementation(() => new Promise((resolve) => { resolvePut = resolve }))
+      await filterBar(wrapper).vm.$emit('save')
+      await flushPromises()
+
+      const [id, sent] = api.updateDashboard.mock.calls[0]
+      expect(id).toBe('d1')
+      expect(sent.filters).toEqual(NORTH)
+      expect(sent.layout[0].gridPos).toEqual({ x: 6, y: 0, w: 6, h: 4 })
+      // 存的時候按鈕停用，拖拉不另外存，免得帶著舊的預設蓋回去
+      expect(filterBar(wrapper).props('saving')).toBe(true)
+      await wrapper.findComponent({ name: 'GridItem' }).vm.$emit('moved')
+      expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+
+      const reply = { ...sent }
+      resolvePut(reply)
+      await flushPromises()
+      expect(wrapper.emitted('updated')).toEqual([[reply]])
+      expect(filterBar(wrapper).props('saving')).toBe(false)
+
+      await wrapper.setProps({ config: reply })
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      expect(api.highlights).toHaveBeenCalledTimes(2)
+      expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
+      expect(filterBar(wrapper).props('saved')).toEqual(NORTH)
+    })
+
+    it('存成預設失敗時錯誤顯示在上面的錯誤區', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.updateDashboard.mockRejectedValue(new Error('存檔失敗'))
+      const wrapper = mountView({ config: makeConfig() })
+      await flushPromises()
+
+      await filterBar(wrapper).vm.$emit('save')
+      await flushPromises()
+
+      expect(wrapper.get('.v-alert').text()).toBe('存檔失敗')
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    })
+
+    it('重新打開同一份儀表板（新的設定物件）時，臨時的篩選回到預設', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const config = withDefault(LAST_YEAR)
+      const wrapper = mountView({ config })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      await wrapper.setProps({ config: { ...config } })
+      await flushPromises()
+      expect(filterBar(wrapper).props('modelValue')).toEqual(LAST_YEAR)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', LAST_YEAR)
+    })
+
+    it('移除卡片時新篩選的資料還沒回來：不走「只少了卡片」的捷徑，用目前的篩選重抓', async () => {
+      prefersReducedMotion.mockReturnValue(true)
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+
+      api.dashboardData.mockImplementationOnce(() => new Promise(() => {})) // 新篩選的 /data 一直沒回來
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      const reply = { ...config, layout: [config.layout[1]] }
+      api.updateDashboard.mockResolvedValue(reply)
+      chartCard(wrapper, 'c1').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c2', rows: [] }])
+      await wrapper.setProps({ config: reply })
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c2').data).toEqual({ chartId: 'c2', rows: [] })
+    })
+
+    it('先送出的舊 /highlight 先回來，不會把「還在等異常標註」清掉：移除卡片時照樣重問', async () => {
+      prefersReducedMotion.mockReturnValue(true)
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      let resolveFirst
+      api.highlights
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+        .mockImplementationOnce(() => new Promise(() => {})) // 換篩選之後的那次一直沒回來
+        .mockResolvedValueOnce([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      expect(api.highlights).toHaveBeenCalledTimes(2)
+      resolveFirst([])
+      await flushPromises()
+
+      const reply = { ...config, layout: [config.layout[1]] }
+      api.updateDashboard.mockResolvedValue(reply)
+      chartCard(wrapper, 'c1').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+      await wrapper.setProps({ config: reply })
+      await flushPromises()
+
+      expect(api.highlights).toHaveBeenCalledTimes(3)
+      expect(api.highlights).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c2').highlight).toEqual({ chartId: 'c2', severity: '需要關注', noul: 0.8 })
+    })
+
+    it('移除卡片退場的 120ms 裡換了篩選：退場結束照樣套上新版面，再用新的篩選抓資料', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      const reply = { ...config, layout: [config.layout[1]] }
+      api.updateDashboard.mockResolvedValue(reply)
+      chartCard(wrapper, 'c1').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      await wrapper.setProps({ config: reply })
+      expect(wrapper.get('[data-chart-id="c1"]').classes()).toContain('tc-card-leave')
+      api.dashboardData.mockResolvedValue([{ chartId: 'c2', rows: [] }])
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      vi.advanceTimersByTime(120)
+      await flushPromises()
+
+      expect(wrapper.find('[data-chart-id="c1"]').exists()).toBe(false)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c2').data).toEqual({ chartId: 'c2', rows: [] })
+    })
+
+    it('卡片的 filtered：有任何篩選對這張圖生效才是 true', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1', filterSkipped: ['地區'] }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: withDefault(NORTH) })
+      await flushPromises()
+      expect(chartCard(wrapper, 'c1').props('filtered')).toBe(false)
+      expect(chartCard(wrapper, 'c2').props('filtered')).toBe(true)
+
+      const plain = mountView({ config: makeConfig() })
+      await flushPromises()
+      expect(chartCard(plain, 'c2').props('filtered')).toBe(false)
+    })
+
+    it('預覽、沒有卡片時沒有篩選列；檢視者有篩選列但沒有「存成預設」', async () => {
+      api.previewData.mockResolvedValue([])
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      expect(filterBar(mountView({ config: makeConfig(), preview: true })).exists()).toBe(false)
+      expect(filterBar(mountView({ config: { ...makeConfig(), layout: [] } })).exists()).toBe(false)
+      const viewer = mountView({ config: makeConfig(), readonly: true })
+      await flushPromises()
+      expect(filterBar(viewer).exists()).toBe(true)
+      expect(filterBar(viewer).props('owner')).toBe(false)
+    })
   })
 })

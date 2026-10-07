@@ -146,7 +146,7 @@ public class AnalyzeService {
         }
         // 這次分析的圖都讀同一個來源，調整模式留下來的圖也一樣
         layout = layout.stream().map(s -> s.withDatasourceId(datasourceId)).toList();
-        return new DashboardConfig(null, name, null, layout, intents.isEmpty() ? null : intents, null);
+        return new DashboardConfig(null, name, null, layout, intents.isEmpty() ? null : intents, null, null);
     }
 
     /** 樣本值只是讓 JEV 看出欄位像什麼，截短就夠；一個長備註欄不會把整個請求撐過上限。 */

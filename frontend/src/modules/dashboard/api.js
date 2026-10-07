@@ -41,6 +41,9 @@ async function request(method, url, body) {
   return res.status === 204 ? null : res.json()
 }
 
+// 篩選器 spec 4：篩選編成 JSON 放在查詢字串，沒有篩選就不帶
+const withFilters = (url, filters) => (filters ? `${url}?filters=${encodeURIComponent(JSON.stringify(filters))}` : url)
+
 export const api = {
   // 唯讀分享 spec 4.1：登入
   me: () => request('GET', '/api/auth/me'),
@@ -85,7 +88,9 @@ export const api = {
   // 多來源 spec 6.3：把預覽裡的一批圖接在既有儀表板最下面，回傳更新後的設定
   appendCharts: (id, batch) => request('POST', `/api/dashboards/${id}/charts`, batch),
   deleteDashboard: (id) => request('DELETE', `/api/dashboards/${id}`),
-  dashboardData: (id) => request('GET', `/api/dashboards/${id}/data`),
+  dashboardData: (id, filters) => request('GET', withFilters(`/api/dashboards/${id}/data`, filters)),
+  // 篩選器 spec 4：可以篩選的文字欄位和值
+  filterOptions: (id) => request('GET', `/api/dashboards/${id}/filter-options`),
   previewData: (config) => request('POST', '/api/dashboards/preview/data', config),
-  highlights: (id) => request('GET', `/api/jev/highlight/${id}`),
+  highlights: (id, filters) => request('GET', withFilters(`/api/jev/highlight/${id}`, filters)),
 }
