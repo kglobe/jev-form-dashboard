@@ -1,12 +1,15 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { api } from './api.js'
-import { FIELD_TYPES } from './fields.js'
+import { FIELD_TYPES, sourceTitle } from './fields.js'
 
 // 「新增來源」對話框的「合併」分頁（spec 8.1）：疊加或查表，預覽成功而且顯示的是目前的定義，才能建立
 const props = defineProps({
   sources: { type: Array, required: true },
+  // 目前的帳號，選單裡分出別人分享的來源（資料來源共享 spec 6.4）
+  username: String,
 })
+const titleOf = (ds) => sourceTitle(ds, props.username)
 const emit = defineEmits(['created'])
 
 const op = ref('union')
@@ -215,7 +218,7 @@ async function suggest() {
       <v-select
         v-model="inputs"
         :items="sources"
-        item-title="name"
+        :item-title="titleOf"
         item-value="id"
         label="來源"
         multiple
@@ -281,8 +284,8 @@ async function suggest() {
 
     <template v-else>
       <div class="d-flex ga-3">
-        <v-select v-model="main" :items="sources" item-title="name" item-value="id" label="主來源" />
-        <v-select v-model="lookup" :items="lookupItems" item-title="name" item-value="id" label="主檔" />
+        <v-select v-model="main" :items="sources" :item-title="titleOf" item-value="id" label="主來源" />
+        <v-select v-model="lookup" :items="lookupItems" :item-title="titleOf" item-value="id" label="主檔" />
       </div>
       <div class="cc-label mb-1">對接欄位</div>
       <div v-for="(k, i) in keys" :key="i" class="d-flex align-center ga-2 mb-2">

@@ -8,6 +8,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
@@ -275,5 +276,27 @@ class ReloadServiceTest {
         assertThat(repo.sources.get(m2).rowCount()).isNull();
         assertThat(repo.sources.get(other).rowCount()).isEqualTo(2);
         assertThat(service.load("u1", m2).rows()).extracting(r -> r.get("region")).containsExactly("北區", "西區", "南區", "東區");
+    }
+
+    @Test
+    void mergedSourcesOfOtherAccountsThatUseASharedSourceForgetTheirRowCountToo() {
+        // 資料來源共享 spec 2.3：不分擁有者
+        UUID a = upload("a", "region,amount", "北區,1");
+        UUID b = uploadFor("u2", "b", "region,amount", "南區,2");
+        repo.shares.put(a, Set.of("u2"));
+        UUID theirs = service.createMerged("u2", "u2 的", MergedDatasourceServiceTest.union(List.of(a, b), "region", "amount")).id();
+        assertThat(repo.sources.get(theirs).rowCount()).isEqualTo(2);
+
+        reload(a, "append", "region,amount\n西區,4\n");
+
+        assertThat(repo.sources.get(theirs).rowCount()).isNull();
+    }
+
+    @Test
+    void someoneTheSourceIsSharedWithStillCannotUpdateIt() {
+        UUID a = upload("a", "region,amount", "北區,1");
+        repo.shares.put(a, Set.of("u2"));
+        assertThatThrownBy(() -> service.reload("u2", a, csv("region,amount\n東區,1\n"), null, "replace"))
+            .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.status()).isEqualTo(NOT_FOUND));
     }
 }

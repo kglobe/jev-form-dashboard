@@ -53,6 +53,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.csrf.CsrfTokenRequestHandler;
 import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.savedrequest.NullRequestCache;
+import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import org.springframework.util.StringUtils;
 
 /** 唯讀分享 spec 6.2：一個 SecurityFilterChain。權限只靠 URL 規則，不用 @PreAuthorize。 */
@@ -99,6 +100,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/options").permitAll() // spec 4.1：登入頁要先知道有沒有單一登入
                 .requestMatchers("/api/admin/**").hasRole("ADMIN") // spec 4.2
                 .requestMatchers(HttpMethod.POST, "/api/datasources/api").hasRole("ADMIN") // spec 2.6：header 能借用伺服器上的 DS_ 密鑰
+                // 資料來源共享 spec 4.4：免登入看儀表板只放行這幾支 GET。比對時會帶上查詢字串，結尾要允許 ?…；
+                // id 一定要是 UUID，寫成 /api/dashboards/* 的話 /api/dashboards/shared 也會被放行
+                .requestMatchers(RegexRequestMatcher.regexMatcher(HttpMethod.GET,
+                    "^/api/dashboards/[0-9a-f-]{36}(/data|/filter-options)?(\\?.*)?$")).permitAll()
+                .requestMatchers(RegexRequestMatcher.regexMatcher(HttpMethod.GET, "^/api/jev/highlight/[0-9a-f-]{36}(\\?.*)?$")).permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll()) // 之後放前端靜態檔
             .csrf(c -> c

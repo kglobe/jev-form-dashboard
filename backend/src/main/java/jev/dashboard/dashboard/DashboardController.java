@@ -46,9 +46,10 @@ public class DashboardController {
         return service.shared(principal.getName());
     }
 
+    /** 資料來源共享 spec 4.4：這支、/data 和 /highlight 沒登入也打得到，principal 是 null。 */
     @GetMapping("/{id}")
     public DashboardConfig get(Principal principal, @PathVariable UUID id) {
-        return service.view(principal.getName(), id);
+        return service.view(principal == null ? null : principal.getName(), id);
     }
 
     @PutMapping("/{id}")
@@ -82,11 +83,12 @@ public class DashboardController {
     /** 唯讀分享 spec 4.5：用擁有者的身分載入；檢視者看到的錯誤換成通用訊息，不露出擁有者那邊的細節。 */
     @GetMapping("/{id}/data")
     public List<ChartData> data(Principal principal, @PathVariable UUID id) {
-        DashboardConfig c = service.view(principal.getName(), id);
+        String viewer = principal == null ? null : principal.getName();
+        DashboardConfig c = service.view(viewer, id);
         try {
             return data.display(c.createdBy(), c);
         } catch (ApiException e) {
-            if (c.createdBy().equals(principal.getName())) throw e;
+            if (c.createdBy().equals(viewer)) throw e;
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
     }

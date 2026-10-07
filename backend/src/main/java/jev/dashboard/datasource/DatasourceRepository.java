@@ -26,6 +26,18 @@ public class DatasourceRepository {
     private static final TypeReference<MergeDefinition> MERGE = new TypeReference<>() {};
     private static final TypeReference<List<Ratio>> RATIOS = new TypeReference<>() {};
 
+    /** 資料來源共享 spec 4.1：分享設定，users 是轉換過、排好序的帳號名稱。 */
+    public record Share(boolean allUsers, List<String> users) {}
+
+    /**
+     * 資料來源共享 spec 第 3 節：「能用」＝自己的，或分享給我（指定帳號、所有帳號）而且擁有者啟用中。
+     * 擁有者自己那條不看 account，沒有帳號的舊資料照樣用得到。
+     */
+    private static final String USABLE = """
+        (d.created_by = :by
+         or ((d.shared_all or exists (select 1 from datasource_share s where s.datasource_id = d.id and s.username = :by))
+             and exists (select 1 from account o where o.username = d.created_by and o.enabled)))""";
+
     private final JdbcClient jdbc;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper json;
@@ -67,6 +79,55 @@ public class DatasourceRepository {
         return jdbc.sql("select * from datasource where created_by = :by order by created_at desc")
             .param("by", userId)
             .query(this::map).list();
+    }
+
+    public Optional<Datasource> findUsable(UUID id, String userId) {
+        return jdbc.sql("select d.* from datasource d where d.id = :id and " + USABLE)
+            .param("id", id).param("by", userId)
+            .query(this::map).optional();
+    }
+
+    /** 自己的在前，別人分享的在後，各自依建立時間由新到舊（spec 4.2）。 */
+    public List<Datasource> listUsable(String userId) {
+        return jdbc.sql("select d.* from datasource d where " + USABLE + " order by d.created_by <> :by, d.created_at desc")
+            .param("by", userId)
+            .query(this::map).list();
+    }
+
+    /** 不帶擁有者條件：算合併層數、判斷來源還在不在用（spec 2.2、2.3），不能拿來給使用者看。 */
+    public Optional<Datasource> findAny(UUID id) {
+        return jdbc.sql("select * from datasource where id = :id").param("id", id).query(this::map).optional();
+    }
+
+    /**
+     * 所有人的合併來源；更新資料時找出直接或間接用到它的（spec 2.3）。
+     * ponytail: 整批讀出來在 Java 裡篩（MergeDefinition.inputIds）；合併來源多到上千份再改成 SQL 篩 merge_json
+     */
+    public List<Datasource> allMerged() {
+        return jdbc.sql("select * from datasource where kind = 'merged'").query(this::map).list();
+    }
+
+    public Share share(UUID id) {
+        boolean all = jdbc.sql("select shared_all from datasource where id = :id").param("id", id).query(Boolean.class).single();
+        List<String> users = jdbc.sql("select username from datasource_share where datasource_id = :id order by username")
+            .param("id", id).query(String.class).list();
+        return new Share(all, users);
+    }
+
+    /** spec 4.1：整份取代，更新 shared_all、刪掉舊的、寫入新的在同一個交易。 */
+    @Transactional
+    public void setShare(UUID id, Share s) {
+        jdbc.sql("update datasource set shared_all = :all where id = :id").param("all", s.allUsers()).param("id", id).update();
+        jdbc.sql("delete from datasource_share where datasource_id = :id").param("id", id).update();
+        for (String u : s.users()) {
+            jdbc.sql("insert into datasource_share (datasource_id, username) values (:id, :u)")
+                .param("id", id).param("u", u).update();
+        }
+    }
+
+    public boolean accountExists(String username) {
+        return jdbc.sql("select exists (select 1 from account where username = :u)").param("u", username)
+            .query(Boolean.class).single();
     }
 
     public boolean delete(UUID id, String userId) {

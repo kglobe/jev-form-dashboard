@@ -159,6 +159,17 @@ describe('MergeForm（查表）', () => {
     document.body.innerHTML = ''
   })
 
+  it('資料來源共享 spec 6.4：三個來源選單裡，別人分享的名稱後面加「（來自 帳號）」', async () => {
+    const sources = [{ ...returns, createdBy: 'u1' }, { ...master, createdBy: 'boss' }]
+    const w = mount(MergeForm, { props: { sources, username: 'u1' }, global: { plugins: [vuetify] } })
+    const titles = (label) => select(w, label).props('items').map(select(w, label).props('itemTitle'))
+    expect(titles('來源')).toEqual(['退貨', '產品主檔（來自 boss）'])
+    await lookupMode(w)
+    expect(titles('主來源')).toEqual(['退貨', '產品主檔（來自 boss）'])
+    await pick(w, '主來源', 'r')
+    expect(titles('主檔')).toEqual(['產品主檔（來自 boss）'])
+  })
+
   it('主檔 skips the 主來源; 補上的欄位 keep their names (「主檔名·欄位」 on a clash); a field picked as a key gets unchecked; 預覽 sends the lookup', async () => {
     api.previewMerged.mockResolvedValue({ schema: [], rows: [], rowCount: 4, warnings: [] })
     const w = mountForm()
