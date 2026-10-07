@@ -44,6 +44,13 @@ const savingFilters = ref(false)
 // KPI spec 2.3：「加 KPI 卡」和 KPI 卡「設定」共用的表單；kpiSpec 是要改的那張，加新卡時是 null
 const kpiOpen = ref(false)
 const kpiSpec = ref(null)
+// 自動更新 spec 2.4：最近一次成功抓到 /data 的時間；refreshFailed 是自動更新的 /data 失敗了（2.3）
+const updatedAt = ref(null)
+const refreshFailed = ref(false)
+// 自動更新 spec 6.2：改間隔的 PUT 還沒回來，理由同 savingFilters
+const savingRefresh = ref(false)
+
+const REFRESH_ITEMS = [{ title: '不自動更新', value: null }, ...[1, 5, 10, 15].map((m) => ({ title: `每 ${m} 分鐘`, value: m }))]
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 // 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
@@ -64,6 +71,20 @@ const basisLines = computed(() => {
 const screenOrder = computed(() =>
   Object.fromEntries([...layout.value].sort((a, b) => a.y - b.y || a.x - b.x).map((l, n) => [l.i, n])),
 )
+
+// 自動更新 spec 2.4：今天的寫「14:05」，不是今天的寫「10/6 14:05」
+function clock(d) {
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`
+}
+const updatedText = computed(() => {
+  if (!updatedAt.value) return ''
+  const at = clock(updatedAt.value)
+  if (refreshFailed.value) return `更新失敗，顯示的是 ${at} 的資料`
+  // 擁有者旁邊就是選單，不另外寫間隔
+  const every = props.readonly && props.config.refreshMinutes ? `每 ${props.config.refreshMinutes} 分鐘自動更新，` : ''
+  return `${every}最後更新 ${at}`
+})
 
 let loadSeq = 0
 // removeCard 剛 emit('updated', ...) 之後，config 一定會馬上換成那份新設定；
@@ -146,23 +167,69 @@ function setFilters(next) {
   fetchData(++loadSeq)
 }
 
-async function fetchData(seq) {
-  highlightById.value = {}
+// refresh：這次是自動更新（自動更新 spec 2.2、2.3）
+async function fetchData(seq, refresh = false) {
+  // 自動更新時篩選沒變，舊的標註留到新的回來；改篩選時舊標註判斷的是另一組資料，先清掉
+  if (!refresh) highlightById.value = {}
   const f = filters.value
   try {
     const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id, f)
     if (seq !== loadSeq) return
     dataById.value = Object.fromEntries(data.map((d) => [d.chartId, d]))
     fetchedKey = filterKey(f)
+    updatedAt.value = new Date()
+    refreshFailed.value = false
+    loadError.value = '' // 打開時就失敗的，自動更新成功後把格線放回來
   } catch (e) {
     if (seq !== loadSeq) return
+    scheduleRefresh()
+    // 自動更新失敗：卡片和標註都留著，到下一個間隔再試
+    if (refresh && !loadError.value) {
+      refreshFailed.value = true
+      return
+    }
     loadError.value = e.message
     settled.value = false // GridLayout 會被 v-if 拿掉，重新掛載時要再等一次 layout-ready
     return
   }
   if (props.preview) return
+  scheduleRefresh()
   await fetchHighlights(seq)
 }
+
+// 自動更新 spec 6.3：一個 setTimeout，每次抓完 /data 從那時重新計時；預覽和沒有卡片時不排
+const refreshMs = computed(() =>
+  props.preview || !props.config.layout.length ? 0 : (props.config.refreshMinutes ?? 0) * 60_000)
+let refreshTimer = 0
+// 時間到了但分頁在背景，等回到前景再抓
+let refreshOverdue = false
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer)
+  if (refreshMs.value) refreshTimer = setTimeout(refresh, refreshMs.value)
+}
+
+// 先排好下一次：這次的回應被丟掉（例如移除卡片走了不重抓的捷徑）時，計時也不會斷
+function refresh() {
+  scheduleRefresh()
+  refreshOverdue = false
+  if (!refreshMs.value) return
+  if (document.visibilityState === 'hidden') {
+    refreshOverdue = true
+    return
+  }
+  // 卡片還在退場：退場結束的 load() 會自己抓
+  if (leaving.value.size) return
+  fetchData(++loadSeq, true)
+}
+
+function onVisibilityChange() {
+  if (refreshOverdue && document.visibilityState === 'visible') refresh()
+}
+document.addEventListener('visibilitychange', onVisibilityChange)
+
+// 擁有者改了間隔、最後一張卡片拿掉了：從現在重新計時，或停掉
+watch(refreshMs, scheduleRefresh)
 
 // 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷
 async function fetchHighlights(seq) {
@@ -175,9 +242,11 @@ async function fetchHighlights(seq) {
 
 watch(() => props.config, load, { immediate: true })
 
-// 卸載後，還在等退場或資料的 load() 直接作廢，不再打 API
+// 卸載後，還在等退場或資料的 load() 直接作廢，不再打 API；自動更新也停掉
 onBeforeUnmount(() => {
   loadSeq++
+  clearTimeout(refreshTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // spec 10.2：layout-ready 那個 task 裡，grid-layout-plus 量完寬度但這一幀還沒 recalc 版面；
@@ -194,7 +263,7 @@ function currentLayout() {
 
 // 篩選器 spec 6.3：存的是整份設定，filters 是 config 裡存著的預設，不是臨時的篩選
 async function saveLayout() {
-  if (props.preview || props.readonly || removing.value || savingFilters.value) return
+  if (props.preview || props.readonly || removing.value || savingFilters.value || savingRefresh.value) return
   error.value = ''
   await queueUpdate({ ...props.config, layout: currentLayout() }).catch((e) => {
     if (!removing.value) error.value = e.message
@@ -241,6 +310,22 @@ async function saveFilters() {
   }
 }
 
+// 自動更新 spec 6.2：選了就存，用格線上目前的版面，filters 是存著的預設；成功後交給 App 換設定，
+// 走「只少了卡片」的捷徑不重抓，計時由 watch(refreshMs) 從現在重新開始
+async function saveRefresh(minutes) {
+  error.value = ''
+  savingRefresh.value = true
+  try {
+    const reply = await queueUpdate({ ...props.config, layout: currentLayout(), refreshMinutes: minutes })
+    ownUpdatePending = true
+    emit('updated', reply)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    savingRefresh.value = false
+  }
+}
+
 function openKpi(spec) {
   kpiSpec.value = spec
   kpiOpen.value = true
@@ -279,11 +364,25 @@ async function saveKpi(card) {
     :saved="config.filters ?? null"
     :dashboard-id="config.id"
     :owner="!readonly"
-    :saving="savingFilters"
+    :saving="savingFilters || savingRefresh"
     @update:model-value="setFilters"
     @save="saveFilters"
     @add-kpi="openKpi(null)"
-  />
+  >
+    <!-- 自動更新 spec 6.1：更新失敗只讀給螢幕閱讀器一次，每次更新的時間不讀 -->
+    <span class="dash-updated text-caption" :class="refreshFailed ? 'text-warning' : 'text-medium-emphasis'">{{ updatedText }}</span>
+    <span class="d-sr-only" role="status">{{ refreshFailed ? updatedText : '' }}</span>
+    <v-select
+      v-if="!readonly"
+      :model-value="config.refreshMinutes ?? null"
+      :items="REFRESH_ITEMS"
+      label="自動更新"
+      hide-details
+      class="dash-refresh"
+      :disabled="savingRefresh || savingFilters || removing"
+      @update:model-value="saveRefresh"
+    />
+  </DashboardFilters>
   <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
       v-if="!loadError"
@@ -318,7 +417,7 @@ async function saveKpi(card) {
           :removable="!readonly && (!preview || specById[item.i].type !== 'table')"
           :configurable="!preview && !readonly && specById[item.i].type === 'kpi'"
           :readonly="readonly"
-          :remove-disabled="busy || removing || savingFilters"
+          :remove-disabled="busy || removing || savingFilters || savingRefresh"
           :filtered="filterCount(filters) > (dataById[item.i]?.filterSkipped?.length ?? 0)"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
@@ -344,3 +443,8 @@ async function saveKpi(card) {
     </v-card>
   </v-dialog>
 </template>
+
+<style scoped>
+/* 自動更新 spec 6.1：選單寬約 150px */
+.dash-refresh { flex: 0 0 150px; }
+</style>

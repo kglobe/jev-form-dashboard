@@ -979,6 +979,237 @@ describe('DashboardView', () => {
     })
   })
 
+  describe('自動更新', () => {
+    const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
+    const LAST_YEAR = { period: 'last_year', fields: [] }
+    const MIN = 60_000
+    const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })
+    const refreshSelect = (wrapper) => wrapper.findAllComponents({ name: 'VSelect' }).find((s) => s.props('label') === '自動更新')
+    const statusText = (wrapper) => wrapper.get('.dash-updated').text()
+    const every = (refreshMinutes, extra = {}) => ({ ...makeConfig(), refreshMinutes, ...extra })
+    const tick = async (ms) => {
+      vi.advanceTimersByTime(ms)
+      await flushPromises()
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      vi.setSystemTime(new Date(2026, 9, 7, 14, 5))
+    })
+
+    it('時間到了照目前臨時改的篩選重抓 /data、再抓 /highlight；新的回來前卡片和標註都留著', async () => {
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'default' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValueOnce([])
+      const wrapper = mountView({ config: every(5, { filters: LAST_YEAR }) })
+      await flushPromises()
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'north' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValueOnce([{ chartId: 'c1', severity: '需要關注' }])
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      let resolveData
+      let resolveHighlights
+      api.dashboardData.mockImplementationOnce(() => new Promise((resolve) => { resolveData = resolve }))
+      api.highlights.mockImplementationOnce(() => new Promise((resolve) => { resolveHighlights = resolve }))
+      await tick(5 * MIN - 1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      await tick(1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'north' }, highlight: { chartId: 'c1', severity: '需要關注' } })
+
+      resolveData([{ chartId: 'c1', v: 'fresh' }, { chartId: 'c2' }])
+      await flushPromises()
+      expect(api.highlights).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'fresh' }, highlight: { chartId: 'c1', severity: '需要關注' } })
+
+      resolveHighlights([])
+      await flushPromises()
+      expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'fresh' } })
+      expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
+    })
+
+    it('沒設間隔就不自動更新；預覽也不排', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.previewData.mockResolvedValue([])
+      mountView({ config: makeConfig() })
+      mountView({ config: { ...previewOf(bar('c1', 0)), refreshMinutes: 1 }, preview: true })
+      await flushPromises()
+      await tick(16 * MIN)
+      expect(api.dashboardData).toHaveBeenCalledTimes(1)
+      expect(api.previewData).toHaveBeenCalledTimes(1)
+    })
+
+    it('改篩選也算抓了一次，從改的時候重新計時', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: every(5) })
+      await flushPromises()
+      await tick(3 * MIN)
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      await tick(5 * MIN - 1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      await tick(1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+    })
+
+    it('分頁在背景時不抓；回到前景時已經超過間隔就馬上抓，沒超過就不抓', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      mountView({ config: every(1) })
+      await flushPromises()
+
+      document.dispatchEvent(new Event('visibilitychange'))
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(1)
+
+      visibility.mockReturnValue('hidden')
+      await tick(3 * MIN)
+      expect(api.dashboardData).toHaveBeenCalledTimes(1)
+
+      visibility.mockReturnValue('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      visibility.mockRestore()
+    })
+
+    it('自動更新失敗：卡片和標註留著，寫出「更新失敗」，下一個間隔再試，成功後換回「最後更新」', async () => {
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'old' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([{ chartId: 'c1', severity: '需要關注' }])
+      const wrapper = mountView({ config: every(1) })
+      await flushPromises()
+      expect(statusText(wrapper)).toBe('最後更新 14:05')
+      expect(wrapper.get('[role="status"]').text()).toBe('')
+
+      api.dashboardData.mockRejectedValueOnce(new Error('連不上後端'))
+      await tick(MIN)
+      expect(wrapper.find('.v-alert').exists()).toBe(false)
+      expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'old' }, highlight: { chartId: 'c1', severity: '需要關注' } })
+      expect(statusText(wrapper)).toBe('更新失敗，顯示的是 14:05 的資料')
+      expect(wrapper.get('.dash-updated').classes()).toContain('text-warning')
+      expect(wrapper.get('[role="status"]').text()).toBe('更新失敗，顯示的是 14:05 的資料')
+
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'new' }, { chartId: 'c2' }])
+      await tick(MIN)
+      expect(chartCardPayload(wrapper, 'c1').data).toEqual({ chartId: 'c1', v: 'new' })
+      expect(statusText(wrapper)).toBe('最後更新 14:07')
+      expect(wrapper.get('.dash-updated').classes()).not.toContain('text-warning')
+    })
+
+    it('打開時就失敗的照舊顯示錯誤；有開自動更新的話下一個間隔再試，成功就把格線放回來', async () => {
+      api.dashboardData.mockRejectedValueOnce(new Error('資料來源載入失敗'))
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: every(1) })
+      await flushPromises()
+      expect(wrapper.get('.v-alert').text()).toBe('資料來源載入失敗')
+      expect(wrapper.find('.grid-layout-stub').exists()).toBe(false)
+
+      api.dashboardData.mockRejectedValueOnce(new Error('還是失敗'))
+      await tick(MIN)
+      expect(wrapper.get('.v-alert').text()).toBe('還是失敗')
+
+      api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1' }, { chartId: 'c2' }])
+      await tick(MIN)
+      expect(wrapper.find('.v-alert').exists()).toBe(false)
+      expect(wrapper.find('.grid-layout-stub').exists()).toBe(true)
+    })
+
+    it('不是今天的時間寫上日期', async () => {
+      vi.setSystemTime(new Date(2026, 9, 6, 23, 59))
+      api.dashboardData.mockResolvedValueOnce([])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: every(1) })
+      await flushPromises()
+      api.dashboardData.mockRejectedValueOnce(new Error('x'))
+      await tick(MIN)
+      expect(statusText(wrapper)).toBe('更新失敗，顯示的是 10/6 23:59 的資料')
+    })
+
+    it('卸載之後不再自動更新', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: every(1) })
+      await flushPromises()
+      wrapper.unmount()
+      await tick(5 * MIN)
+      expect(api.dashboardData).toHaveBeenCalledTimes(1)
+    })
+
+    it('檢視者沒有選單，看到間隔和時間；擁有者看到選單和時間', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const viewer = mountView({ config: every(5), readonly: true })
+      const plainViewer = mountView({ config: makeConfig(), readonly: true })
+      const owner = mountView({ config: every(5) })
+      await flushPromises()
+
+      expect(refreshSelect(viewer)).toBeUndefined()
+      expect(statusText(viewer)).toBe('每 5 分鐘自動更新，最後更新 14:05')
+      expect(statusText(plainViewer)).toBe('最後更新 14:05')
+      expect(statusText(owner)).toBe('最後更新 14:05')
+      expect(refreshSelect(owner).props('modelValue')).toBe(5)
+      expect(refreshSelect(owner).props('items').map((i) => i.title))
+        .toEqual(['不自動更新', '每 1 分鐘', '每 5 分鐘', '每 10 分鐘', '每 15 分鐘'])
+    })
+
+    it('擁有者改間隔：PUT 格線上的版面、存著的預設篩選和新的間隔，交給 App 換設定，不重抓；從那時重新計時', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const wrapper = mountView({ config: every(null, { filters: LAST_YEAR }) })
+      await flushPromises()
+      expect(refreshSelect(wrapper).props('modelValue')).toBe(null)
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      let resolvePut
+      api.updateDashboard.mockImplementation(() => new Promise((resolve) => { resolvePut = resolve }))
+      await refreshSelect(wrapper).vm.$emit('update:modelValue', 5)
+      await flushPromises()
+      const [id, sent] = api.updateDashboard.mock.calls[0]
+      expect(id).toBe('d1')
+      expect(sent.refreshMinutes).toBe(5)
+      expect(sent.filters).toEqual(LAST_YEAR)
+      // 存的時候選單停用，「存成預設」和 ✕ 也停用、拖拉不另外存，免得帶著舊的間隔蓋回去
+      expect(refreshSelect(wrapper).props('disabled')).toBe(true)
+      expect(filterBar(wrapper).props('saving')).toBe(true)
+      expect(chartCard(wrapper, 'c1').props('removeDisabled')).toBe(true)
+      await wrapper.findComponent({ name: 'GridItem' }).vm.$emit('moved')
+      expect(api.updateDashboard).toHaveBeenCalledTimes(1)
+
+      resolvePut(sent)
+      await flushPromises()
+      expect(wrapper.emitted('updated')).toEqual([[sent]])
+      await tick(2 * MIN)
+      await wrapper.setProps({ config: sent })
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      await tick(5 * MIN - 1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(2)
+      await tick(1)
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+    })
+
+    it('改間隔失敗時錯誤顯示在上面，選單還是存著的值', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.updateDashboard.mockRejectedValue(new Error('自動更新只能選 1、5、10、15 分鐘'))
+      const wrapper = mountView({ config: every(5) })
+      await flushPromises()
+
+      await refreshSelect(wrapper).vm.$emit('update:modelValue', 1)
+      await flushPromises()
+      expect(wrapper.get('.v-alert').text()).toBe('自動更新只能選 1、5、10、15 分鐘')
+      expect(refreshSelect(wrapper).props('modelValue')).toBe(5)
+      expect(refreshSelect(wrapper).props('disabled')).toBe(false)
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    })
+  })
+
   describe('KPI 卡', () => {
     const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
     const LAST_YEAR = { period: 'last_year', fields: [] }
