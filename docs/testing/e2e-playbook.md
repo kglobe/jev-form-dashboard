@@ -3,7 +3,7 @@
 日期：2026-10-02
 對象：用 Chrome DevTools MCP 操作瀏覽器的 agent。照章節順序跑完，App 現有的每個功能都會走過一次。
 
-S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。
+S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。S19 測資料來源共享和「不用登入也能看」（`feat/datasource-sharing`，2026-10-07 加上，還沒全跑過）。
 
 第一次全跑在 2026-10-02，commit `79435c3`（integ：main 加上這三個 branch 和這份劇本）。241 步裡 236 PASS、4 FAIL，S10-5 條件沒成立所以沒跑。4 個 FAIL 都是已知的產品問題，那幾步的預期結果後面都標了「已知問題（backlog 2026-10-02）」。劇本跟 App 實際行為對不上的步驟，已經照那次的結果改了。
 
@@ -675,11 +675,11 @@ async () => {
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S13-1 | alice 打開「E2E 銷售總覽」，按「分享」 | 對話框「分享「E2E 銷售總覽」」：「公開連結」開關（關）「有帳號的人拿到連結就能看」；「分享給」欄位（placeholder「輸入對方的帳號」，提示「對方的帳號在他帳號選單的第一行」）和「加入」；「還沒有分享給任何人」；連結 `http://localhost:5181/#/d/<id>`、「複製連結」；「對方看到的資料跟你一樣，包括明細表和敏感欄位。」；「取消」「儲存」 | 畫面、截圖 |
+| S13-1 | alice 打開「E2E 銷售總覽」，按「分享」 | 對話框「分享「E2E 銷售總覽」」：「公開連結」開關（關）「有帳號的人拿到連結就能看」；「不用登入也能看」開關（關、停用）「任何拿到連結的人都能看，包括沒有帳號的人」；「分享給」欄位（placeholder「輸入對方的帳號」，提示「對方的帳號在他帳號選單的第一行」）和「加入」；「還沒有分享給任何人」；連結 `http://localhost:5181/#/d/<id>`、「複製連結」；「對方看到的資料跟你一樣，包括明細表和敏感欄位。」；「取消」「儲存」 | 畫面、截圖 |
 | S13-2 | 輸入 `nobody`，按「加入」，按「儲存」 | 對話框裡「找不到帳號「nobody」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結」，對話框沒關 | 畫面 |
 | S13-3 | 按「移除「nobody」」；輸入 `alice`，加入，儲存 | 移除 nobody 之後，「找不到帳號「nobody」…」跟著消失；儲存後是「不用分享給自己」。已知問題（backlog 2026-10-02）：nobody 的錯誤訊息一直留著，等到儲存才被換掉 | 畫面 |
 | S13-4 | 移除 alice；輸入 `BOB`，加入 | 標籤是「bob」（轉成小寫） | 畫面 |
-| S13-5 | 按「儲存」 | 對話框關掉；`jev.api('GET', '/api/dashboards/' + location.hash.slice(4) + '/share')` 是 `{ publicLink: false, users: ["bob"] }` | 畫面、API |
+| S13-5 | 按「儲存」 | 對話框關掉；`jev.api('GET', '/api/dashboards/' + location.hash.slice(4) + '/share')` 是 `{ publicLink: false, anonymous: false, users: ["bob"] }` | 畫面、API |
 | S13-6 | 再按一次「分享」（S13-5 儲存時對話框關掉了），按「複製連結」；看完按「取消」 | 按鈕變「已複製」；瀏覽器不讓複製時，連結被選取，欄位下方「瀏覽器不讓網頁直接複製，請按 Ctrl+C」。兩種都算 PASS | 畫面 |
 | S13-7 | bob：`new_page`（`isolatedContext: "bob"`）`http://localhost:5181` | 左邊「我的儀表板 · 0」、「分享給我的 · 1」，裡面「E2E 銷售總覽」，副標「來自 alice」 | 畫面 |
 | S13-8 | bob 打開它；跑 helper；`jev.cards()`；`document.querySelectorAll('.vgl-item__resizer').length` | 副標「「alice」分享給你的儀表板，只能檢視。」；沒有「分享」，只有「新增儀表板」；每張卡片 `removable: false`、`draggable: false`；resizer 是 0 個；依據兩行看得到；異常標註跟 alice 看到的一樣 | 畫面、API、截圖 |
@@ -689,7 +689,7 @@ async () => {
 | S13-12 | bob：`navigate_page` 到 `http://localhost:5181/#/d/<E2E 對照 的 id>`（id 用 alice 分頁的 `jev.dashId('E2E 對照')` 查） | 「找不到這份儀表板，可能已經刪除或取消分享」 | 畫面 |
 | S13-13 | alice 打開「E2E 對照」→「分享」，打開「公開連結」，儲存 | 對話框關掉 | 畫面 |
 | S13-14 | bob 重新整理同一個網址 | 打開「E2E 對照」，唯讀；左邊「分享給我的」還是只有 1 份（公開連結不會列進來） | 畫面、截圖 |
-| S13-15 | `anon`：`new_page` 同一個網址（`isolatedContext: "anon"`） | 登入頁，看不到儀表板（沒有免登入的連結） | 畫面 |
+| S13-15 | `anon`：`new_page` 同一個網址（`isolatedContext: "anon"`） | 登入頁，看不到儀表板（「E2E 對照」只開了公開連結，沒開「不用登入也能看」；S19 再測打開的情況） | 畫面 |
 | S13-16 | bob 先從「分享給我的」打開「E2E 銷售總覽」（S13-14 之後 bob 停在「E2E 對照」，沒先打開的話這一步等於沒測）；alice：「E2E 銷售總覽」的分享移除 bob，儲存；bob 的畫面先不動 | bob 已經開著的畫面不會自己消失 | 畫面 |
 | S13-17 | bob 打開「E2E 銷售總覽」的連結後重新整理 | 「找不到這份儀表板，可能已經刪除或取消分享」；「分享給我的」整段不見 | 畫面 |
 | S13-18 | alice 再把 bob 加回「E2E 銷售總覽」，儲存 | bob 重新整理後又看得到（S18 要用） | 畫面 |
@@ -792,7 +792,7 @@ async () => {
 
 | 編號 | 操作 | 預期結果 | 檢查方式 |
 |---|---|---|---|
-| S18-1 | alice 資料頁依序選「銷售」「高雄店」「退貨（補產品主檔）」「銷售／退貨 對照」 | 上傳來源（銷售、高雄店）的標題列是「更新資料」「刪除來源」「用這個來源製圖」；兩個合併來源沒有「更新資料」 | 畫面 |
+| S18-1 | alice 資料頁依序選「銷售」「高雄店」「退貨（補產品主檔）」「銷售／退貨 對照」 | 上傳來源（銷售、高雄店）的標題列是「分享」「更新資料」「刪除來源」「用這個來源製圖」；兩個合併來源沒有「更新資料」 | 畫面 |
 | S18-2 | 跑 helper；`jev.source('銷售')`、`jev.source('銷售／退貨 對照')`、`jev.source('退貨（補產品主檔）')` | `rowCount` 依序是 54、65、11；記下銷售的 `id`（S18-18 要用） | API |
 | S18-3 | 選「銷售」，按「更新資料」 | 對話框「更新資料」，說明兩行：「「銷售」目前有 54 筆資料。新檔案的欄位名稱要跟原本一樣。」「更新後，用到它的圖和合併來源都會顯示新的資料。」；欄位「CSV / Excel」「工作表（Excel 選填）」；選項「整份覆蓋」「接在後面」，兩個都沒選；按鈕「取消」和「更新」，「更新」是停用的 | 畫面、截圖 |
 | S18-4 | 選「接在後面」，不選檔案就按「更新」 | 選了方式之後「更新」才能按；按下去對話框裡出現「請先選擇檔案」 | 畫面 |
@@ -843,6 +843,77 @@ async () => {
 
 留下的狀態：銷售 63 筆；銷售／退貨 對照的 `rowCount` 是 null；覆蓋測試 9 筆；高雄店 6 筆。
 
+### S19 資料來源共享、不用登入也能看
+
+- 目的：資料來源分享給指定帳號和所有帳號、被分享的人只能拿來製圖、取消分享後的卡片，以及儀表板的「不用登入也能看」。規則見 `docs/superpowers/specs/2026-10-07-datasource-sharing-design.md`。
+- 帳號／context：`alice`（擁有者）；`bob`（被分享的人）；`e2e-admin`；`anon`。
+- 前置條件：S18 完成；「覆蓋測試」9 筆、沒有被合併來源用到（S18-20）；「E2E 對照」開著公開連結（S13-13）。
+- 管理員註冊的外部 API 來源分享出去之後不露網址和 header，這一點本機測不到（`ApiUrlGuard` 擋 loopback），只有後端的單元測試驗得到，這一節不測。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S19-1 | alice 資料頁選「覆蓋測試」 | 標題列依序是「分享」（`mdi-share-variant-outline`）「更新資料」「刪除來源」「用這個來源製圖」 | 畫面 |
+| S19-2 | 按「分享」 | 對話框「分享「覆蓋測試」」：「所有帳號都能用」開關（關）「所有登入的人都能在資料頁看到它、拿來製圖」；「分享給」欄位和「加入」；「還沒有分享給任何人」；沒有連結、沒有「複製連結」；「對方可以拿它製圖，看得到明細資料和敏感欄位的值；看不到 API 網址和 header，也不能修改。」；「取消」「儲存」 | 畫面、截圖 |
+| S19-3 | 輸入 `nobody`，加入，儲存 | 對話框裡「找不到帳號「nobody」。用單一登入的人要先登入過一次才會有帳號，也可以先打開「所有帳號都能用」」，對話框沒關 | 畫面 |
+| S19-4 | 移除 nobody；輸入 `bob`，加入，儲存；跑 helper；`jev.api('GET', '/api/datasources/' + (await jev.source('覆蓋測試')).id + '/share')` | 對話框關掉；`{ allUsers: false, users: ["bob"] }`；記下覆蓋測試的 `id`（S19-6 要用） | 畫面、API |
+| S19-5 | bob 切到「資料」 | 左邊「來源 · 0」「還沒有資料來源」，下面「分享給我的 · 1」，裡面「覆蓋測試」，副標「來自 alice · 6 個欄位」；自動選中它。標題下面的說明是「「alice」分享給你的來源，可以拿來製圖，不能修改。」；標題列只有「用這個來源製圖」；欄位表的敏感開關和顯示名稱輸入框都停用；比率區沒有「新增比率」 | 畫面、截圖 |
+| S19-6 | bob：跑下方的「被分享的人改不了 API 檢查」 | 每一筆都是 404，`{"error":"找不到資料源"}`；`list` 裡覆蓋測試的 `createdBy` 是 alice | API |
+| S19-7 | bob 按「用這個來源製圖」，按「分析」，存成新儀表板，名稱 `E2E 分享來源` | 製圖頁的來源選單顯示「覆蓋測試（來自 alice）」；存檔後切到儀表板頁並打開它 | 畫面 |
+| S19-8 | bob：跑 helper；`jev.dashboard()` | 每張卡片 `error` 是空的；`sum` 卡片的營收總和 73600〔JEV〕 | API |
+| S19-9 | alice 選「覆蓋測試」，按「刪除來源」 | 確認文字多一行「這個來源有分享給別人，刪除後，別人用它做的圖和合併來源都會失效。」；沒有儀表板那一段（只列 alice 自己的儀表板）。按「取消」，不要刪 | 畫面 |
+| S19-10 | alice「分享」：移除 bob，打開「所有帳號都能用」，儲存 | 對話框關掉 | 畫面 |
+| S19-11 | e2e-admin 切到「資料」；bob 重新整理「E2E 分享來源」 | e2e-admin 的「分享給我的」有「覆蓋測試」（來自 alice）；bob 的卡片照常有資料 | 畫面 |
+| S19-12 | alice「分享」：關掉「所有帳號都能用」，儲存；bob 重新整理「E2E 分享來源」；`jev.dashboard()` | 每張卡片顯示「資料來源已停止分享，可以按右上角 ✕ 移除這張圖」，`error` 是 `SOURCE_UNSHARED`；bob 的資料頁沒有「分享給我的」那一段 | 畫面、API、截圖 |
+| S19-13 | alice 打開「E2E 對照」，按「分享」 | 「公開連結」開著，「不用登入也能看」關著、可以按 | 畫面 |
+| S19-14 | 打開「不用登入也能看」 | 提醒文字換成「沒有帳號的人也看得到這份儀表板的所有資料，包括明細表和敏感欄位。」 | 畫面 |
+| S19-15 | 關掉「公開連結」 | 「不用登入也能看」跟著關掉、變成停用；提醒文字換回「對方看到的資料跟你一樣，包括明細表和敏感欄位。」 | 畫面 |
+| S19-16 | 打開「公開連結」和「不用登入也能看」，儲存；`jev.api('GET', '/api/dashboards/' + location.hash.slice(4) + '/share')` | `{ publicLink: true, anonymous: true, users: [] }`；記下「E2E 對照」的 id | API |
+| S19-17 | `anon`：`new_page` `http://localhost:5181/#/d/<E2E 對照 的 id>`（`isolatedContext: "anon"`） | 不是登入頁：頂部只有 JEV 標誌、主題切換和「登入」，沒有「資料」「製圖」「儀表板」和帳號鈕；標題「E2E 對照」，說明「「alice」分享的儀表板，只能檢視。」；圖和異常標註看得到；卡片沒有 ✕、不能拖拉 | 畫面、截圖 |
+| S19-18 | anon：跑 helper；`jev.dashboard()`；再跑下方的「沒登入的 API 檢查」 | `jev.dashboard()` 的數字跟 S18-15 一樣；`shared`、`dashboards`、`datasources`、`share` 是 401；`withQuery` 是 200 | API |
+| S19-19 | anon 按「登入」 | 換成登入頁；重新整理之後又回到 S19-17 的畫面（沒登入） | 畫面 |
+| S19-20 | alice「E2E 對照」的「分享」：關掉「不用登入也能看」（公開連結留著），儲存；anon 重新整理 | anon 是登入頁 | 畫面 |
+
+被分享的人改不了 API 檢查（S19-6，在 bob 分頁用 `evaluate_script` 跑，`<id>` 換成 S19-4 記下的覆蓋測試 id）：
+
+```js
+async () => {
+  const id = '<id>'
+  const api = window.jev.api
+  const form = new FormData()
+  form.append('file', new File(['日期\n2026-08-05\n'], 'check.csv'))
+  form.append('mode', 'append')
+  return {
+    list: (await api('GET', '/api/datasources')).body.map((d) => ({ name: d.name, createdBy: d.createdBy })),
+    rows: await api('POST', `/api/datasources/${id}/rows`, form),
+    sensitive: await api('PATCH', `/api/datasources/${id}/sensitive`, { fields: [] }),
+    labels: await api('PATCH', `/api/datasources/${id}/labels`, { labels: {} }),
+    ratios: await api('PATCH', `/api/datasources/${id}/ratios`, { ratios: [] }),
+    usage: await api('GET', `/api/datasources/${id}/usage`),
+    share: await api('GET', `/api/datasources/${id}/share`),
+    reshare: await api('PUT', `/api/datasources/${id}/share`, { allUsers: true, users: [] }),
+    remove: await api('DELETE', `/api/datasources/${id}`),
+  }
+}
+```
+
+沒登入的 API 檢查（S19-18，在 anon 分頁跑）：
+
+```js
+async () => {
+  const id = location.hash.slice(4)
+  const status = async (method, url) => (await window.jev.api(method, url)).status
+  return {
+    shared: await status('GET', '/api/dashboards/shared'),
+    dashboards: await status('GET', '/api/dashboards'),
+    datasources: await status('GET', '/api/datasources'),
+    share: await status('GET', `/api/dashboards/${id}/share`),
+    withQuery: await status('GET', `/api/dashboards/${id}/data?filters=%7B%7D`),
+  }
+}
+```
+
+留下的狀態：覆蓋測試沒有分享；bob 有「E2E 分享來源」，卡片都是「資料來源已停止分享」；「E2E 對照」開著公開連結，「不用登入也能看」關著。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -879,6 +950,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 外部 API 允許清單、DS_ 密鑰綁 host | S16 |
 | 登入失敗鎖定 | S17 |
 | 更新資料：接在後面、整份覆蓋、Excel 工作表、下游跟著更新 | S18 |
+| 資料來源分享、別人分享的來源唯讀、停止分享的卡片、不用登入也能看 | S19 |
 
 ## 9. 結果範本
 
