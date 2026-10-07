@@ -17,6 +17,8 @@ import jev.dashboard.datasource.Ratio;
 public final class UniversalTransformer {
     // ponytail: 明細表只回前 500 筆，要看全部時再加分頁
     static final int TABLE_ROW_LIMIT = 500;
+    /** 分組欄位是空值的列歸到這一組，不丟掉 */
+    public static final String BLANK = "（空白）";
     static final List<String> TYPES = List.of("line", "bar", "pie", "scatter", "table", "radar", "heatmap", "stacked_bar");
     static final List<String> AGGREGATES = List.of("sum", "count", "avg", "none");
 
@@ -143,8 +145,10 @@ public final class UniversalTransformer {
             List<Object> key = new ArrayList<>(keys.size());
             for (int i = 0; i < keys.size(); i++) {
                 Object v = row.get(keys.get(i));
-                key.add(i == 0 && grain != null ? TimeBucket.of(v, grain) : v);
+                key.add(i == 0 && grain != null ? TimeBucket.of(v, grain) : Objects.requireNonNullElse(v, BLANK));
             }
+            // 分期的日期是空值時照舊不算：期別照字串排，「（空白）」會排在最後，異常檢查會把它當成最新一期，
+            // 比率的期間對齊也是照字串比月份
             if (key.contains(null)) continue;
             if (ratio != null) {
                 Object num = row.get(ratio.numerator());
@@ -247,8 +251,8 @@ public final class UniversalTransformer {
                                       List<String> measures, String agg, String grain) {
         Map<Object, double[][]> acc = new LinkedHashMap<>(); // 每個數值一組 [加總, 筆數]
         for (Map<String, Object> row : rows) {
-            Object key = grain != null ? TimeBucket.of(row.get(x), grain) : row.get(x);
-            if (key == null) continue;
+            Object key = grain != null ? TimeBucket.of(row.get(x), grain) : Objects.requireNonNullElse(row.get(x), BLANK);
+            if (key == null) continue; // 分期的日期是空值，理由同 grouped()
             for (int i = 0; i < measures.size(); i++) {
                 Object v = row.get(measures.get(i));
                 if (agg.equals("count") ? v == null : !(v instanceof Number)) continue;
@@ -280,8 +284,7 @@ public final class UniversalTransformer {
                                    List<String> measures, String agg) {
         Map<Object, double[][]> acc = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
-            Object s = row.get(series);
-            if (s == null) continue;
+            Object s = Objects.requireNonNullElse(row.get(series), BLANK);
             double[][] a = acc.computeIfAbsent(s, k -> new double[measures.size()][2]);
             for (int i = 0; i < measures.size(); i++) {
                 Object v = row.get(measures.get(i));
