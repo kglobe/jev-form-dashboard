@@ -78,7 +78,7 @@ class JevControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").doesNotExist())
             .andExpect(jsonPath("$.name").value("銷售 總覽"))
-            .andExpect(jsonPath("$.layout[*].type").value(contains("line", "stacked_bar", "bar", "table")))
+            .andExpect(jsonPath("$.layout[*].type").value(contains("kpi", "line", "stacked_bar", "bar", "table")))
             .andExpect(jsonPath("$.layout[0].mapping.timeGrain").value("month"));
         assertThat(jdbc.sql("select count(*) from dashboard").query(Long.class).single()).isZero();
         assertThat(JEV.bodies).hasSize(2);
@@ -289,7 +289,7 @@ class JevControllerTest {
                 .content("{\"datasourceId\":\"" + ds + "\",\"intents\":[\"  各區每月營收　\",\"\",\"   \",null]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.intents").value(contains("各區每月營收")))
-            .andExpect(jsonPath("$.layout[*].type").value(contains("line", "stacked_bar", "bar", "table")));
+            .andExpect(jsonPath("$.layout[*].type").value(contains("kpi", "line", "stacked_bar", "bar", "table")));
         assertThat(JEV.bodies.get(0)).contains("\"intent\":\"各區每月營收\"").contains("\"rel_0\"");
     }
 
@@ -367,9 +367,10 @@ class JevControllerTest {
         mvc.perform(post("/api/jev/analyze").with(TestData.as("u1"))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"datasourceId\":\"" + compared + "\"}"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.layout[0].type").value("line"))
-            .andExpect(jsonPath("$.layout[0].mapping.measures[0]").value("銷售·amount"))
-            .andExpect(jsonPath("$.layout[0].mapping.measures[1]").value("退貨·amount"));
+            .andExpect(jsonPath("$.layout[0].type").value("kpi"))
+            .andExpect(jsonPath("$.layout[1].type").value("line"))
+            .andExpect(jsonPath("$.layout[1].mapping.measures[0]").value("銷售·amount"))
+            .andExpect(jsonPath("$.layout[1].mapping.measures[1]").value("退貨·amount"));
 
         assertThat(JEV.bodies.get(1)).contains("兩個數值來自不同來源，要放在同一張圖上對照。");
     }

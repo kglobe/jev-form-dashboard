@@ -617,4 +617,119 @@ class ConfigAssemblerTest {
             layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList());
         assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
     }
+
+    // KPI spec 2.3：第一次分析自動放的 KPI 卡
+
+    static FieldEval dateSpanning(String min, String max) {
+        return new FieldEval(new FieldSchema("order_date", DATE, 12, List.of(), false, min, max), 3, "time");
+    }
+
+    static final FieldEval MONTHS = dateSpanning("2024-01-05", "2024-06-20");
+
+    static ChartSpec kpiCard(String chartId, String value) {
+        return new ChartSpec(chartId, "kpi", value, new GridPos(0, 0, 4, 2),
+            new Mapping("order_date", null, null, value, null, null, "sum", "month"), Map.of());
+    }
+
+    @Test
+    void noKpiWithoutATimeCandidateOrAnImportantMeasure() {
+        assertThat(ConfigAssembler.kpis(List.of(eval("region", STRING, 4, 2, "dimension"), eval("amount", NUMBER, 12, 3, "measure"))))
+            .isEmpty();
+        // qty 四捨五入是 1（次要），不夠重要
+        assertThat(ConfigAssembler.kpis(List.of(MONTHS, eval("qty", NUMBER, 8, 1.4, "measure")))).isEmpty();
+    }
+
+    @Test
+    void kpisTakeFocusMeasuresFirstThenTheImportantOnesAtMostThree() {
+        List<FieldEval> cands = List.of(
+            eval("region", STRING, 4, 3, "dimension"),
+            MONTHS,
+            dateSpanning("2020-01-01", "2024-06-20"), // 第二個日期欄位不用
+            eval("amount", NUMBER, 12, 2.75, "measure"),
+            eval("qty", NUMBER, 8, 1, "measure"),            // 次要，不放
+            focus(eval("refund", NUMBER, 5, 0.25, "measure")), // 不重要，但是焦點
+            eval("cost", NUMBER, 8, 2.4, "measure"),
+            eval("profit", NUMBER, 8, 1.5, "measure"));        // 四捨五入是 2，但已經 3 張
+
+        List<ChartSpec> kpis = ConfigAssembler.kpis(cands);
+
+        assertThat(kpis).extracting(ChartSpec::chartId, ChartSpec::type, ChartSpec::title, ChartSpec::options).containsExactly(
+            tuple("c1", "kpi", "refund", Map.of("focus", true)),
+            tuple("c2", "kpi", "amount", Map.of()),
+            tuple("c3", "kpi", "cost", Map.of()));
+        assertThat(kpis.get(1).mapping()).isEqualTo(new Mapping("order_date", null, null, "amount", null, null, "sum", "month"));
+        assertThat(kpis).extracting(ChartSpec::gridPos).containsOnlyNulls();
+    }
+
+    @Test
+    void aRatioCanBeAKpiAndItsTitleIsTheValue() {
+        List<ChartSpec> kpis = ConfigAssembler.kpis(List.of(MONTHS, ratio(RETURN_RATE, 2), ratio(new Ratio("毛利率", "gp", "sales"), 0)));
+        assertThat(kpis).singleElement().satisfies(k -> {
+            assertThat(k.mapping()).isEqualTo(new Mapping("order_date", null, null, "退貨率", null, null, "sum", "month"));
+            assertThat(k.title()).isEqualTo("退貨率").isEqualTo(ConfigAssembler.title("kpi", k.mapping()));
+        });
+    }
+
+    @Test
+    void aKpiIsQuarterlyOverThreeYearsOfDataAndMonthlyOtherwise() {
+        FieldEval amount = eval("amount", NUMBER, 12, 3, "measure");
+        assertThat(ConfigAssembler.kpis(List.of(dateSpanning("2020-01-01", "2024-06-20"), amount)).get(0).mapping().timeGrain())
+            .isEqualTo("quarter");
+        // 三個月以內 timeGrain() 是 day，KPI 也用月
+        assertThat(ConfigAssembler.kpis(List.of(dateSpanning("2024-01-01", "2024-03-01"), amount)).get(0).mapping().timeGrain())
+            .isEqualTo("month");
+        assertThat(ConfigAssembler.kpis(List.of(MONTHS, amount)).get(0).mapping().timeGrain()).isEqualTo("month");
+    }
+
+    @Test
+    void assemblePutsTheKpisOnTheTopRowAndTheyDoNotCountTowardsK() {
+        List<ChartSpec> kpis = ConfigAssembler.kpis(List.of(MONTHS, eval("amount", NUMBER, 12, 3, "measure"),
+            eval("cost", NUMBER, 8, 2, "measure")));
+        Map<String, Answer> round2 = Map.of("combo_1", choice("line", 0.9), "combo_2", choice("bar", 0.9));
+
+        List<ChartSpec> layout = ConfigAssembler.assemble(kpis, regionFocusCombos(), round2, 2, TABLE_COLUMNS);
+
+        assertThat(layout).extracting(ChartSpec::chartId, ChartSpec::type, ChartSpec::gridPos).containsExactly(
+            tuple("c1", "kpi", new GridPos(0, 0, 4, 2)),
+            tuple("c2", "kpi", new GridPos(4, 0, 4, 2)),
+            tuple("c3", "bar", new GridPos(0, 2, 6, 4)),  // 焦點組合補在 KPI 之後的第一張
+            tuple("c4", "line", new GridPos(6, 2, 6, 4)), // K = 2 張圖，KPI 不算
+            tuple("c5", "table", new GridPos(0, 6, 12, 5)));
+        List<ChartSpec> saved = layout.stream().map(s -> s.withDatasourceId(UUID.randomUUID())).toList();
+        assertThatCode(() -> DashboardService.requireComplete(new DashboardConfig(null, "銷售 總覽", null, saved)))
+            .doesNotThrowAnyException();
+    }
+
+    @Test
+    void layOutPutsThreeKpisARowAndTheOtherChartsBelowThem() {
+        List<ChartSpec> specs = List.of(card("c1", "line", xy("order_date", "amount")), kpiCard("c2", "a"), kpiCard("c3", "b"),
+            table("c4", List.of("region")), kpiCard("c5", "c"), kpiCard("c6", "d"), card("c7", "bar", xy("region", "amount")),
+            card("c8", "pie", xy("region", "amount")));
+
+        assertThat(ConfigAssembler.layOut(specs)).extracting(ChartSpec::chartId, ChartSpec::gridPos).containsExactly(
+            tuple("c2", new GridPos(0, 0, 4, 2)), tuple("c3", new GridPos(4, 0, 4, 2)), tuple("c5", new GridPos(8, 0, 4, 2)),
+            tuple("c6", new GridPos(0, 2, 4, 2)),
+            tuple("c1", new GridPos(0, 4, 6, 4)), tuple("c7", new GridPos(6, 4, 6, 4)), tuple("c8", new GridPos(0, 8, 6, 4)),
+            tuple("c4", new GridPos(0, 12, 12, 5)));
+    }
+
+    @Test
+    void adjustKeepsTheKpisOnTopAddsNoNewOnesAndDoesNotCountThemTowardsSix() {
+        List<ChartSpec> kept = new ArrayList<>(List.of(kpiCard("c1", "amount"), kpiCard("c2", "qty"), kpiCard("c3", "cost")));
+        IntStream.rangeClosed(4, 8).mapToObj(i -> card("c" + i, "line", xy("order_date", "m" + i))).forEach(kept::add);
+        List<Combo> combos = List.of(
+            new Combo(List.of(PRODUCT, eval("amount", NUMBER, 12, 2.75, "measure")), List.of("bar"), 2.0),
+            new Combo(List.of(PRODUCT, eval("qty", NUMBER, 8, 1, "measure")), List.of("bar"), 1.125));
+        Map<String, Answer> round2 = Map.of("combo_0", choice("bar", 0.9), "combo_1", choice("bar", 0.9));
+
+        // 2 ×（6 − 5 張一般的圖），三張 KPI 不算
+        assertThat(ConfigAssembler.adjustCombos(combos, kept)).hasSize(2);
+        List<ChartSpec> layout = ConfigAssembler.adjust(kept, kept, combos, round2, Set.of("product"));
+        assertThat(layout).extracting(ChartSpec::chartId)
+            .containsExactly("c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9");
+        assertThat(layout.subList(0, 3)).extracting(ChartSpec::gridPos)
+            .containsExactly(new GridPos(0, 0, 4, 2), new GridPos(4, 0, 4, 2), new GridPos(8, 0, 4, 2));
+        assertThat(layout.get(3).gridPos()).isEqualTo(new GridPos(0, 2, 6, 4));
+        assertThat(layout).filteredOn(s -> s.type().equals("kpi")).hasSize(3);
+    }
 }

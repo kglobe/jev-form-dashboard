@@ -25,8 +25,10 @@ public final class ConfigAssembler {
     /** Choice／Score 的信心門檻；照 JevConfig.TUNED_MODEL（jev-1.13.0）調的，換模型要重新調校。 */
     public static final double MIN_CONFIDENCE = 0.5;
     static final int MAX_CANDIDATES = 8;
-    /** spec 6.5：調整後最多 6 張圖（不含明細表）。 */
+    /** spec 6.5：調整後最多 6 張圖（不含明細表；KPI spec 2.3：也不含 KPI 卡）。 */
     static final int MAX_CHARTS = 6;
+    /** KPI spec 2.3：第一次分析最多放 3 張 KPI 卡，剛好一排。 */
+    static final int MAX_KPIS = 3;
 
     public static final Map<String, String> CHART_TYPES_ZH = new LinkedHashMap<>();
     static {
@@ -37,6 +39,8 @@ public final class ConfigAssembler {
         CHART_TYPES_ZH.put("radar", "雷達圖：比較少數幾個分類在多個指標上的表現");
         CHART_TYPES_ZH.put("heatmap", "熱力圖：看兩個維度交叉後的數值分布");
         CHART_TYPES_ZH.put("stacked_bar", "堆疊長條圖：比較各分類的組成");
+        // KPI spec 5：調整時問要不要留用得到；pairTypes、tripleTypes 不產生 kpi，第二輪的選項不會有它
+        CHART_TYPES_ZH.put("kpi", "KPI 大數字卡：顯示最近一期的數字和跟前一期比的變化");
     }
 
     /**
@@ -252,13 +256,19 @@ public final class ConfigAssembler {
      */
     public static List<ChartSpec> assemble(List<Combo> combos, Map<String, Answer> round2, int k,
                                            List<String> tableColumns) {
+        return assemble(List.of(), combos, round2, k, tableColumns);
+    }
+
+    /** kpis 是 kpis() 的結果（chartId 從 c1 編起），排在最前面，不算進 K 張（KPI spec 2.3）。 */
+    public static List<ChartSpec> assemble(List<ChartSpec> kpis, List<Combo> combos, Map<String, Answer> round2, int k,
+                                           List<String> tableColumns) {
         List<Pick> picks = picks(combos, round2, k);
         Combo top = combos.stream().filter(Combo::hasFocus).findFirst().orElse(null);
         if (top != null && picks.stream().noneMatch(p -> p.combo().hasFocus())) {
             if (picks.size() == k) picks.remove(picks.size() - 1);
             picks.add(0, new Pick(top, top.chartTypes().get(0)));
         }
-        List<ChartSpec> charts = new ArrayList<>();
+        List<ChartSpec> charts = new ArrayList<>(kpis);
         for (Pick p : picks) charts.add(chart("c" + (charts.size() + 1), p));
         charts.add(table("c" + (charts.size() + 1), tableColumns));
         return layOut(charts);
@@ -289,15 +299,48 @@ public final class ConfigAssembler {
             new Mapping(null, null, null, null, null, columns, "none", null), Map.of());
     }
 
-    /** spec 6.6：圖表依順序每列兩張（6×4），明細表放最後（12×5）。其他設定原封不動。 */
+    /**
+     * KPI spec 2.3：第一次分析自動放的 KPI 卡，不另外問 JEV。候選裡要有 time 欄位，用第一個（候選已經照重要性排過）；
+     * 數值是候選裡的 measure（含比率），焦點優先、再照重要性，只取焦點或 round(重要性) ≥ 2 的，最多 MAX_KPIS 個。
+     * 期別：timeGrain() 是季就用季，其他（月、日）用月。chartId 從 c1 編起，gridPos 先留空，由 layOut 排。
+     */
+    public static List<ChartSpec> kpis(List<FieldEval> candidates) {
+        FieldEval time = candidates.stream().filter(e -> e.role().equals("time")).findFirst().orElse(null);
+        if (time == null) return List.of();
+        String grain = timeGrain(time.field()).equals("quarter") ? "quarter" : "month";
+        List<FieldEval> values = candidates.stream()
+            .filter(e -> e.role().equals("measure") && (e.focus() || Math.round(e.importance()) >= 2))
+            .sorted(Comparator.comparing(FieldEval::focus).reversed()
+                .thenComparing(Comparator.comparingDouble(FieldEval::importance).reversed()))
+            .limit(MAX_KPIS).toList();
+        List<ChartSpec> out = new ArrayList<>();
+        for (FieldEval v : values) {
+            Mapping m = new Mapping(time.name(), null, null, v.name(), null, null, "sum", grain);
+            Map<String, Object> options = v.focus() || time.focus() ? Map.of("focus", true) : Map.of();
+            out.add(new ChartSpec("c" + (out.size() + 1), "kpi", title("kpi", m), null, m, options));
+        }
+        return out;
+    }
+
+    /**
+     * spec 6.6：圖表依順序每列兩張（6×4），明細表放最後（12×5）。其他設定原封不動。
+     * KPI spec 2.3：KPI 卡先排在最上面，每排 3 張（4×2），其他圖從 KPI 下面開始。
+     */
     static List<ChartSpec> layOut(List<ChartSpec> specs) {
         List<ChartSpec> out = new ArrayList<>();
         for (ChartSpec s : specs) {
-            if (s.type().equals("table")) continue;
+            if (!s.type().equals("kpi")) continue;
             int n = out.size();
-            out.add(at(s, new GridPos((n % 2) * 6, (n / 2) * 4, 6, 4)));
+            out.add(at(s, new GridPos((n % 3) * 4, (n / 3) * 2, 4, 2)));
         }
-        int y = (out.size() + 1) / 2 * 4;
+        int top = (out.size() + 2) / 3 * 2;
+        int n = 0;
+        for (ChartSpec s : specs) {
+            if (s.type().equals("table") || s.type().equals("kpi")) continue;
+            out.add(at(s, new GridPos((n % 2) * 6, top + (n / 2) * 4, 6, 4)));
+            n++;
+        }
+        int y = top + (n + 1) / 2 * 4;
         for (ChartSpec s : specs) {
             if (s.type().equals("table")) out.add(at(s, new GridPos(0, y, 12, 5)));
         }
@@ -334,8 +377,13 @@ public final class ConfigAssembler {
                 .toList();
             if (!types.isEmpty()) out.add(new Combo(c.fields(), types, c.score()));
         }
-        int limit = 2 * Math.max(0, MAX_CHARTS - keptCharts.size());
+        int limit = 2 * Math.max(0, MAX_CHARTS - counted(keptCharts));
         return List.copyOf(out.subList(0, Math.min(out.size(), limit)));
+    }
+
+    /** 算進「最多 6 張」的圖：明細表和 KPI 卡（KPI spec 2.3）不算。 */
+    private static int counted(List<ChartSpec> specs) {
+        return (int) specs.stream().filter(s -> !s.type().equals("table") && !s.type().equals("kpi")).count();
     }
 
     /**
@@ -343,6 +391,7 @@ public final class ConfigAssembler {
      * 第二輪接受的焦點組合依序加在後面，總數最多 6 張；
      * 一張都沒加、保留的圖也沒用到焦點欄位、還有空位時，補上排最前面的焦點組合。
      * 新圖的 chartId 接在 current 所有 chartId 最大的數字後面；明細表沿用 current 的，放最後。不補一般性的圖。
+     * KPI spec 2.3：保留的 KPI 卡不算進 6 張，也不新增 KPI 卡；layOut 照樣把它們排在最上面。
      */
     public static List<ChartSpec> adjust(List<ChartSpec> current, List<ChartSpec> kept, List<Combo> combos,
                                          Map<String, Answer> round2, Set<String> focusFields) {
@@ -353,7 +402,7 @@ public final class ConfigAssembler {
             keptUsesFocus |= usesFocus;
             charts.add(usesFocus ? withFocus(s) : s);
         }
-        int room = Math.max(0, MAX_CHARTS - charts.size());
+        int room = Math.max(0, MAX_CHARTS - counted(charts));
         List<Pick> picks = picks(combos, round2, room);
         if (picks.isEmpty() && !combos.isEmpty() && !keptUsesFocus && room > 0) {
             picks.add(new Pick(combos.get(0), combos.get(0).chartTypes().get(0)));
