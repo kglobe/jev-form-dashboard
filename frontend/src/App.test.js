@@ -793,4 +793,78 @@ describe('App', () => {
       expect(findButton(wrapper, '新增儀表板')).toBeDefined()
     })
   })
+
+  describe('資料來源共享 spec 6.6：沒登入時打開儀表板連結', () => {
+    const ID = '11111111-2222-3333-4444-555555555555'
+    const config = { id: ID, name: '各區營收', createdBy: 'boss', layout: [] }
+    const notLoggedIn = () => api.me.mockRejectedValueOnce(Object.assign(new Error('請先登入'), { status: 401 }))
+
+    it('打得開就進訪客檢視：頂部只有品牌、主題切換和「登入」，下面是唯讀檢視', async () => {
+      history.replaceState(null, '', `/#/d/${ID}`)
+      notLoggedIn()
+      api.getDashboard.mockResolvedValue(config)
+      const wrapper = mountApp()
+      await flushPromises()
+
+      expect(api.getDashboard).toHaveBeenCalledWith(ID)
+      expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(false)
+      expect(wrapper.find('.cc-logo').exists()).toBe(true)
+      expect(wrapper.find('.cc-topbar__theme').exists()).toBe(true)
+      expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(false)
+      expect(wrapper.findComponent({ name: 'UserMenu' }).exists()).toBe(false)
+      expect(wrapper.findComponent({ name: 'ChartBuilder' }).exists()).toBe(false)
+      expect(findButton(wrapper, '登入')).toBeDefined()
+      expect(wrapper.get('.cc-title').text()).toBe('各區營收')
+      expect(wrapper.get('.cc-desc').text()).toBe('「boss」分享的儀表板，只能檢視。')
+      const view = wrapper.findComponent({ name: 'DashboardView' })
+      expect(view.props('config')).toEqual(config)
+      expect(view.props('readonly')).toBe(true)
+      expect(api.listDashboards).not.toHaveBeenCalled()
+
+      // 訪客沒有 me，API 回 401 也不跳重新登入
+      onUnauthorized.mock.calls[0][0]()
+      await flushPromises()
+      expect(wrapper.find('.relogin-stub').exists()).toBe(false)
+    })
+
+    it('按「登入」顯示登入頁；登入後照舊開機，打開同一份', async () => {
+      history.replaceState(null, '', `/#/d/${ID}`)
+      notLoggedIn()
+      api.getDashboard.mockResolvedValue(config)
+      const wrapper = mountApp()
+      await flushPromises()
+
+      await findButton(wrapper, '登入').trigger('click')
+      const login = wrapper.findComponent({ name: 'LoginPage' })
+      expect(login.exists()).toBe(true)
+      expect(login.props('error')).toBeNull()
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(false)
+
+      login.vm.$emit('logged-in')
+      await flushPromises()
+      expect(wrapper.find('nav[aria-label="主要導覽"]').exists()).toBe(true)
+      expect(api.getDashboard).toHaveBeenCalledTimes(2)
+      expect(api.getDashboard).toHaveBeenLastCalledWith(ID)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(true)
+    })
+
+    it.each([404, 401])('getDashboard 回 %i 時照舊顯示登入頁', async (status) => {
+      history.replaceState(null, '', `/#/d/${ID}`)
+      notLoggedIn()
+      api.getDashboard.mockRejectedValue(Object.assign(new Error('找不到儀表板'), { status }))
+      const wrapper = mountApp()
+      await flushPromises()
+      expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(false)
+    })
+
+    it('網址不是儀表板時不試，直接顯示登入頁', async () => {
+      history.replaceState(null, '', '/#/d/not-a-uuid')
+      notLoggedIn()
+      const wrapper = mountApp()
+      await flushPromises()
+      expect(api.getDashboard).not.toHaveBeenCalled()
+      expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(true)
+    })
+  })
 })

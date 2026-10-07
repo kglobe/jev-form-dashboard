@@ -115,6 +115,14 @@ describe('ChartBuilder', () => {
     expect(analyzeButton().disabled).toBe(false)
   })
 
+  it('資料來源共享 spec 6.4：別人分享的來源，名稱後面加「（來自 帳號）」', async () => {
+    const [mine, theirs] = sources()
+    api.listDatasources.mockResolvedValue([{ ...mine, createdBy: 'u1' }, { ...theirs, createdBy: 'boss' }])
+    const wrapper = await mountBuilder({ username: 'u1' })
+    const title = select(wrapper).props('itemTitle')
+    expect(select(wrapper).props('items').map(title)).toEqual(['銷售', '退貨（來自 boss）'])
+  })
+
   it('disables 分析 when there is no datasource', async () => {
     api.listDatasources.mockResolvedValue([])
     await mountBuilder()

@@ -54,10 +54,13 @@ export const api = {
   updateAccount: (username, patch) => request('PATCH', `/api/admin/accounts/${encodeURIComponent(username)}`, patch),
   setAccountPassword: (username, password) =>
     request('PUT', `/api/admin/accounts/${encodeURIComponent(username)}/password`, { password }),
-  // 唯讀分享 spec 4.3：分享
+  // 唯讀分享 spec 4.3：分享；anonymous 是不用登入也能看（資料來源共享 spec 4.3）
   getShare: (id) => request('GET', `/api/dashboards/${id}/share`),
-  setShare: (id, { publicLink, users }) => request('PUT', `/api/dashboards/${id}/share`, { publicLink, users }),
+  setShare: (id, { publicLink, anonymous, users }) => request('PUT', `/api/dashboards/${id}/share`, { publicLink, anonymous, users }),
   sharedDashboards: () => request('GET', '/api/dashboards/shared'),
+  // 資料來源共享 spec 4.1
+  getDatasourceShare: (id) => request('GET', `/api/datasources/${id}/share`),
+  setDatasourceShare: (id, { allUsers, users }) => request('PUT', `/api/datasources/${id}/share`, { allUsers, users }),
   listDatasources: () => request('GET', '/api/datasources'),
   uploadDatasource: (form) => request('POST', '/api/datasources/upload', form),
   // 更新資料 spec 3.1：form 帶 file、mode（replace／append），Excel 可以再帶 sheet

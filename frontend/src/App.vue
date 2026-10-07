@@ -34,6 +34,8 @@ const relogin = ref(false)
 onUnauthorized(() => {
   if (me.value) relogin.value = true
 })
+// 資料來源共享 spec 6.6：沒登入時打開的儀表板（訪客檢視）；按「登入」就清掉，改顯示登入頁
+const guest = ref(null)
 
 // 深淺主題：Vuetify 換元件配色，<html data-theme> 換 command-center.css 的 token，localStorage 記住下次用哪套
 const THEME_KEY = 'jev-theme' // index.html 的 inline script 讀同一個 key
@@ -71,12 +73,19 @@ async function boot() {
   try {
     me.value = await api.me()
   } catch (e) {
-    if (e.status === 401) needLogin.value = true
+    if (e.status === 401) await tryGuest()
     else bootError.value = e.message
     return
   }
   refresh().catch((e) => (error.value = e.message))
   openFromHash()
+}
+
+// 資料來源共享 spec 6.6：沒登入、網址是儀表板時先試著打開；打不開（401、404 等）照舊顯示登入頁
+async function tryGuest() {
+  const m = location.hash.match(DASHBOARD_HASH)
+  guest.value = m ? await api.getDashboard(m[1]).catch(() => null) : null
+  if (!guest.value) needLogin.value = true
 }
 
 // spec 7.2：重新登入的是同一個帳號，但管理員、密碼可能變了，換成剛拿到的 me；剛才失敗的動作不會自動重送
@@ -186,8 +195,8 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
 <template>
   <v-app>
     <!-- 唯讀分享 spec 7.1：開機先確認登入。下面的既有標記刻意不重排縮排，跟 feat/industrial-theme 合併時衝突才少 -->
-    <div v-if="!me && !needLogin && !bootError" class="boot"><v-progress-circular indeterminate color="primary" /></div>
-    <LoginPage v-else-if="!me" :error="bootError" :is-light="isLight" @logged-in="boot" @retry="boot" @toggle-theme="toggleTheme" />
+    <div v-if="!me && !guest && !needLogin && !bootError" class="boot"><v-progress-circular indeterminate color="primary" /></div>
+    <LoginPage v-else-if="!me && !guest" :error="bootError" :is-light="isLight" @logged-in="boot" @retry="boot" @toggle-theme="toggleTheme" />
     <template v-else>
     <header class="cc-topbar">
       <div class="cc-logo" aria-hidden="true">
@@ -197,7 +206,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
         </svg>
         <span>JEV</span>
       </div>
-      <nav class="cc-topbar__nav" aria-label="主要導覽">
+      <nav v-if="me" class="cc-topbar__nav" aria-label="主要導覽">
         <button
           v-for="(v, n) in VIEWS"
           :key="v.id"
@@ -212,7 +221,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
           {{ v.label }}
         </button>
       </nav>
-      <UserMenu :me="me">
+      <UserMenu v-if="me" :me="me">
         <template #activator="{ props }">
           <button type="button" class="cc-topbar__item cc-topbar__account" v-bind="props" :title="me.username">
             <v-icon icon="mdi-account-circle-outline" size="18" />
@@ -220,6 +229,11 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
           </button>
         </template>
       </UserMenu>
+      <!-- 資料來源共享 spec 6.6：訪客只有品牌、主題切換和「登入」 -->
+      <button v-else type="button" class="cc-topbar__item cc-topbar__account" title="登入" @click="guest = null; needLogin = true">
+        <v-icon icon="mdi-login" size="18" />
+        <span>登入</span>
+      </button>
       <button
         type="button"
         class="cc-topbar__item cc-topbar__theme"
@@ -232,14 +246,35 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
       </button>
     </header>
 
-    <v-main>
-      <DatasourcePanel v-if="view === 'data'" :selected-id="datasourceId" :admin="me.admin" @select="(id) => (datasourceId = id)" @build="startBuild" />
+    <!-- 資料來源共享 spec 6.6：訪客檢視就是唯讀檢視（唯讀分享 spec 7.8），沒有左邊的清單 -->
+    <v-main v-if="guest">
+      <section class="cc-view">
+        <header class="cc-head">
+          <div>
+            <div class="cc-eyebrow">03 · Dashboards</div>
+            <h1 class="cc-title">{{ guest.name }}</h1>
+            <p class="cc-desc">「{{ guest.createdBy }}」分享的儀表板，只能檢視。</p>
+          </div>
+        </header>
+        <DashboardView :config="guest" :readonly="true" />
+      </section>
+    </v-main>
+    <v-main v-else>
+      <DatasourcePanel
+        v-if="view === 'data'"
+        :selected-id="datasourceId"
+        :admin="me.admin"
+        :username="me.username"
+        @select="(id) => (datasourceId = id)"
+        @build="startBuild"
+      />
       <!-- 製圖頁用 v-show 一直掛著：去資料頁改個顯示名稱再回來，預覽和調整紀錄都還在 -->
       <ChartBuilder
         v-show="view === 'build'"
         :active="view === 'build'"
         :request="buildRequest"
         :dashboards="dashboards"
+        :username="me.username"
         @saved="onSaved"
         @dashboards-changed="reloadDashboards"
       />
@@ -332,7 +367,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
         </v-card-actions>
       </v-card>
     </v-dialog>
-    <ReloginDialog v-model="relogin" :me="me" @done="afterRelogin" />
+    <ReloginDialog v-if="me" v-model="relogin" :me="me" @done="afterRelogin" />
     <ShareDialog v-if="current" :key="current.id" v-model="sharing" :dashboard="current" />
     </template>
   </v-app>
