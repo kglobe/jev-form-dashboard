@@ -59,6 +59,12 @@ const adding = ref(false)
 const file = ref(null)
 const name = ref('')
 const sheet = ref('')
+// 寬表轉長表 spec 第 5 節：勾了才送 year、periodName、valueName；年份預設今年
+const thisYear = () => String(new Date().getFullYear())
+const unpivot = ref(false)
+const unpivotYear = ref(thisYear())
+const periodName = ref('')
+const valueName = ref('')
 
 const apiName = ref('')
 const apiUrl = ref('')
@@ -80,7 +86,9 @@ async function run(action) {
     emit('select', ds.id)
     addOpen.value = false
     file.value = null
-    name.value = sheet.value = apiName.value = apiUrl.value = ''
+    name.value = sheet.value = apiName.value = apiUrl.value = periodName.value = valueName.value = ''
+    unpivot.value = false
+    unpivotYear.value = thisYear()
     apiHeaders.value = '{}'
   } catch (e) {
     addError.value = e.message
@@ -107,7 +115,26 @@ function upload() {
   form.append('file', f)
   form.append('name', name.value || f.name)
   if (sheet.value) form.append('sheet', sheet.value)
-  return run(() => api.uploadDatasource(form))
+  if (unpivot.value) {
+    form.append('unpivot', 'true')
+    form.append('year', unpivotYear.value ?? '')
+    form.append('periodName', periodName.value ?? '')
+    form.append('valueName', valueName.value ?? '')
+  }
+  return run(async () => {
+    const ds = await api.uploadDatasource(form)
+    if (ds.unpivot) notice.value = unpivotNotice(ds)
+    return ds
+  })
+}
+
+// 超過 3 欄寫頭尾和欄數（「共 12 欄轉成」），3 欄以內全部列出（「Q1、Q2 轉成」）
+const columnsText = (cols) => (cols.length > 3 ? `${cols[0]}～${cols.at(-1)} 共 ${cols.length} 欄` : `${cols.join('、')} `)
+const unpivotSummary = (u) => `${columnsText(u.columns)}轉成「${u.periodName}」「${u.valueName}」兩欄`
+
+function unpivotNotice(ds) {
+  const dropped = ds.unpivot.dropped.length ? `；沒有匯入：${ds.unpivot.dropped.join('、')}` : ''
+  return `已把 ${unpivotSummary(ds.unpivot)}，共 ${ds.rowCount} 筆${dropped}`
 }
 
 function register() {
@@ -285,10 +312,10 @@ const reloadSheet = ref('')
 const reloadMode = ref(null) // 沒有預設值，一定要自己選整份覆蓋或接在後面
 const reloadError = ref('')
 const reloading = ref(false)
-const notice = ref('') // 更新成功的訊息，顯示在頁面上方
+const notice = ref('') // 更新成功、寬表轉長表的訊息，顯示在頁面上方
 
 function openReload(ds) {
-  reloadTarget.value = { id: ds.id, name: ds.name, rowCount: ds.rowCount }
+  reloadTarget.value = { id: ds.id, name: ds.name, rowCount: ds.rowCount, unpivot: ds.unpivot }
   reloadFile.value = null
   reloadSheet.value = reloadError.value = notice.value = ''
   reloadMode.value = null
@@ -511,6 +538,14 @@ async function reload() {
               <v-file-input v-model="file" label="CSV / Excel" accept=".csv,.xlsx,.xls" prepend-icon="" prepend-inner-icon="mdi-paperclip" />
               <v-text-field v-model="name" label="名稱（預設用檔名）" />
               <v-text-field v-model="sheet" label="工作表（Excel 選填）" />
+              <v-checkbox v-model="unpivot" label="把 1月、2月…這類欄位轉成兩欄（寬表轉長表）" density="compact" hide-details />
+              <template v-if="unpivot">
+                <v-text-field v-model="unpivotYear" label="年份" hint="標題沒寫年份時用，例如 1月、Q1" persistent-hint inputmode="numeric" class="mt-3" />
+                <div class="d-flex ga-3 mt-3">
+                  <v-text-field v-model="periodName" label="期間欄名稱" placeholder="月份" hint="預設：月份，季是「季」" persistent-hint />
+                  <v-text-field v-model="valueName" label="數值欄名稱" placeholder="數值" hint="預設：數值" persistent-hint />
+                </div>
+              </template>
             </v-window-item>
             <v-window-item value="api" :transition="false" :reverse-transition="false">
               <v-text-field v-model="apiName" label="名稱" />
@@ -595,7 +630,10 @@ async function reload() {
       <v-card v-if="reloadTarget">
         <v-card-title class="pt-5 px-6">更新資料</v-card-title>
         <v-card-text class="px-6">
-          <p>「{{ reloadTarget.name }}」目前有 {{ reloadTarget.rowCount }} 筆資料。新檔案的欄位名稱要跟原本一樣。</p>
+          <p v-if="reloadTarget.unpivot">
+            「{{ reloadTarget.name }}」目前有 {{ reloadTarget.rowCount }} 筆資料。上傳時把 {{ unpivotSummary(reloadTarget.unpivot) }}。新檔案的欄位要跟第一次上傳的一樣，會照同樣方式轉。
+          </p>
+          <p v-else>「{{ reloadTarget.name }}」目前有 {{ reloadTarget.rowCount }} 筆資料。新檔案的欄位名稱要跟原本一樣。</p>
           <p class="mt-2 mb-4">更新後，用到它的圖和合併來源都會顯示新的資料。</p>
           <v-file-input v-model="reloadFile" label="CSV / Excel" accept=".csv,.xlsx,.xls" prepend-icon="" prepend-inner-icon="mdi-paperclip" />
           <v-text-field v-model="reloadSheet" label="工作表（Excel 選填）" />
