@@ -711,6 +711,45 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.filters").doesNotExist());
     }
 
+    /** 在儀表板 JSON 最前面加上 refreshMinutes。 */
+    static String withRefresh(String dashboardJson, Object minutes) {
+        return "{\"refreshMinutes\":" + minutes + "," + dashboardJson.substring(1);
+    }
+
+    @Test
+    void refreshMinutesIsSavedReadByViewersKeptByAppendAndClearedByAPutWithoutIt() throws Exception { // 自動更新 spec 4
+        String ds = TestData.uploadSales(mvc, "u1");
+        String json = TestData.dashboardJson(ds);
+        // 建立時不收，跟 filters 一樣
+        String id = create("u1", withRefresh(json, 5));
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.refreshMinutes").doesNotExist());
+
+        for (int minutes : new int[] {1, 5, 10, 15}) {
+            mvc.perform(putJson(id, withRefresh(json, minutes)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refreshMinutes").value(minutes));
+        }
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.refreshMinutes").value(15));
+        for (String bad : new String[] {"0", "2", "30", "60", "-1"}) {
+            mvc.perform(putJson(id, withRefresh(json, bad)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("自動更新只能選 1、5、10、15 分鐘"));
+        }
+
+        // 被分享的人、沒登入的訪客都拿得到
+        putShare("u1", id, "{\"publicLink\":true,\"anonymous\":true,\"users\":[\"u2\"]}", 200);
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u2"))).andExpect(jsonPath("$.refreshMinutes").value(15));
+        mvc.perform(get("/api/dashboards/" + id)).andExpect(jsonPath("$.refreshMinutes").value(15));
+
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":[" + card("c1", ds, 0) + "]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.refreshMinutes").value(15));
+
+        mvc.perform(putJson(id, json)).andExpect(status().isOk()).andExpect(jsonPath("$.refreshMinutes").doesNotExist());
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.refreshMinutes").doesNotExist());
+    }
+
     @Test
     void dataAppliesTheFiltersAndNamesTheOnesThatDidNotApply() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");

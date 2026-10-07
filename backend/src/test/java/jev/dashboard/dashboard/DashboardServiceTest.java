@@ -44,7 +44,7 @@ class DashboardServiceTest {
     }
 
     static DashboardConfig withIntents(List<String> intents) {
-        return new DashboardConfig(null, "銷售總覽", null, List.of(), intents, null, null);
+        return new DashboardConfig(null, "銷售總覽", null, List.of(), intents, null, null, null);
     }
 
     @Test

@@ -29,9 +29,9 @@ public class DashboardRepository {
     /** 唯讀分享 spec 4.3：「分享給我的」清單的一筆。 */
     public record SharedDashboard(UUID id, String name, String owner, OffsetDateTime updatedAt) {}
 
-    /** config_json 的內容。basis、filters 是 null 時不寫出來，沒有依據、沒存篩選的儀表板就只有 layout。 */
+    /** config_json 的內容。basis、filters、refreshMinutes 是 null 時不寫出來，沒有依據、沒存篩選、不自動更新的儀表板就只有 layout。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    record Stored(List<ChartSpec> layout, List<Basis> basis, Filters filters) {}
+    record Stored(List<ChartSpec> layout, List<Basis> basis, Filters filters, Integer refreshMinutes) {}
 
     private final JdbcClient jdbc;
     private final ObjectMapper json;
@@ -49,7 +49,7 @@ public class DashboardRepository {
             .param("id", id)
             .param("name", c.name())
             .param("by", userId)
-            .param("config", write(new Stored(c.layout(), c.basis(), c.filters())))
+            .param("config", write(new Stored(c.layout(), c.basis(), c.filters(), c.refreshMinutes())))
             .update();
         return id;
     }
@@ -115,7 +115,7 @@ public class DashboardRepository {
                 update dashboard set name = :name, config_json = cast(:config as jsonb), updated_at = now()
                 where id = :id and created_by = :by""")
             .param("name", c.name())
-            .param("config", write(new Stored(c.layout(), c.basis(), c.filters())))
+            .param("config", write(new Stored(c.layout(), c.basis(), c.filters(), c.refreshMinutes())))
             .param("id", id)
             .param("by", userId)
             .update() == 1;
@@ -168,7 +168,7 @@ public class DashboardRepository {
             throw new UncheckedIOException(e);
         }
         return new DashboardConfig(rs.getObject("id", UUID.class), rs.getString("name"), rs.getString("created_by"),
-            stored.layout(), null, stored.basis(), stored.filters());
+            stored.layout(), null, stored.basis(), stored.filters(), stored.refreshMinutes());
     }
 
     private String write(Object value) {

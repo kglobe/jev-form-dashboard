@@ -32,6 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardService {
     static final int MAX_INTENTS = 10;
     static final int MAX_INTENT_LENGTH = 200;
+    /** 自動更新 spec 2.1：最長 15 分鐘，工作階段閒置 30 分鐘就過期。 */
+    static final Set<Integer> REFRESH_MINUTES = Set.of(1, 5, 10, 15);
 
     private final DashboardRepository repo;
     private final DatasourceService datasources;
@@ -43,13 +45,13 @@ public class DashboardService {
         this.accounts = accounts;
     }
 
-    /** body 的 intents 變成第一組依據；body 帶了 basis、filters 也不理。 */
+    /** body 的 intents 變成第一組依據；body 帶了 basis、filters、refreshMinutes 也不理。 */
     public DashboardConfig create(String userId, DashboardConfig c) {
         requireComplete(c);
         UUID ds = requireBatch(c.layout());
         datasources.get(userId, ds);
         List<Basis> basis = c.intents() == null || c.intents().isEmpty() ? null : List.of(new Basis(ds, c.intents()));
-        return get(userId, repo.insert(new DashboardConfig(null, c.name(), null, c.layout(), null, basis, null), userId));
+        return get(userId, repo.insert(new DashboardConfig(null, c.name(), null, c.layout(), null, basis, null, null), userId));
     }
 
     public DashboardConfig get(String userId, UUID id) {
@@ -74,12 +76,13 @@ public class DashboardService {
 
     /**
      * 拖拉版面、移除單張圖都走這裡：layout 可以是空的、可以混著不同來源；body 帶了 intents 也不理。
-     * 篩選器 spec 4：filters 是整份取代，沒帶就是清掉。
+     * 篩選器 spec 4：filters 是整份取代，沒帶就是清掉；自動更新 spec 4：refreshMinutes 也一樣。
      */
     public DashboardConfig update(String userId, UUID id, DashboardConfig c) {
         requireComplete(c);
         requireValidBasis(c.basis());
         Filters.requireValid(c.filters());
+        requireValidRefresh(c.refreshMinutes());
         DashboardConfig stored = get(userId, id); // 別人的儀表板先回「找不到儀表板」，才輪到查來源
         Set<UUID> used = c.layout().stream().map(ChartSpec::datasourceId).collect(Collectors.toSet());
         // 刪除來源 spec 4.2：原本版面裡的來源可能已經刪掉，只檢查這次新帶進來的
@@ -89,7 +92,7 @@ public class DashboardService {
         List<Basis> basis = c.basis() == null ? List.of()
             : c.basis().stream().filter(b -> used.contains(b.datasourceId())).toList();
         if (!repo.update(id, userId, new DashboardConfig(id, c.name(), null, c.layout(), null, basis.isEmpty() ? null : basis,
-                Filters.nonEmpty(c.filters())))) {
+                Filters.nonEmpty(c.filters()), c.refreshMinutes()))) {
             throw notFound();
         }
         return get(userId, id);
@@ -97,7 +100,7 @@ public class DashboardService {
 
     /**
      * 加到既有儀表板（多來源 spec 6.3）：這批圖的 chartId 接著既有的編號，整批往下移到既有圖的最下面，
-     * 彼此的相對位置不變；有需求紀錄就追加一組依據，名稱和預設篩選不變。
+     * 彼此的相對位置不變；有需求紀錄就追加一組依據，名稱、預設篩選和自動更新不變。
      * 讀到寫在同一個 transaction，讀的時候鎖住那一列，兩次同時加入不會吃掉其中一批。
      */
     @Transactional
@@ -122,7 +125,7 @@ public class DashboardService {
         List<Basis> basis = new ArrayList<>(current.basis() == null ? List.of() : current.basis());
         if (intents != null && !intents.isEmpty()) basis.add(new Basis(ds, intents));
         repo.update(id, userId, new DashboardConfig(id, current.name(), null, layout, null, basis.isEmpty() ? null : basis,
-            current.filters()));
+            current.filters(), current.refreshMinutes()));
         return get(userId, id);
     }
 
@@ -203,6 +206,13 @@ public class DashboardService {
             if (!chartIds.add(s.chartId())) throw new ApiException(BAD_REQUEST, "chartId 重複：" + s.chartId());
             String problem = cardProblem(s);
             if (problem != null) throw new ApiException(BAD_REQUEST, "圖表 " + s.chartId() + "：" + problem);
+        }
+    }
+
+    /** 自動更新 spec 3：不自動更新是 null，其他只能是 1、5、10、15。 */
+    static void requireValidRefresh(Integer minutes) {
+        if (minutes != null && !REFRESH_MINUTES.contains(minutes)) {
+            throw new ApiException(BAD_REQUEST, "自動更新只能選 1、5、10、15 分鐘");
         }
     }
 
