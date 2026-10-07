@@ -3,7 +3,7 @@
 日期：2026-10-02
 對象：用 Chrome DevTools MCP 操作瀏覽器的 agent。照章節順序跑完，App 現有的每個功能都會走過一次。
 
-S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。
+S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。S19 測儀表板篩選器（`feat/dashboard-filters`，2026-10-07 加的），還沒全跑過。
 
 第一次全跑在 2026-10-02，commit `79435c3`（integ：main 加上這三個 branch 和這份劇本）。241 步裡 236 PASS、4 FAIL，S10-5 條件沒成立所以沒跑。4 個 FAIL 都是已知的產品問題，那幾步的預期結果後面都標了「已知問題（backlog 2026-10-02）」。劇本跟 App 實際行為對不上的步驟，已經照那次的結果改了。
 
@@ -209,7 +209,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       chartId: d.chartId, type: d.type, title: d.title ?? spec?.title, source: d.source, error: d.error, missingField: d.missingField,
       mapping: spec?.mapping, dims, rows: rows.length, nulls: rows.reduce((n, r) => n + r.filter((v) => v === null).length, 0),
       x: d.type === 'table' ? undefined : [...new Set(rows.map((r) => r[0]))],
-      sums, percent: d.percent, ratioPeriod: d.ratioPeriod, truncated: d.truncated,
+      sums, percent: d.percent, ratioPeriod: d.ratioPeriod, truncated: d.truncated, filterSkipped: d.filterSkipped,
       data: d.type !== 'table' && rows.length <= 24 ? rows : undefined,
     }
   })
@@ -236,11 +236,12 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       const [own, shared] = await Promise.all([api('GET', '/api/dashboards'), api('GET', '/api/dashboards/shared')])
       return [...own.body, ...shared.body].find((d) => d.name === name)?.id
     },
-    dashboard: async (id = location.hash.slice(4)) => {
+    // filters 照篩選器 spec 3 的格式，例如 { period: 'last_quarter', fields: [{ field: '區域', values: ['北區'] }] }；不帶就是不篩選
+    dashboard: async (id = location.hash.slice(4), filters) => {
       const config = (await api('GET', `/api/dashboards/${id}`)).body
-      const data = await api('GET', `/api/dashboards/${id}/data`)
+      const data = await api('GET', `/api/dashboards/${id}/data${filters ? `?filters=${encodeURIComponent(JSON.stringify(filters))}` : ''}`)
       return {
-        id, name: config.name, owner: config.createdBy, basis: config.basis, status: data.status,
+        id, name: config.name, owner: config.createdBy, basis: config.basis, filters: config.filters, status: data.status,
         layout: config.layout.map((s) => ({ chartId: s.chartId, type: s.type, gridPos: s.gridPos, datasourceId: s.datasourceId })),
         cards: data.status === 200 ? summary(data.body, config) : data.body,
       }
@@ -264,6 +265,8 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       draggable: !!el.querySelector('.card-drag'),
       alert: el.querySelector('.v-alert')?.textContent.trim() ?? null,
       note: el.querySelector('.tc-ratio-period')?.textContent.trim() ?? null,
+      filterNote: el.querySelector('.tc-filter-note')?.textContent.trim() ?? null,
+      empty: el.querySelector('.tc-empty')?.textContent.trim() ?? null,
       canvas: !!el.querySelector('canvas, svg'),
     })),
     setField: (label, value) => {
@@ -324,6 +327,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 呼叫 API（POST／PUT／PATCH／DELETE 會自動帶 `X-XSRF-TOKEN`；body 是 `FormData` 時原樣送出） | `async () => window.jev.api('PATCH', '/api/admin/accounts/e2e-admin', { enabled: false })` |
 | 剛才的分析結果送去 `/preview/data`，每張卡片摘要 | `async () => window.jev.preview()` |
 | 目前打開的儀表板：設定、版面、每張卡片摘要 | `async () => window.jev.dashboard()` |
+| 同上，但 `/data` 帶著篩選 | `async () => window.jev.dashboard(undefined, { period: null, fields: [{ field: '區域', values: ['北區'] }] })` |
 | 用名稱找來源 | `async () => window.jev.source('銷售')` |
 | 用名稱找儀表板 id | `async () => window.jev.dashId('E2E 銷售總覽')` |
 | 自己組一張卡片驗數字（不經過 JEV） | `async () => { const ds = await window.jev.source('退貨（補產品主檔）'); return window.jev.card(ds.id, { x: '類別', value: '退貨金額' }) }` |
@@ -331,7 +335,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 取代欄位內容（只送 `input`；顯示名稱這類靠 `change` 存檔的欄位不能用，見 2.5） | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
 | 拖拉或縮放卡片 | `async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` |
 
-卡片摘要的欄位：`dims` 是維度名稱（已套用顯示名稱）；`rows` 是列數；`nulls` 是空值格數；`x` 是第一欄出現過的值，依時間的圖就是月份清單；`sums` 是每個數字欄的總和；`data` 在 24 列以內時附上全部的列；`percent`、`ratioPeriod` 只有比率才有。
+卡片摘要的欄位：`dims` 是維度名稱（已套用顯示名稱）；`rows` 是列數；`nulls` 是空值格數；`x` 是第一欄出現過的值，依時間的圖就是月份清單；`sums` 是每個數字欄的總和；`data` 在 24 列以內時附上全部的列；`percent`、`ratioPeriod` 只有比率才有；`filterSkipped` 只有帶了篩選、而且有篩選對這張圖沒生效時才有。
 
 判斷規則：
 
@@ -843,6 +847,73 @@ async () => {
 
 留下的狀態：銷售 63 筆；銷售／退貨 對照的 `rowCount` 是 null；覆蓋測試 9 筆；高雄店 6 筆。
 
+### S19 儀表板篩選器
+
+- 目的：篩選列的期間、分類 chip、清除；照顯示名稱對到不同來源的欄位；沒套用的篩選；篩選後沒有資料；存成預設；檢視者可以臨時改、不能存。規則見 `docs/superpowers/specs/2026-10-07-dashboard-filters-design.md`。
+- 帳號／context：`alice`；`bob`。
+- 前置條件：S18 完成；「E2E 銷售總覽」已分享給 bob（S13-18）。
+
+期間的範圍照執行當天算。下面「上季」的預期，以在 2026-10-01～12-31 之間執行為準：上季是 2026-07～09，資料裡只有 2026-07。在別的日期跑，就照第 4 節的資料，自己算那一季在資料裡有哪幾個月。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S19-1 | alice 打開「E2E 銷售總覽」 | 「依據」下面、格線上面有一列篩選列：「期間」選單顯示「不限」、「加篩選」、「存成預設」（停用）；沒有 chip，也沒有「清除篩選」 | 畫面、截圖 |
+| S19-2 | 跑 helper；跑下方的「建分店業績來源」；重新整理，再跑一次 helper | `upload`、`labels`、`append` 都是 200；最下面多一張「amount 依 區域」，來源標籤「分店業績」 | API、畫面 |
+| S19-3 | 按「加篩選」 | 選單裡有「欄位」「值」「取消」「套用」，「套用」停用；`list_network_requests` 有一次 `GET /api/dashboards/<id>/filter-options`；`jev.last('/filter-options').body` 是 `{ fields: [{ field: "區域", values: ["中區", "北區", "南區"] }, { field: "產品代碼", values: ["P01", "P02", "P03", "P09"] }] }`。分店業績的 `region` 顯示名稱是「區域」，併進同一個欄位 | 畫面、API |
+| S19-4 | 「欄位」選「區域」，「值」選「北區」，按「套用」 | 選單關掉；chip「區域：北區」；多了「清除篩選」；「存成預設」可以按；`list_network_requests` 有帶 `filters=` 的 `/data` 和 `/api/jev/highlight` | 畫面、API |
+| S19-5 | `jev.dashboard(undefined, { period: null, fields: [{ field: '區域', values: ['北區'] }] })` | 每張卡片都沒有 `filterSkipped`；`sum` 卡片的營收（元）是 158000；依月份的銷售卡片 `x` 是 2026-01～2026-07，每月 20000、22000、24000、26000、28000、6000、32000；有區域分組的卡片 `x` 只有北區；退貨卡片的退貨金額是 3500；分店業績的卡片 `data` 是 `[["北區", 107]]` | API |
+| S19-6 | 每張圖卡各截一張 | 照第 6 節；有區域的圖只剩北區（堆疊長條、圓餅都只有北區）；分店業績只有北區一根長條；數字跟 S19-5 一樣 | 截圖 |
+| S19-7 | 點 chip「區域：北區」 | 打開同一個選單，「欄位」是「區域」，「值」已經選了「北區」 | 畫面 |
+| S19-8 | 「值」再選「南區」，按「套用」；`jev.dashboard(undefined, { period: null, fields: [{ field: '區域', values: ['北區', '南區'] }] })` | chip「區域：北區、南區」；`sum` 卡片的營收（元）是 249000；分店業績的卡片 `data` 是 `[["北區", 107], ["南區", 40]]` | 畫面、API |
+| S19-9 | 按 chip 上的「移除「區域」篩選」；按「加篩選」，「欄位」選「產品代碼」，「值」選「P01」，按「套用」 | 「欄位」的清單又有「區域」；chip「產品代碼：P01」；分店業績的卡片最下面一行小字「沒套用篩選：產品代碼（這張圖的來源沒有這些欄位）」，圖照樣畫；其他卡片沒有這行（`jev.cards()` 的 `filterNote`） | 畫面、截圖 |
+| S19-10 | `jev.dashboard(undefined, { period: null, fields: [{ field: '產品代碼', values: ['P01'] }] })` | 分店業績的卡片 `filterSkipped: ["產品代碼"]`，數字沒變（147）；其他卡片沒有 `filterSkipped`；`sum` 卡片的營收（元）是 197300；退貨卡片是 3500 | API |
+| S19-11 | 按「清除篩選」；`jev.dashboard()` | chip 不見，「期間」是「不限」，「清除篩選」不見；數字跟 S18-12 一樣，分店業績是 147 | 畫面、API |
+| S19-12 | 「期間」選「上季」；`jev.cards()` | 依月份的銷售卡片只剩 2026-07（營收 73600）；退貨卡片的 `empty` 是「篩選後沒有資料」，`canvas` 是 false；分店業績的卡片只算 7 月（北區 100、南區 40）；沒有任何異常標註（只剩一期，比不出來） | 畫面、API |
+| S19-13 | 截依月份的銷售圖和一張退貨圖 | 銷售圖的 X 軸只有 2026-07；退貨卡片中間寫「篩選後沒有資料」，沒有空的座標軸 | 截圖 |
+| S19-14 | 「期間」選回「不限」；加篩選「區域：北區」；按「存成預設」 | `PUT /api/dashboards/<id>` 回 200；「存成預設」變成停用；PUT 之後沒有再打 `/data` | 畫面、API |
+| S19-15 | 重新整理；跑 helper；`jev.dashboard()` | chip「區域：北區」還在，「存成預設」停用；`filters` 是 `{ fields: [{ field: "區域", values: ["北區"] }] }`；`list_network_requests` 的第一個 `/data` 就帶著 `filters=` | 畫面、API |
+| S19-16 | bob 打開「E2E 銷售總覽」；跑 helper；`jev.last('/data').body` | 篩選列有 chip「區域：北區」，沒有「存成預設」；數字跟 S19-5 一樣 | 畫面、API、截圖 |
+| S19-17 | bob 按「移除「區域」篩選」；重新整理 | 移除後卡片回到全部的資料（營收（元）394600）；重新整理又回到預設，chip「區域：北區」 | 畫面 |
+| S19-18 | alice 重新整理 | 還是預設「區域：北區」，沒被 bob 影響 | 畫面 |
+| S19-19 | alice：跑下方的「篩選 API 檢查」 | `period` 400「期間只能是 本月、上月、本季、上季、今年、去年」；`tooMany` 400「分類篩選最多 3 個」；`noValues` 400「每個篩選要選 1～200 個值」；`notJson` 400「篩選的格式不對」；`put` 400「同一個欄位只能篩選一次」；`saved` 還是 S19-15 的預設 | API |
+
+建分店業績來源（S19-2，在 alice 分頁用 `evaluate_script` 跑，要停在「E2E 銷售總覽」）：
+
+```js
+async () => {
+  const form = new FormData()
+  form.append('file', new File(['date,region,amount\n2026-05-02,北區,7\n2026-07-03,北區,100\n2026-07-10,南區,40\n'], '分店業績.csv'))
+  form.append('name', '分店業績')
+  const up = await window.jev.api('POST', '/api/datasources/upload', form)
+  const labels = await window.jev.api('PATCH', `/api/datasources/${up.body.id}/labels`, { labels: { region: '區域' } })
+  const card = { chartId: 'c1', type: 'bar', title: 'amount 依 region', gridPos: { x: 0, y: 0, w: 6, h: 4 },
+    mapping: { x: 'region', value: 'amount', aggregate: 'sum' }, datasourceId: up.body.id }
+  const append = await window.jev.api('POST', `/api/dashboards/${location.hash.slice(4)}/charts`, { layout: [card] })
+  return { upload: up.status, labels: labels.status, append: append.status }
+}
+```
+
+篩選 API 檢查（S19-19）：
+
+```js
+async () => {
+  const id = location.hash.slice(4)
+  const data = (f) => window.jev.api('GET', `/api/dashboards/${id}/data?filters=${encodeURIComponent(f)}`)
+  const field = (name) => ({ field: name, values: ['x'] })
+  const config = (await window.jev.api('GET', `/api/dashboards/${id}`)).body
+  return {
+    period: await data('{"period":"yesterday"}'),
+    tooMany: await data(JSON.stringify({ fields: ['a', 'b', 'c', 'd'].map(field) })),
+    noValues: await data('{"fields":[{"field":"區域","values":[]}]}'),
+    notJson: await data('{"period":'),
+    put: await window.jev.api('PUT', `/api/dashboards/${id}`, { ...config, filters: { fields: [field('區域'), field('區域')] } }),
+    saved: (await window.jev.api('GET', `/api/dashboards/${id}`)).body.filters,
+  }
+}
+```
+
+留下的狀態：「E2E 銷售總覽」多了一張分店業績的卡片，預設篩選是「區域：北區」。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -879,6 +950,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 外部 API 允許清單、DS_ 密鑰綁 host | S16 |
 | 登入失敗鎖定 | S17 |
 | 更新資料：接在後面、整份覆蓋、Excel 工作表、下游跟著更新 | S18 |
+| 儀表板篩選器：期間、分類、照顯示名稱對欄位、沒套用的篩選、存成預設、檢視者臨時改 | S19 |
 
 ## 9. 結果範本
 
