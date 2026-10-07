@@ -122,6 +122,10 @@ const filterNote = computed(() =>
       <v-alert v-else-if="data.error === 'SOURCE_DELETED'" type="warning" density="compact" class="tc-fade-in">
         {{ readonly ? '資料來源已刪除' : '資料來源已刪除，可以按右上角 ✕ 移除這張圖' }}
       </v-alert>
+      <!-- 資料來源共享 spec 2.3：來源還在，只是取消分享或擁有者停用了 -->
+      <v-alert v-else-if="data.error === 'SOURCE_UNSHARED'" type="warning" density="compact" class="tc-fade-in">
+        {{ readonly ? '資料來源已停止分享' : '資料來源已停止分享，可以按右上角 ✕ 移除這張圖' }}
+      </v-alert>
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
       </v-alert>

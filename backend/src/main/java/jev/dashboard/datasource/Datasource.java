@@ -37,4 +37,13 @@ public record Datasource(UUID id, String name, String kind, List<FieldSchema> sc
     public Datasource withRowCount(Integer value) {
         return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, value);
     }
+
+    /**
+     * 資料來源共享 spec 2.1、4.2：給被分享的人看的。不露出外部 API 的網址和 header（含 ${DS_…} 名稱），
+     * 也不露出合併來源用了哪些輸入來源：merge 不給，繼承來的敏感照舊是 true，但 sensitiveFrom 清掉。
+     */
+    public Datasource forOthers() {
+        List<FieldSchema> hidden = schema.stream().map(f -> f.sensitiveFrom() == null ? f : f.withInheritedSensitive(null)).toList();
+        return new Datasource(id, name, kind, hidden, null, Map.of(), createdBy, createdAt, null, ratios, rowCount);
+    }
 }

@@ -154,6 +154,30 @@ class JevControllerTest {
     }
 
     @Test
+    void withoutLoginTheHighlightOpensOnlyForAnAnonymousDashboard() throws Exception { // 資料來源共享 spec 4.4
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"users\":[]}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
+
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"anonymous\":true,\"users\":[]}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].chartId").value("c1"));
+    }
+
+    @Test
     void highlightRightAfterDataUsesTheRowsDataAlreadyRead() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
@@ -201,12 +225,14 @@ class JevControllerTest {
             .andReturn().getResponse().getContentAsString(UTF_8);
         String id = JsonPath.read(body, "$.id");
         mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
-                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false,\"users\":[\"u2\"]}"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"anonymous\":true,\"users\":[\"u2\"]}"))
             .andExpect(status().isOk());
         String productA = "{\"fields\":[{\"field\":\"product\",\"values\":[\"A\"]}]}";
 
         mvc.perform(get("/api/jev/highlight/" + id).param("filters", productA).with(TestData.as("u2"))).andExpect(status().isOk());
         mvc.perform(get("/api/jev/highlight/" + id).param("filters", productA).with(TestData.as("u1"))).andExpect(status().isOk());
+        // 沒登入的人也一樣不能用 product：送給 JEV 的跟檢視者那次一樣，快取接住，不再多問一次
+        mvc.perform(get("/api/jev/highlight/" + id).param("filters", productA)).andExpect(status().isOk());
 
         // 沒有卡片用到 product：檢視者的異常檢查用全部的列（5 月 3200、6 月 4300），擁有者的只算 A（5 月 2500、6 月 1300）
         assertThat(JEV.bodies).hasSize(2);

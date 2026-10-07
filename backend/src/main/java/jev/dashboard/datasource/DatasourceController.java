@@ -6,12 +6,14 @@ import java.util.Map;
 import java.util.UUID;
 import jev.dashboard.dashboard.DashboardRepository.DatasourceUse;
 import jev.dashboard.dashboard.DashboardService;
+import jev.dashboard.datasource.DatasourceRepository.Share;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -30,8 +32,8 @@ public class DatasourceController {
     public record MergeRequest(String name, MergeDefinition merge) {}
 
     public record Ref(UUID id, String name) {}
-    /** 刪除前的確認：哪些合併來源直接用它、哪些儀表板有圖用它。 */
-    public record Usage(List<Ref> mergedBy, List<DatasourceUse> dashboards) {}
+    /** 刪除前的確認：哪些合併來源直接用它、哪些儀表板有圖用它；shared 是有沒有分享出去（資料來源共享 spec 4.2）。 */
+    public record Usage(List<Ref> mergedBy, List<DatasourceUse> dashboards, boolean shared) {}
 
     private final DatasourceService service;
     private final DashboardService dashboards;
@@ -81,8 +83,20 @@ public class DatasourceController {
 
     @GetMapping("/{id}/usage")
     public Usage usage(Principal principal, @PathVariable UUID id) {
+        Share share = service.share(principal.getName(), id);
         return new Usage(service.mergedBy(principal.getName(), id).stream().map(d -> new Ref(d.id(), d.name())).toList(),
-            dashboards.usingDatasource(principal.getName(), id));
+            dashboards.usingDatasource(principal.getName(), id), share.allUsers() || !share.users().isEmpty());
+    }
+
+    /** 資料來源共享 spec 4.1：只有擁有者，別人 404。 */
+    @GetMapping("/{id}/share")
+    public Share share(Principal principal, @PathVariable UUID id) {
+        return service.share(principal.getName(), id);
+    }
+
+    @PutMapping("/{id}/share")
+    public Share setShare(Principal principal, @PathVariable UUID id, @RequestBody Share body) {
+        return service.setShare(principal.getName(), id, body);
     }
 
     @DeleteMapping("/{id}")

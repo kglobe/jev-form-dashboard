@@ -12,17 +12,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import jev.dashboard.ApiException;
 import jev.dashboard.JevProperties;
+import jev.dashboard.auth.Account;
+import jev.dashboard.datasource.DatasourceRepository.Share;
 import jev.dashboard.datasource.MergeDefinition.Lookup;
 import jev.dashboard.datasource.MergeDefinition.Union;
 import org.springframework.stereotype.Service;
@@ -36,8 +41,8 @@ public class DatasourceService {
     public record MergePreview(List<FieldSchema> schema, List<Map<String, Object>> rows, int rowCount,
                                List<String> warnings) {}
 
-    /** 輸入來源不見時，欄位當作敏感，來源名稱顯示這個。 */
-    public static final String DELETED_SOURCE = "（已刪除的來源）";
+    /** 輸入來源不見（刪掉或停止分享）時，欄位當作敏感，來源名稱顯示這個。 */
+    public static final String DELETED_SOURCE = "（已刪除或停止分享的來源）";
     static final int MAX_DEPTH = 3;
     static final int PREVIEW_ROWS = 20;
     // 合併來源等輸入來源載入時會卡住執行緒，用 virtual thread 就不會把有限的執行緒池等光
@@ -98,9 +103,10 @@ public class DatasourceService {
             // 更新資料 spec 2.5：整份覆蓋用檔案讀出來的值算，跟第一次上傳一模一樣；接在後面時舊的列只剩整理過的值
             repo.updateSchema(id, SchemaInference.restat(current.schema(), append ? rows : table.rows()));
             repo.updateRowCount(id, rows.size());
-            // 更新資料 spec 2.6：合併來源載入時才合併，資料自己會跟上；建立時記的筆數不準了，清掉讓分析時重算
+            // 更新資料 spec 2.6：合併來源載入時才合併，資料自己會跟上；建立時記的筆數不準了，清掉讓分析時重算。
+            // 資料來源共享 spec 2.3：分享出去之後別人也能拿它合併，不分擁有者
             Set<UUID> users = new HashSet<>();
-            usedBy(repo.list(userId), id, users);
+            usedBy(repo.allMerged(), id, users);
             users.forEach(m -> repo.updateRowCount(m, null));
         });
         return get(userId, id);
@@ -162,25 +168,68 @@ public class DatasourceService {
         return get(userId, ds.id());
     }
 
+    /** 資料來源共享 spec 4.2：自己的在前，再來是別人分享給我的；別人的來源拿掉網址、header 和合併定義。 */
     public List<Datasource> list(String userId) {
-        List<Datasource> all = repo.list(userId);
+        List<Datasource> all = repo.listUsable(userId);
         Map<UUID, Datasource> byId = all.stream().collect(Collectors.toMap(Datasource::id, d -> d));
-        return all.stream().map(d -> effective(d, byId::get)).toList();
+        // 清單就是 userId 能用的全部；別人分享的合併來源要用它擁有者的身分找輸入來源（spec 2.2）
+        BiFunction<String, UUID, Datasource> others = cachedFinder();
+        BiFunction<String, UUID, Datasource> find = (by, id) -> by.equals(userId) ? byId.get(id) : others.apply(by, id);
+        return all.stream().map(d -> effective(d, find))
+            .map(d -> d.createdBy().equals(userId) ? d : d.forOthers()).toList();
     }
 
+    /** 能用的來源（自己的或分享給我的）；給內部載入用，網址和 header 不拿掉。改設定一律走 stored。 */
     public Datasource get(String userId, UUID id) {
-        return effective(stored(userId, id), cachedFinder(userId));
+        return effective(usable(userId, id), cachedFinder());
     }
 
-    /** 同一次 effective 計算裡，每個來源 id 只查一次（找不到、不是自己的都快取成 null）。 */
-    private Function<UUID, Datasource> cachedFinder(String userId) {
-        Map<UUID, Datasource> seen = new HashMap<>();
-        return id -> seen.computeIfAbsent(id, i -> repo.find(i, userId).orElse(null));
+    /** 資料來源共享 spec 2.3：不管是誰的，這個來源還在不在。 */
+    public boolean exists(UUID id) {
+        return repo.findAny(id).isPresent();
     }
 
-    /** 資料庫裡存的樣子；改 schema 一律從這裡拿。 */
+    /** 同一次 effective 計算裡，每個（身分, 來源 id）只查一次（找不到、不能用都快取成 null）。 */
+    private BiFunction<String, UUID, Datasource> cachedFinder() {
+        Map<List<Object>, Datasource> seen = new HashMap<>();
+        return (by, id) -> seen.computeIfAbsent(List.of(by, id), k -> repo.findUsable(id, by).orElse(null));
+    }
+
+    /** 資料庫裡存的樣子，只認擁有者；改 schema 一律從這裡拿。 */
     private Datasource stored(String userId, UUID id) {
-        return repo.find(id, userId).orElseThrow(() -> new ApiException(NOT_FOUND, "找不到資料源"));
+        return repo.find(id, userId).orElseThrow(DatasourceService::notFound);
+    }
+
+    private Datasource usable(String userId, UUID id) {
+        return repo.findUsable(id, userId).orElseThrow(DatasourceService::notFound);
+    }
+
+    private static ApiException notFound() {
+        return new ApiException(NOT_FOUND, "找不到資料源");
+    }
+
+    /** 資料來源共享 spec 4.1：只有擁有者看得到、改得到，別人 404。 */
+    public Share share(String userId, UUID id) {
+        stored(userId, id);
+        return repo.share(id);
+    }
+
+    /** 資料來源共享 spec 4.1：整份取代，規則照分享 spec 4.3。停用的帳號可以加。 */
+    public Share setShare(String userId, UUID id, Share s) {
+        stored(userId, id);
+        Set<String> users = new TreeSet<>();
+        if (s.users() != null) {
+            s.users().stream().filter(Objects::nonNull).filter(u -> !u.isBlank()).map(Account::normalize).forEach(users::add);
+        }
+        if (users.contains(userId)) throw new ApiException(BAD_REQUEST, "不用分享給自己");
+        for (String u : users) {
+            if (!repo.accountExists(u)) {
+                throw new ApiException(BAD_REQUEST,
+                    "找不到帳號「" + u + "」。用單一登入的人要先登入過一次才會有帳號，也可以先打開「所有帳號都能用」");
+            }
+        }
+        repo.setShare(id, new Share(s.allUsers(), List.copyOf(users)));
+        return repo.share(id);
     }
 
     /** 直接把這個來源當輸入的合併來源（不含再往上一層的）。來源不存在或不是自己的，回 404。 */
@@ -278,6 +327,8 @@ public class DatasourceService {
      * 同一個 loader 裡每個來源只載入一次，合併來源裡的輸入來源也算在內，外部 API 不會被重複打；
      * 載入失敗也只試一次，之後用到它的地方都拿到同一個錯誤。一次請求用一個，不跨請求。
      * 合併來源的輸入來源同時開始載入，好幾個外部 API 不必一個等完才換下一個。
+     * 資料來源共享 spec 2.2：快取的是資料，不是權限。每次拿資料之前都先用這次的身分（合併來源的輸入用合併來源擁有者的身分）
+     * 檢查一次，檢查過才給快取裡的資料。
      */
     private final class Loader implements Function<UUID, Loaded> {
         private final String userId;
@@ -287,29 +338,41 @@ public class DatasourceService {
             this.userId = userId;
         }
 
-        /** 讓這些來源同時開始載入，不等結果。 */
-        void prefetch(List<UUID> ids) {
-            ids.forEach(this::start);
+        /** 讓 owner 能用的這些來源同時開始載入，不等結果；不能用的等 input 再報錯。 */
+        void prefetch(String owner, List<UUID> ids) {
+            ids.forEach(id -> repo.findUsable(id, owner).ifPresent(this::start));
         }
 
         @Override
         public Loaded apply(UUID id) {
+            return join(start(usable(userId, id)));
+        }
+
+        /** 合併來源的輸入：用合併來源擁有者 owner 的身分檢查，不能用時整個合併來源不能用（spec 2.3）。 */
+        Loaded input(String owner, UUID id) {
+            Datasource ds = repo.findUsable(id, owner).orElseThrow(() ->
+                new ApiException(BAD_REQUEST, "合併來源的輸入來源已刪除或停止分享，這個合併來源不能用了"));
+            return join(start(ds));
+        }
+
+        private Loaded join(CompletableFuture<Loaded> load) {
             try {
-                return start(id).join();
+                return load.join();
             } catch (CompletionException e) {
                 throw e.getCause() instanceof RuntimeException cause ? cause : e;
             }
         }
 
-        private CompletableFuture<Loaded> start(UUID id) {
-            return loads.computeIfAbsent(id, i -> CompletableFuture.supplyAsync(() -> fetch(userId, i, this), LOADS));
+        private CompletableFuture<Loaded> start(Datasource ds) {
+            return loads.computeIfAbsent(ds.id(), i -> CompletableFuture.supplyAsync(() -> fetch(ds, this), LOADS));
         }
     }
 
-    private Loaded fetch(String userId, UUID id, Loader load) {
-        Datasource ds = get(userId, id);
+    /** stored 是檢查過權限的來源；敏感設定、比率照擁有者的（spec 2.1）。 */
+    private Loaded fetch(Datasource stored, Loader load) {
+        Datasource ds = effective(stored, cachedFinder());
         if ("merged".equals(ds.kind())) {
-            List<Map<String, Object>> rows = merge(ds.merge(), load).rows();
+            List<Map<String, Object>> rows = merge(ds.merge(), ds.createdBy(), load).rows();
             // spec 5.4：載入時只擋超過上限；0 筆跟其他來源一樣照常回傳
             if (rows.size() > maxRows) checkRows(rows.size());
             return new Loaded(ds, rows);
@@ -321,7 +384,7 @@ public class DatasourceService {
     /** 不存檔。預覽只看定義，body 裡的名稱用不到。 */
     public MergePreview previewMerged(String userId, MergeDefinition def) {
         MergeEngine.Result r = build(userId, def);
-        List<FieldSchema> schema = inherit(def, MergeEngine.schema(r), cachedFinder(userId));
+        List<FieldSchema> schema = inherit(def, userId, MergeEngine.schema(r), cachedFinder());
         return new MergePreview(schema, r.rows().subList(0, Math.min(PREVIEW_ROWS, r.rows().size())),
             r.rows().size(), r.warnings());
     }
@@ -340,57 +403,63 @@ public class DatasourceService {
     private MergeEngine.Result build(String userId, MergeDefinition def) {
         MergeEngine.validate(def, id -> get(userId, id));
         Map<UUID, Datasource> depthCache = new HashMap<>();
-        int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(userId, id, depthCache)).max().orElse(0);
+        int depth = 1 + MergeDefinition.inputIds(def).stream().mapToInt(id -> depth(id, depthCache)).max().orElse(0);
         if (depth > MAX_DEPTH) throw new ApiException(BAD_REQUEST, "合併最多 3 層");
-        MergeEngine.Result r = merge(def, new Loader(userId));
+        MergeEngine.Result r = merge(def, userId, new Loader(userId));
         checkRows(r.rows().size());
         return r;
     }
 
-    /** spec 5.3：上傳和外部 API 是第 0 層，合併來源是輸入來源最大層數加 1。cache 讓同一個來源在巢狀結構裡只查一次。 */
-    private int depth(String userId, UUID id, Map<UUID, Datasource> cache) {
-        Datasource ds = cache.computeIfAbsent(id, i -> stored(userId, i));
+    /**
+     * spec 5.3：上傳和外部 API 是第 0 層，合併來源是輸入來源最大層數加 1。cache 讓同一個來源在巢狀結構裡只查一次。
+     * 資料來源共享 spec 2.2：只看結構，不帶擁有者條件；直接的輸入已經在 validate 檢查過權限。
+     */
+    private int depth(UUID id, Map<UUID, Datasource> cache) {
+        Datasource ds = cache.computeIfAbsent(id, i -> repo.findAny(i).orElseThrow(DatasourceService::notFound));
         if (!"merged".equals(ds.kind())) return 0;
-        return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(userId, i, cache)).max().orElse(0);
+        return 1 + MergeDefinition.inputIds(ds.merge()).stream().mapToInt(i -> depth(i, cache)).max().orElse(0);
     }
 
-    private static MergeEngine.Result merge(MergeDefinition def, Loader load) {
-        load.prefetch(MergeDefinition.inputIds(def));
+    /** owner 是這個合併定義的擁有者，輸入來源用他的身分檢查（資料來源共享 spec 2.2）。 */
+    private static MergeEngine.Result merge(MergeDefinition def, String owner, Loader load) {
+        load.prefetch(owner, MergeDefinition.inputIds(def));
         return switch (def) {
-            case Union u -> MergeEngine.union(u, u.inputs().stream().map(load).toList());
-            case Lookup l -> MergeEngine.lookup(l, load.apply(l.main()), load.apply(l.lookup()));
+            case Union u -> MergeEngine.union(u, u.inputs().stream().map(id -> load.input(owner, id)).toList());
+            case Lookup l -> MergeEngine.lookup(l, load.input(owner, l.main()), load.input(owner, l.lookup()));
         };
     }
 
     /**
      * spec 6.3：合併來源實際的敏感設定＝自己勾的，或任何一個提供這欄的輸入欄位是敏感的。
      * B3 spec 4.3：分子或分母敏感（含繼承）時，比率也敏感。兩者都是讀取時才算，不存。
+     * find 是「用某個身分找能用的來源」；資料來源共享 spec 2.2：合併來源的輸入用合併來源擁有者的身分找。
      */
-    private Datasource effective(Datasource ds, Function<UUID, Datasource> find) {
-        Datasource d = "merged".equals(ds.kind()) ? ds.withSchema(inherit(ds.merge(), ds.schema(), find)) : ds;
+    private Datasource effective(Datasource ds, BiFunction<String, UUID, Datasource> find) {
+        Datasource d = "merged".equals(ds.kind()) ? ds.withSchema(inherit(ds.merge(), ds.createdBy(), ds.schema(), find)) : ds;
         Set<String> sensitive = d.schema().stream().filter(FieldSchema::sensitive).map(FieldSchema::name)
             .collect(Collectors.toSet());
         return d.withRatios(d.ratios().stream()
             .map(r -> r.withSensitive(sensitive.contains(r.numerator()) || sensitive.contains(r.denominator()))).toList());
     }
 
-    private List<FieldSchema> inherit(MergeDefinition def, List<FieldSchema> schema, Function<UUID, Datasource> find) {
+    private List<FieldSchema> inherit(MergeDefinition def, String owner, List<FieldSchema> schema,
+                                      BiFunction<String, UUID, Datasource> find) {
         return schema.stream().map(f -> {
-            String from = sensitiveFrom(def, f.name(), find);
+            String from = sensitiveFrom(def, owner, f.name(), find);
             return from == null ? f : f.withInheritedSensitive(from);
         }).toList();
     }
 
     /**
      * 讓這欄變敏感的來源名稱：巢狀時只往下追同一個欄位（不重算整份 schema），
-     * 找到真正打開開關的那個來源；都不敏感就是 null。
+     * 找到真正打開開關的那個來源；都不敏感就是 null。owner 是 def 的擁有者。
      */
-    private String sensitiveFrom(MergeDefinition def, String field, Function<UUID, Datasource> find) {
+    private String sensitiveFrom(MergeDefinition def, String owner, String field, BiFunction<String, UUID, Datasource> find) {
         for (Map.Entry<UUID, String> e : MergeEngine.sources(def, field).entrySet()) {
-            Datasource input = find.apply(e.getKey());
-            // fail closed：輸入來源不見了，就不知道它原本敏不敏感，當作敏感
+            Datasource input = find.apply(owner, e.getKey());
+            // fail closed：輸入來源不見了（刪掉或停止分享），就不知道它原本敏不敏感，當作敏感
             if (input == null) return DELETED_SOURCE;
-            String deeper = "merged".equals(input.kind()) ? sensitiveFrom(input.merge(), e.getValue(), find) : null;
+            String deeper = "merged".equals(input.kind()) ? sensitiveFrom(input.merge(), input.createdBy(), e.getValue(), find) : null;
             if (deeper != null) return deeper;
             if (input.schema().stream().anyMatch(f -> f.name().equals(e.getValue()) && f.sensitive())) return input.name();
         }

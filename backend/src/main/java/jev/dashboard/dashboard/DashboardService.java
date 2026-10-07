@@ -55,9 +55,12 @@ public class DashboardService {
         return repo.find(id, userId).orElseThrow(DashboardService::notFound);
     }
 
-    /** 唯讀分享 spec 6.3：唯讀的存取檢查，回傳的 createdBy 就是擁有者。get 照舊只認擁有者。 */
+    /**
+     * 唯讀分享 spec 6.3：唯讀的存取檢查，回傳的 createdBy 就是擁有者。get 照舊只認擁有者。
+     * 資料來源共享 spec 4.4：userId 是 null（沒登入）時只認「不用登入也能看」的。
+     */
     public DashboardConfig view(String userId, UUID id) {
-        return repo.findViewable(id, userId).orElseThrow(DashboardService::notFound);
+        return (userId == null ? repo.findAnonymous(id) : repo.findViewable(id, userId)).orElseThrow(DashboardService::notFound);
     }
 
     public List<DashboardSummary> list(String userId) {
@@ -135,10 +138,12 @@ public class DashboardService {
     /**
      * 唯讀分享 spec 4.3：整份取代。users 沒給當作空的，丟掉 null 和空白，照 2.1 轉換、去重複、排序；
      * 停用的帳號可以加。更新 public_link、刪掉舊的、寫入新的在同一個 transaction。
+     * 資料來源共享 spec 4.3：anonymous 要先打開公開連結。
      */
     @Transactional
     public Share setShare(String userId, UUID id, Share s) {
         get(userId, id);
+        if (s.anonymous() && !s.publicLink()) throw new ApiException(BAD_REQUEST, "要先打開公開連結");
         Set<String> users = new TreeSet<>();
         if (s.users() != null) {
             s.users().stream().filter(Objects::nonNull).filter(u -> !u.isBlank()).map(Account::normalize).forEach(users::add);
@@ -149,7 +154,7 @@ public class DashboardService {
                 throw new ApiException(BAD_REQUEST, "找不到帳號「" + u + "」。用單一登入的人要先登入過一次才會有帳號，也可以先打開公開連結");
             }
         }
-        repo.setShare(id, new Share(s.publicLink(), List.copyOf(users)));
+        repo.setShare(id, new Share(s.publicLink(), s.anonymous(), List.copyOf(users)));
         return repo.share(id);
     }
 

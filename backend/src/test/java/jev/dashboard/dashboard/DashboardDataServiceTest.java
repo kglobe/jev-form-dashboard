@@ -60,6 +60,11 @@ class DashboardDataServiceTest {
             }
 
             @Override
+            public boolean exists(UUID id) {
+                return byId.containsKey(id);
+            }
+
+            @Override
             public Function<UUID, Loaded> loader(String userId) {
                 return id -> {
                     loads.merge(id, 1, Integer::sum);

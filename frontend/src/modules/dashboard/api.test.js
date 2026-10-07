@@ -92,8 +92,10 @@ describe('api', () => {
     await api.updateAccount('a@b', { admin: true })
     await api.setAccountPassword('a@b', 'new-password-1')
     await api.getShare('d1')
-    await api.setShare('d1', { publicLink: true, users: ['alice'] })
+    await api.setShare('d1', { publicLink: true, anonymous: true, users: ['alice'] })
     await api.sharedDashboards()
+    await api.getDatasourceShare('ds1')
+    await api.setDatasourceShare('ds1', { allUsers: true, users: ['bob'] })
     expect(fetch.mock.calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
       ['/api/auth/me', 'GET', undefined],
       ['/api/auth/options', 'GET', undefined],
@@ -104,8 +106,10 @@ describe('api', () => {
       ['/api/admin/accounts/a%40b', 'PATCH', JSON.stringify({ admin: true })],
       ['/api/admin/accounts/a%40b/password', 'PUT', JSON.stringify({ password: 'new-password-1' })],
       ['/api/dashboards/d1/share', 'GET', undefined],
-      ['/api/dashboards/d1/share', 'PUT', JSON.stringify({ publicLink: true, users: ['alice'] })],
+      ['/api/dashboards/d1/share', 'PUT', JSON.stringify({ publicLink: true, anonymous: true, users: ['alice'] })],
       ['/api/dashboards/shared', 'GET', undefined],
+      ['/api/datasources/ds1/share', 'GET', undefined],
+      ['/api/datasources/ds1/share', 'PUT', JSON.stringify({ allUsers: true, users: ['bob'] })],
     ])
   })
 

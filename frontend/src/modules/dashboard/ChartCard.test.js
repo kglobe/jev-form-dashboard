@@ -330,6 +330,14 @@ describe('ChartCard', () => {
     expect(caption(undefined).exists()).toBe(false)
   })
 
+  it('資料來源共享 spec 2.3：SOURCE_UNSHARED 說「資料來源已停止分享」，擁有者看時再提 ✕', () => {
+    const data = { chartId: 'c1', type: 'bar', error: 'SOURCE_UNSHARED' }
+    const owner = mountCard({ spec: barSpec, data, highlight: null, removable: true })
+    expect(owner.get('.v-alert').text()).toBe('資料來源已停止分享，可以按右上角 ✕ 移除這張圖')
+    expect(owner.find('.v-chart-stub').exists()).toBe(false)
+    expect(mountCard({ spec: barSpec, data, highlight: null, readonly: true }).get('.v-alert').text()).toBe('資料來源已停止分享')
+  })
+
   it('readonly 時 SOURCE_DELETED 只說「資料來源已刪除」，不提 ✕', () => {
     const card = mountCard({ spec: barSpec, data: { chartId: 'c1', type: 'bar', error: 'SOURCE_DELETED' }, highlight: null, readonly: true })
     expect(card.get('.v-alert').text()).toBe('資料來源已刪除')

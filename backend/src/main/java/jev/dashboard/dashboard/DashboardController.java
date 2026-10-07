@@ -48,9 +48,10 @@ public class DashboardController {
         return service.shared(principal.getName());
     }
 
+    /** 資料來源共享 spec 4.4：這支、/data、/filter-options 和 /highlight 沒登入也打得到，principal 是 null。 */
     @GetMapping("/{id}")
     public DashboardConfig get(Principal principal, @PathVariable UUID id) {
-        return service.view(principal.getName(), id);
+        return service.view(principal == null ? null : principal.getName(), id);
     }
 
     @PutMapping("/{id}")
@@ -89,12 +90,12 @@ public class DashboardController {
     @GetMapping("/{id}/data")
     public List<ChartData> data(Principal principal, @PathVariable UUID id, @RequestParam(required = false) String filters) {
         Filters f = Filters.parse(filters);
-        DashboardConfig c = service.view(principal.getName(), id);
-        boolean viewer = principal == null || !c.createdBy().equals(principal.getName());
+        String viewer = principal == null ? null : principal.getName();
+        DashboardConfig c = service.view(viewer, id);
         try {
-            return data.display(c.createdBy(), c, f, viewer ? data.denied(c.createdBy(), c, f) : Set.of());
+            return data.display(c.createdBy(), c, f, c.createdBy().equals(viewer) ? Set.of() : data.denied(c.createdBy(), c, f));
         } catch (ApiException e) {
-            if (c.createdBy().equals(principal.getName())) throw e;
+            if (c.createdBy().equals(viewer)) throw e;
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
     }
@@ -105,8 +106,9 @@ public class DashboardController {
      */
     @GetMapping("/{id}/filter-options")
     public DashboardDataService.FilterOptions filterOptions(Principal principal, @PathVariable UUID id) {
-        DashboardConfig c = service.view(principal.getName(), id);
-        return data.filterOptions(c.createdBy(), c, principal == null || !c.createdBy().equals(principal.getName()));
+        String viewer = principal == null ? null : principal.getName();
+        DashboardConfig c = service.view(viewer, id);
+        return data.filterOptions(c.createdBy(), c, !c.createdBy().equals(viewer));
     }
 
     /** 篩選器 spec 4：預覽不收篩選。 */

@@ -8,6 +8,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import jev.dashboard.dashboard.DashboardConfig.Basis;
@@ -22,8 +23,8 @@ public class DashboardRepository {
     /** 這份儀表板有 charts 張圖用到某個來源。 */
     public record DatasourceUse(UUID id, String name, int charts) {}
 
-    /** 唯讀分享 spec 4.3：分享設定，users 是轉換過、排好序的帳號名稱。 */
-    public record Share(boolean publicLink, List<String> users) {}
+    /** 唯讀分享 spec 4.3：分享設定，users 是轉換過、排好序的帳號名稱。anonymous 是不用登入也能看（資料來源共享 spec 4.3）。 */
+    public record Share(boolean publicLink, boolean anonymous, List<String> users) {}
 
     /** 唯讀分享 spec 4.3：「分享給我的」清單的一筆。 */
     public record SharedDashboard(UUID id, String name, String owner, OffsetDateTime updatedAt) {}
@@ -68,6 +69,16 @@ public class DashboardRepository {
                   and (d.created_by = :by or d.public_link
                        or exists (select 1 from dashboard_share s where s.dashboard_id = d.id and s.username = :by))""")
             .param("id", id).param("by", userId)
+            .query(this::map).optional();
+    }
+
+    /** 資料來源共享 spec 4.4：沒登入的人只看得到打開「不用登入也能看」、擁有者啟用中的儀表板。 */
+    public Optional<DashboardConfig> findAnonymous(UUID id) {
+        return jdbc.sql("""
+                select d.* from dashboard d
+                join account o on o.username = d.created_by and o.enabled
+                where d.id = :id and d.anonymous_link""")
+            .param("id", id)
             .query(this::map).optional();
     }
 
@@ -117,16 +128,17 @@ public class DashboardRepository {
     }
 
     public Share share(UUID id) {
-        boolean publicLink = jdbc.sql("select public_link from dashboard where id = :id")
-            .param("id", id).query(Boolean.class).single();
+        Map<String, Object> links = jdbc.sql("select public_link, anonymous_link from dashboard where id = :id")
+            .param("id", id).query().singleRow();
         List<String> users = jdbc.sql("select username from dashboard_share where dashboard_id = :id order by username")
             .param("id", id).query(String.class).list();
-        return new Share(publicLink, users);
+        return new Share((Boolean) links.get("public_link"), (Boolean) links.get("anonymous_link"), users);
     }
 
     /** 唯讀分享 spec 4.3：整份取代。不動 updated_at，它只代表內容的更新時間。 */
     public void setShare(UUID id, Share s) {
-        jdbc.sql("update dashboard set public_link = :p where id = :id").param("p", s.publicLink()).param("id", id).update();
+        jdbc.sql("update dashboard set public_link = :p, anonymous_link = :a where id = :id")
+            .param("p", s.publicLink()).param("a", s.anonymous()).param("id", id).update();
         jdbc.sql("delete from dashboard_share where dashboard_id = :id").param("id", id).update();
         for (String u : s.users()) {
             jdbc.sql("insert into dashboard_share (dashboard_id, username) values (:id, :u)")

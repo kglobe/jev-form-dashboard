@@ -19,6 +19,7 @@ vi.mock('./api.js', () => ({
     datasourceUsage: vi.fn(),
     deleteDatasource: vi.fn(),
     reloadDatasource: vi.fn(),
+    getDatasourceShare: vi.fn(),
   },
 }))
 
@@ -194,6 +195,78 @@ describe('DatasourcePanel', () => {
     expect(wrapper.find('.tc-badge').text()).toBe('外部 API')
     expect(wrapper.find('.ds-meta').text()).toBe('https://erp.example.com · 1 個欄位 · 0 個敏感')
     expect(wrapper.find('.ds-fields tbody td:nth-child(2)').text()).toBe('日期')
+  })
+
+  describe('資料來源共享 spec 6.1', () => {
+    const mine = { ...ds1, createdBy: 'u1' }
+    // 別人分享的外部 API：後端不給網址和 header
+    const theirs = {
+      id: 'th',
+      name: '總部 ERP',
+      kind: 'api',
+      apiUrl: null,
+      apiHeaders: {},
+      createdBy: 'boss',
+      schema: [
+        { name: 'sales', type: 'number', sensitive: false, label: '銷售金額' },
+        { name: 'refund', type: 'number', sensitive: true },
+      ],
+      ratios: [{ name: '退貨率', numerator: 'refund', denominator: 'sales', sensitive: true }],
+    }
+    const headButtons = (wrapper) => wrapper.findAll('.cc-panel__head button').map((b) => b.text())
+
+    it('清單先列自己的，再列「分享給我的 · N」，副標是「來自 帳號 · N 個欄位」', async () => {
+      api.listDatasources.mockResolvedValue([mine, theirs])
+      const wrapper = mountPanel('ds1', { username: 'u1' })
+      await flushPromises()
+      expect(wrapper.text()).toContain('來源 · 1')
+      expect(wrapper.text()).toContain('分享給我的 · 1')
+      const shared = wrapper.get('[aria-label="分享給我的資料來源"]').findAllComponents({ name: 'VListItem' })
+      expect(shared.map((i) => [i.props('title'), i.props('subtitle')])).toEqual([['總部 ERP', '來自 boss · 2 個欄位']])
+      await shared[0].trigger('click')
+      expect(wrapper.emitted('select')).toEqual([['th']])
+
+      // 沒有別人分享的就不顯示那一段
+      api.listDatasources.mockResolvedValue([mine])
+      const alone = mountPanel('ds1', { username: 'u1' })
+      await flushPromises()
+      expect(alone.text()).not.toContain('分享給我的')
+    })
+
+    it('別人分享的來源是唯讀的：沒有網址，按鈕只有製圖，欄位表和比率都不能改', async () => {
+      api.listDatasources.mockResolvedValue([mine, theirs])
+      const wrapper = mountPanel('th', { username: 'u1' })
+      await flushPromises()
+
+      expect(wrapper.find('.cc-head .cc-desc').text()).toBe('「boss」分享給你的來源，可以拿來製圖，不能修改。')
+      expect(wrapper.find('.ds-meta').text()).toBe('外部 API · 2 個欄位 · 1 個敏感')
+      expect(headButtons(wrapper)).toEqual(['用這個來源製圖'])
+      expect(wrapper.find('input[aria-label="sales 敏感"]').element.disabled).toBe(true)
+      expect(wrapper.find('input[aria-label="sales 顯示名稱"]').element.disabled).toBe(true)
+      expect(wrapper.find('input[aria-label="sales 顯示名稱"]').element.value).toBe('銷售金額')
+      expect(ratioRows(wrapper)).toEqual([['退貨率', 'refund ÷ 銷售金額', '敏感']])
+      expect(wrapper.find('button[aria-label="刪除比率 退貨率"]').exists()).toBe(false)
+      expect(wrapper.findAll('button').some((b) => b.text() === '新增比率')).toBe(false)
+    })
+
+    it('自己的來源標題列在「更新資料」左邊有「分享」，按了打開資料來源的分享對話框', async () => {
+      api.listDatasources.mockResolvedValue([mine, theirs])
+      api.getDatasourceShare.mockResolvedValue({ allUsers: false, users: [] })
+      const wrapper = mountPanel('ds1', { username: 'u1' })
+      await flushPromises()
+
+      expect(wrapper.find('.cc-head .cc-desc').text()).toBe('管理資料來源和欄位：顯示名稱會用在圖表上，標成敏感的欄位不會把內容送給 JEV。')
+      expect(headButtons(wrapper)).toEqual(['分享', '更新資料', '刪除來源', '用這個來源製圖'])
+      const share = wrapper.findAll('.cc-panel__head button').find((b) => b.text() === '分享')
+      expect(share.find('.mdi-share-variant-outline').exists()).toBe(true)
+
+      await share.trigger('click')
+      await flushPromises()
+      const dialog = wrapper.findComponent({ name: 'ShareDialog' })
+      expect(dialog.props('modelValue')).toBe(true)
+      expect(dialog.props('datasource')).toEqual(mine)
+      expect(api.getDatasourceShare).toHaveBeenCalledWith('ds1')
+    })
   })
 
   it('用這個來源製圖 emits build with the selected datasource', async () => {
@@ -672,6 +745,19 @@ describe('DatasourcePanel', () => {
     expect(api.deleteDatasource).toHaveBeenCalledWith('ds1')
     expect(api.listDatasources).toHaveBeenCalledTimes(2)
     expect(deleteDialog(wrapper).props('modelValue')).toBe(false)
+  })
+
+  it('資料來源共享 spec 6.3：有分享出去時，確認文字多一行提醒', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    const wrapper = mountPanel()
+    await flushPromises()
+    const warning = '這個來源有分享給別人，刪除後，別人用它做的圖和合併來源都會失效。'
+
+    await openDelete(wrapper, { mergedBy: [], dashboards: [], shared: true })
+    expect(dialogText()).toContain(warning)
+    await click('取消')
+    await openDelete(wrapper, { mergedBy: [], dashboards: [], shared: false })
+    expect(dialogText()).not.toContain(warning)
   })
 
   it('沒有人用到時不列儀表板那一段', async () => {

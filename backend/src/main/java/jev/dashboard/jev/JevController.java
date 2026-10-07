@@ -97,7 +97,9 @@ public class JevController {
     public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId,
                                      @RequestParam(required = false) String filters) {
         Filters f = Filters.parse(filters);
-        DashboardConfig c = dashboards.view(principal.getName(), dashboardId);
+        // 資料來源共享 spec 4.4：沒登入也打得到，principal 是 null
+        String viewer = principal == null ? null : principal.getName();
+        DashboardConfig c = dashboards.view(viewer, dashboardId);
         // 唯讀分享 spec 6.3：敏感欄位和資料都照擁有者的來源；recent 的 key 跟 /data 一樣是擁有者
         String owner = c.createdBy();
         // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
@@ -113,15 +115,14 @@ public class JevController {
                 && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
         }).toList();
         if (eligible.isEmpty()) return List.of();
-        // 篩選器 spec 2.3：擁有者以外的人不能用的欄位照整份儀表板算（不只摘要得了的卡片），跟 /data 一樣
-        boolean viewer = principal == null || !owner.equals(principal.getName());
         List<ChartData> data;
         try {
+            // 篩選器 spec 2.3：擁有者以外的人（沒登入也算）不能用的欄位照整份儀表板算（不只摘要得了的卡片），跟 /data 一樣
             data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible), f,
-                viewer ? dashboardData.denied(owner, c, f) : Set.of());
+                owner.equals(viewer) ? Set.of() : dashboardData.denied(owner, c, f));
         } catch (ApiException e) {
             // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
-            if (owner.equals(principal.getName())) throw e;
+            if (owner.equals(viewer)) throw e;
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
 

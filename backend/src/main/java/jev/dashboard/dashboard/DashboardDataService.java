@@ -47,18 +47,22 @@ public class DashboardDataService {
 
     /**
      * 一個來源載入一次的結果。載入失敗時 rows 是 null；name 是查得到的來源名稱，查不到是 null；
-     * deleted 是來源本身已經不在（刪除來源 spec 4.1）。
+     * deleted 是來源本身已經不在（刪除來源 spec 4.1），unshared 是來源還在但不能用了（資料來源共享 spec 2.3）。
      * ratios 是這個來源的比率定義（B3），dates 是日期欄位（比率的期間對齊用），都交給轉換器。
      * texts 是文字欄位，畫面上的名稱（顯示名稱，沒有就是欄位名稱）對到欄位名稱，照 schema 順序；篩選器用。
      */
     private record Source(String name, List<Map<String, Object>> rows, Set<String> available, Map<String, String> labels,
-                          List<Ratio> ratios, List<String> dates, Map<String, String> texts, boolean deleted) {
+                          List<Ratio> ratios, List<String> dates, Map<String, String> texts, boolean deleted, boolean unshared) {
         static Source failed(String name) {
-            return new Source(name, null, null, null, null, null, null, false);
+            return new Source(name, null, null, null, null, null, null, false, false);
         }
 
         static Source ofDeleted() {
-            return new Source(null, null, null, null, null, null, null, true);
+            return new Source(null, null, null, null, null, null, null, true, false);
+        }
+
+        static Source ofUnshared() {
+            return new Source(null, null, null, null, null, null, null, false, true);
         }
     }
 
@@ -193,6 +197,10 @@ public class DashboardDataService {
                 out.add(new Built(s, ChartData.sourceDeleted(s.chartId(), s.type()), Map.of()));
                 continue;
             }
+            if (src.unshared()) {
+                out.add(new Built(s, ChartData.sourceUnshared(s.chartId(), s.type()), Map.of()));
+                continue;
+            }
             if (src.rows() == null) {
                 out.add(new Built(s, ChartData.sourceFailed(s.chartId(), s.type(), src.name()), Map.of()));
                 continue;
@@ -256,7 +264,7 @@ public class DashboardDataService {
     /**
      * 每個來源只載入一次，卡片直接用的和合併來源裡用到的共用同一份（同一個 loader）。
      * 有來源載入失敗（外部 API 掛掉、超過筆數上限等）時，只有用到它的卡片是 SOURCE_FAILED；
-     * 全部來源都失敗（而且沒有一個是已刪除）就丟出第一個錯誤，單一來源的儀表板和預覽跟以前一樣整份報錯。
+     * 全部來源都失敗（而且沒有一個是已刪除或停止分享）就丟出第一個錯誤，單一來源的儀表板和預覽跟以前一樣整份報錯。
      */
     private Map<UUID, Source> sources(String userId, List<ChartSpec> layout) {
         Function<UUID, DatasourceService.Loaded> load = datasources.loader(userId);
@@ -273,7 +281,9 @@ public class DashboardDataService {
                 out.put(id, failedSource(userId, id));
             }
         }
-        if (first != null && out.values().stream().allMatch(src -> src.rows() == null && !src.deleted())) throw first;
+        if (first != null && out.values().stream().allMatch(src -> src.rows() == null && !src.deleted() && !src.unshared())) {
+            throw first;
+        }
         return out;
     }
 
@@ -287,7 +297,7 @@ public class DashboardDataService {
             .collect(Collectors.toMap(FieldSchema::name, FieldSchema::label));
         List<String> dates = schema.stream().filter(f -> f.type() == FieldType.DATE).map(FieldSchema::name).toList();
         return new Source(loaded.datasource().name(), loaded.rows(), available, labels, loaded.datasource().ratios(), dates,
-            texts(schema), false);
+            texts(schema), false, false);
     }
 
     /** 文字欄位：畫面上的名稱（顯示名稱，沒有就是欄位名稱）對到欄位名稱，照 schema 順序。 */
@@ -296,12 +306,16 @@ public class DashboardDataService {
             f -> f.label() != null ? f.label() : f.name(), FieldSchema::name, (a, b) -> a, LinkedHashMap::new));
     }
 
-    /** 載入失敗時才查名稱給卡片顯示；來源本身找不到（NOT_FOUND）就是已刪除，其他錯誤只是沒有名稱。 */
+    /**
+     * 載入失敗時才查名稱給卡片顯示；其他錯誤只是沒有名稱。用這個身分查不到（NOT_FOUND）時，
+     * 資料來源共享 spec 2.3：再看來源還在不在，還在是停止分享，不在才是已刪除。
+     */
     private Source failedSource(String userId, UUID id) {
         try {
             return Source.failed(datasources.get(userId, id).name());
         } catch (ApiException e) {
-            return e.status() == HttpStatus.NOT_FOUND ? Source.ofDeleted() : Source.failed(null);
+            if (e.status() != HttpStatus.NOT_FOUND) return Source.failed(null);
+            return datasources.exists(id) ? Source.ofUnshared() : Source.ofDeleted();
         }
     }
 

@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from './api.js'
 import DashboardView from './DashboardView.vue'
-import { FIELD_TYPES } from './fields.js'
+import { FIELD_TYPES, sourceTitle } from './fields.js'
 import './motion.css'
 
 const props = defineProps({
@@ -12,6 +12,8 @@ const props = defineProps({
   active: { type: Boolean, default: true },
   // 自己的儀表板清單（App 左側那份，最近更新的在最上面），給「加到既有儀表板」選
   dashboards: { type: Array, default: () => [] },
+  // 目前的帳號，分出哪些來源是別人分享的（資料來源共享 spec 6.4）
+  username: String,
 })
 // saved：存好或加好了，帶儀表板 id；dashboards-changed：加圖時發現儀表板已經不在，請 App 重抓清單
 const emit = defineEmits(['saved', 'dashboards-changed'])
@@ -227,7 +229,7 @@ async function append(id) {
           <v-select
             :model-value="datasourceId"
             :items="list"
-            item-title="name"
+            :item-title="(ds) => sourceTitle(ds, username)"
             item-value="id"
             aria-label="資料來源"
             aria-labelledby="cb-source-label"

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import ShareDialog from '../auth/ShareDialog.vue'
 import { api } from './api.js'
 import { FIELD_TYPES } from './fields.js'
 import MergeForm from './MergeForm.vue'
@@ -9,6 +10,8 @@ const props = defineProps({
   selectedId: { type: String, default: null },
   // 唯讀分享 spec 2.6：只有管理員能註冊外部 API 來源
   admin: { type: Boolean, default: false },
+  // 資料來源共享 spec 4.2：拿來跟每個來源的 createdBy 比，分出自己的和別人分享的
+  username: String,
 })
 // build：按「用這個來源製圖」，交給 App 切到製圖頁
 const emit = defineEmits(['select', 'build'])
@@ -32,6 +35,12 @@ const filtered = computed(() => {
 })
 const selected = computed(() => list.value.find((ds) => ds.id === props.selectedId) ?? null)
 const sensitiveCount = computed(() => selected.value?.schema.filter((f) => f.sensitive).length ?? 0)
+
+// 資料來源共享 spec 6.1：清單先列自己的，再列別人分享的；別人分享的只能拿來製圖，不能改
+const isShared = (ds) => ds.createdBy !== props.username
+const sharedCount = computed(() => list.value.filter(isShared).length)
+const selectedShared = computed(() => !!selected.value && isShared(selected.value))
+const sharing = ref(false)
 
 async function refresh() {
   list.value = await api.listDatasources()
@@ -316,7 +325,9 @@ async function reload() {
       <div>
         <div class="cc-eyebrow">01 · Data</div>
         <h1 class="cc-title">資料</h1>
-        <p class="cc-desc">管理資料來源和欄位：顯示名稱會用在圖表上，標成敏感的欄位不會把內容送給 JEV。</p>
+        <p class="cc-desc">
+          {{ selectedShared ? `「${selected.createdBy}」分享給你的來源，可以拿來製圖，不能修改。` : '管理資料來源和欄位：顯示名稱會用在圖表上，標成敏感的欄位不會把內容送給 JEV。' }}
+        </p>
       </div>
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openAdd">新增來源</v-btn>
     </header>
@@ -336,10 +347,10 @@ async function reload() {
             clearable
           />
         </div>
-        <div class="cc-label px-4 pb-1">來源 · {{ list.length }}</div>
+        <div class="cc-label px-4 pb-1">來源 · {{ list.length - sharedCount }}</div>
         <v-list nav class="ds-list px-2 pb-2" aria-label="資料來源">
           <v-list-item
-            v-for="ds in filtered"
+            v-for="ds in filtered.filter((d) => !isShared(d))"
             :key="ds.id"
             :active="ds.id === selectedId"
             :prepend-icon="KINDS[ds.kind]?.icon"
@@ -347,10 +358,24 @@ async function reload() {
             :subtitle="`${ds.schema.length} 個欄位`"
             @click="emit('select', ds.id)"
           />
-          <p v-if="!filtered.length" class="text-caption text-medium-emphasis pa-3">
-            {{ list.length ? '沒有符合的來源' : '還沒有資料來源' }}
+          <p v-if="!filtered.some((d) => !isShared(d))" class="text-caption text-medium-emphasis pa-3">
+            {{ list.length > sharedCount ? '沒有符合的來源' : '還沒有資料來源' }}
           </p>
         </v-list>
+        <template v-if="sharedCount">
+          <div class="cc-label px-4 pt-2 pb-1">分享給我的 · {{ sharedCount }}</div>
+          <v-list nav class="ds-list px-2 pb-2" aria-label="分享給我的資料來源">
+            <v-list-item
+              v-for="ds in filtered.filter(isShared)"
+              :key="ds.id"
+              :active="ds.id === selectedId"
+              :prepend-icon="KINDS[ds.kind]?.icon"
+              :title="ds.name"
+              :subtitle="`來自 ${ds.createdBy} · ${ds.schema.length} 個欄位`"
+              @click="emit('select', ds.id)"
+            />
+          </v-list>
+        </template>
       </aside>
 
       <section v-if="selected" class="cc-panel ds-detail">
@@ -361,12 +386,16 @@ async function reload() {
               <span class="tc-badge">{{ KINDS[selected.kind]?.text ?? selected.kind }}</span>
             </div>
             <div class="ds-meta cc-mono text-truncate">
-              <template v-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template><template v-else-if="selected.merge">{{ mergeSummary(selected) }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
+              <!-- 資料來源共享 spec 6.1：別人的外部 API 看不到網址；別人的合併來源多半看不到輸入來源，只寫種類 -->
+              <template v-if="selectedShared && selected.kind !== 'upload'">{{ KINDS[selected.kind]?.text }} · </template><template v-else-if="selected.kind === 'api'">{{ selected.apiUrl }} · </template><template v-else-if="selected.merge">{{ mergeSummary(selected) }} · </template>{{ selected.schema.length }} 個欄位 · {{ sensitiveCount }} 個敏感
             </div>
           </div>
-          <!-- 更新資料 spec 5.1：只有上傳的檔案能換資料；外部 API 每次載入都重抓，合併來源跟著輸入來源 -->
-          <v-btn v-if="selected.kind === 'upload'" prepend-icon="mdi-database-refresh-outline" @click="openReload(selected)">更新資料</v-btn>
-          <v-btn prepend-icon="mdi-delete-outline" :loading="checking" @click="openDelete(selected)">刪除來源</v-btn>
+          <template v-if="!selectedShared">
+            <v-btn prepend-icon="mdi-share-variant-outline" @click="sharing = true">分享</v-btn>
+            <!-- 更新資料 spec 5.1：只有上傳的檔案能換資料；外部 API 每次載入都重抓，合併來源跟著輸入來源 -->
+            <v-btn v-if="selected.kind === 'upload'" prepend-icon="mdi-database-refresh-outline" @click="openReload(selected)">更新資料</v-btn>
+            <v-btn prepend-icon="mdi-delete-outline" :loading="checking" @click="openDelete(selected)">刪除來源</v-btn>
+          </template>
           <v-btn append-icon="mdi-arrow-right" @click="emit('build', selected.id)">用這個來源製圖</v-btn>
         </header>
         <v-table class="ds-fields">
@@ -393,7 +422,7 @@ async function reload() {
                   :aria-label="`${f.name} 顯示名稱`"
                   :placeholder="f.name"
                   hide-details
-                  :disabled="busy"
+                  :disabled="busy || selectedShared"
                   @change="(e) => saveLabel(selected, f.name, e.target.value)"
                   @keydown.enter="(e) => e.target.blur()"
                 />
@@ -405,7 +434,7 @@ async function reload() {
                   :aria-label="`${f.name} 敏感`"
                   hide-details
                   class="d-inline-flex"
-                  :disabled="busy || !!f.sensitiveFrom"
+                  :disabled="busy || !!f.sensitiveFrom || selectedShared"
                   @update:model-value="(on) => toggleSensitive(selected, f.name, on)"
                 />
               </td>
@@ -422,7 +451,7 @@ async function reload() {
           <div class="ds-ratios__head">
             <span class="cc-label">比率 · {{ ratios.length }}</span>
             <v-spacer />
-            <v-btn size="small" variant="text" prepend-icon="mdi-plus" :disabled="busy" @click="openRatio">新增比率</v-btn>
+            <v-btn v-if="!selectedShared" size="small" variant="text" prepend-icon="mdi-plus" :disabled="busy" @click="openRatio">新增比率</v-btn>
           </div>
           <v-alert v-if="ratioError" type="error" density="compact" class="mx-5 mb-2">{{ ratioError }}</v-alert>
           <v-table v-if="ratios.length">
@@ -443,6 +472,7 @@ async function reload() {
                 </td>
                 <td class="text-right">
                   <v-btn
+                    v-if="!selectedShared"
                     icon="mdi-delete-outline"
                     size="small"
                     variant="text"
@@ -494,7 +524,7 @@ async function reload() {
               />
             </v-window-item>
             <v-window-item value="merge" :transition="false" :reverse-transition="false">
-              <MergeForm :key="mergeKey" :sources="list" @created="onMerged" />
+              <MergeForm :key="mergeKey" :sources="list" :username="username" @created="onMerged" />
             </v-window-item>
           </v-window>
           <v-alert v-if="addError" type="error" density="compact" class="mt-3">{{ addError }}</v-alert>
@@ -547,6 +577,8 @@ async function reload() {
               <p class="mt-3">下面這些儀表板有用到它的圖，刪除後會顯示「資料來源已刪除」，可以再按 ✕ 移除：</p>
               <div v-for="d in deleteUsage.dashboards" :key="d.id">{{ d.name }}（{{ d.charts }} 張圖）</div>
             </template>
+            <!-- 資料來源共享 spec 6.3 -->
+            <p v-if="deleteUsage.shared" class="mt-3">這個來源有分享給別人，刪除後，別人用它做的圖和合併來源都會失效。</p>
             <v-alert v-if="deleteError" type="error" density="compact" class="mt-3">{{ deleteError }}</v-alert>
           </v-card-text>
           <v-card-actions class="px-6 pb-5">
@@ -580,6 +612,9 @@ async function reload() {
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 資料來源共享 spec 6.2：放在最後，前面幾個對話框的順序不變 -->
+    <ShareDialog v-if="selected && !selectedShared" :key="selected.id" v-model="sharing" :datasource="selected" />
   </section>
 </template>
 

@@ -22,7 +22,7 @@ public final class TestData {
     public static final String PASSWORD_HASH = "{bcrypt}$2a$04$YjwA8WPDUz9gUv6VAUQbOudjRmUno73kxXve8EeD/tOS7NvU546tO";
 
     public static void clean(JdbcClient jdbc) {
-        jdbc.sql("truncate dashboard_share, account, dashboard, datasource_rows, datasource").update();
+        jdbc.sql("truncate dashboard_share, datasource_share, account, dashboard, datasource_rows, datasource").update();
         for (String u : List.of("u1", "u2", "u3")) addAccount(jdbc, u, false);
     }
 
