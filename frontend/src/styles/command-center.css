@@ -377,14 +377,13 @@ kbd, .cc-kbd {
 .v-field input::placeholder,
 .v-field textarea::placeholder { color: var(--tc-muted); opacity: 1; }
 
-/* 清單項目：選中時淡橘底、左邊一條橘線 */
+/* 清單項目：選中時淡橘底，左邊不加色條 */
 .v-list { background: transparent !important; }
 .v-list-item { border-radius: var(--tc-radius) !important; }
 .v-list-item:hover { background: var(--tc-hover); }
 .v-list-item--active {
   background: var(--tc-active) !important;
   color: var(--tc-text) !important;
-  box-shadow: inset 3px 0 0 var(--tc-primary);
 }
 .v-list-item--active .v-list-item__overlay { opacity: 0 !important; }
 .v-list-item--active .v-icon { color: var(--tc-primary); }
@@ -432,8 +431,8 @@ kbd, .cc-kbd {
 }
 .v-switch .v-selection-control--dirty .v-switch__thumb { background-color: var(--tc-on-primary); }
 
-/* 提示框：左邊一條狀態色 */
-.v-alert { border-radius: var(--tc-radius) !important; border-left: 3px solid currentColor; }
+/* 提示框：圓角，左邊不加色條 */
+.v-alert { border-radius: var(--tc-radius) !important; }
 
 /* ---------- 6. 減少動態效果 ---------- */
 @media (prefers-reduced-motion: reduce) {
