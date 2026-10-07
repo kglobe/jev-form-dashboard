@@ -57,6 +57,7 @@ class UnpivotTest {
     void theYearFillsInHeadersWithoutOneAndMayBeMinguo() {
         assertThat(detect(new Unpivot.Options("115", null, null), "1月", "2月").year()).isEqualTo(2026);
         assertThat(detect(new Unpivot.Options(" 2025 ", null, null), "1月").year()).isEqualTo(2025);
+        assertThat(detect(new Unpivot.Options("２０２６", null, null), "1月").year()).isEqualTo(2026);
         // 標題自己有年份時不看填的年份，填錯也沒關係
         assertThat(detect(new Unpivot.Options("abc", null, null), "2024-01", "2024-02").year()).isNull();
         assertThatThrownBy(() -> detect(NONE, "部門", "1月", "2月")).hasMessage("欄位「1月」沒寫年份，請填年份");

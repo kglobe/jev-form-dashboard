@@ -158,7 +158,8 @@ public record Unpivot(List<String> columns, List<String> dropped, String periodN
     /** spec 2.2：標題沒寫年份時才用得到使用者填的年份。 */
     private static int year(String text, String header) {
         if (blank(text)) throw bad("欄位「" + header + "」沒寫年份，請填年份");
-        String t = text.strip();
+        // 中文輸入法常打出全形數字，跟標題一樣先轉半形
+        String t = Normalizer.normalize(text, Normalizer.Form.NFKC).strip();
         if (!t.matches("\\d{2,4}")) throw bad("年份要填西元 1900～2099 年，或民國年");
         int y = year(t);
         if (y < 1900 || y > 2099) throw bad("年份要填西元 1900～2099 年，或民國年");
