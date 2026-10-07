@@ -277,7 +277,7 @@ class JevControllerTest {
         analyzeIsRejected(head + "\"current\":[" + TABLE_CARD + "]}", "請輸入想怎麼調整");
         analyzeIsRejected(head + "\"intents\":[\"不要圓餅圖\"],\"current\":[null]}", "第 1 張圖表是空的");
         analyzeIsRejected(head + "\"intents\":[\"不要圓餅圖\"],\"current\":[" + TABLE_CARD.replace("\"table\"", "\"donut\"") + "]}",
-            "圖表 c2：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar 其中之一");
+            "圖表 c2：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar、kpi 其中之一");
         assertThat(JEV.bodies).isEmpty();
     }
 

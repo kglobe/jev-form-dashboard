@@ -20,4 +20,12 @@ public final class TimeBucket {
             default -> throw new IllegalArgumentException("未知的 timeGrain：" + grain);
         };
     }
+
+    /**
+     * 已經結束的期：今天所在的那一期和之後的期都不算。期的 key 是 of() 的結果，字串排序就是時間順序。
+     * 異常檢查和 KPI 卡（KPI spec 2.1）共用這個判斷。
+     */
+    public static boolean ended(String period, LocalDate today, String grain) {
+        return period.compareTo(of(today, grain)) < 0;
+    }
 }

@@ -426,6 +426,7 @@ public final class ConfigAssembler {
     }
 
     public static String title(String type, Mapping m) {
+        if (type.equals("kpi")) return m.value(); // KPI spec 3：DashboardDataService 照樣換成顯示名稱
         if (type.equals("scatter")) return m.x() + " 與 " + m.y();
         if (type.equals("radar")) return m.series() + " 各指標比較";
         if (m.measures() != null) return String.join(" 與 ", m.measures()) + " 依 " + m.x();

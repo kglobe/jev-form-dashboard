@@ -1,5 +1,6 @@
 package jev.dashboard.transform;
 
+import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,8 +20,10 @@ public final class UniversalTransformer {
     static final int TABLE_ROW_LIMIT = 500;
     /** 分組欄位是空值的列歸到這一組，不丟掉 */
     public static final String BLANK = "（空白）";
-    static final List<String> TYPES = List.of("line", "bar", "pie", "scatter", "table", "radar", "heatmap", "stacked_bar");
+    static final List<String> TYPES = List.of("line", "bar", "pie", "scatter", "table", "radar", "heatmap", "stacked_bar", "kpi");
     static final List<String> AGGREGATES = List.of("sum", "count", "avg", "none");
+    /** KPI spec 4：KPI 卡最多回最後 13 期；前端只用最後兩期，多留的給之後的走勢小圖。 */
+    static final int KPI_PERIODS = 13;
 
     private UniversalTransformer() {}
 
@@ -43,6 +46,7 @@ public final class UniversalTransformer {
             case "stacked_bar" -> blank(m.x()) ? "x" : blank(m.series()) ? "series" : null;
             case "heatmap", "scatter" -> blank(m.x()) ? "x" : blank(m.y()) ? "y" : null;
             case "radar" -> blank(m.series()) ? "series" : blank(m.measures()) ? "measures" : null;
+            case "kpi" -> blank(m.x()) ? "x" : blank(m.value()) ? "value" : blank(m.timeGrain()) ? "timeGrain" : null;
             default -> blank(m.columns()) ? "columns" : null; // table
         };
         if (missing != null) return spec.type() + " 需要 mapping." + missing;
@@ -51,6 +55,11 @@ public final class UniversalTransformer {
         }
         if (m.timeGrain() != null && !TimeBucket.GRAINS.contains(m.timeGrain())) {
             return "timeGrain 必須是 " + String.join("、", TimeBucket.GRAINS) + " 其中之一";
+        }
+        // KPI spec 3：一期一個數字，只照月或季分期，而且要聚合
+        if (spec.type().equals("kpi")) {
+            if (m.timeGrain().equals("day")) return "kpi 的 timeGrain 只能是 month、quarter";
+            if ("none".equals(m.aggregate())) return "kpi 不能用 aggregate none";
         }
         // B2 spec 5.3、第 8 節：長條圖、折線圖可以用剛好兩個不同的 measures 取代 value
         if (m.measures() != null && (spec.type().equals("bar") || spec.type().equals("line"))) {
@@ -80,12 +89,18 @@ public final class UniversalTransformer {
         return transform(spec, rows, availableFields, ratios, List.of());
     }
 
+    public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
+                                      List<Ratio> ratios, List<String> dateFields) {
+        return transform(spec, rows, availableFields, ratios, dateFields, LocalDate.now());
+    }
+
     /**
      * ratios 是這個來源的比率定義（B3 spec 5.1）；value 是比率名稱時，每組分子、分母各自加總再相除。
      * dateFields 是這個來源的日期欄位，依 schema 順序；比率只算分子、分母都有資料的月份（期間對齊）。
+     * today 只有 KPI 卡用得到：只回已經結束的期（KPI spec 4）；DashboardDataService 傳它 Clock 的今天。
      */
     public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
-                                      List<Ratio> ratios, List<String> dateFields) {
+                                      List<Ratio> ratios, List<String> dateFields, LocalDate today) {
         Mapping m = spec.mapping();
         Ratio ratio = ratios.stream().filter(r -> r.name().equals(m.value())).findFirst().orElse(null);
         List<String> fields = new ArrayList<>(referencedFields(m));
@@ -99,7 +114,7 @@ public final class UniversalTransformer {
         }
         String agg = m.aggregate() != null ? m.aggregate() : defaultAggregate(spec.type());
         try {
-            return shaped(spec, rows, m, agg, ratio, dateFields);
+            return shaped(spec, rows, m, agg, ratio, dateFields, today);
         } catch (DateTimeParseException e) {
             // TimeBucket 分期時遇到不是日期的值：只有這張卡出錯，其他卡照常畫
             return ChartData.notADate(spec.chartId(), spec.type(), m.x());
@@ -107,11 +122,14 @@ public final class UniversalTransformer {
     }
 
     private static ChartData shaped(ChartSpec spec, List<Map<String, Object>> rows, Mapping m, String agg, Ratio ratio,
-                                    List<String> dateFields) {
+                                    List<String> dateFields, LocalDate today) {
         return switch (spec.type()) {
             case "bar", "line" -> m.measures() != null
                 ? measured(spec, rows, m.x(), m.measures(), agg, m.timeGrain())
                 : grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio, dateFields);
+            // KPI spec 4：分組跟有 timeGrain 的折線圖一樣，比率的期間對齊也一樣
+            case "kpi" -> ended(grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio, dateFields),
+                m.timeGrain(), today);
             case "pie" -> grouped(spec, rows, List.of(m.x()), m.value(), agg, m.timeGrain(), ratio, dateFields);
             case "stacked_bar" -> grouped(spec, rows, List.of(m.x(), m.series()), m.value(), agg, m.timeGrain(), ratio, dateFields);
             case "heatmap" -> grouped(spec, rows, List.of(m.x(), m.y()), m.value(), agg, m.timeGrain(), ratio, dateFields);
@@ -191,6 +209,16 @@ public final class UniversalTransformer {
         }
         return new ChartData(spec.chartId(), spec.type(), dims, out, null, null, null, null, null,
             ratio != null ? Boolean.TRUE : null, overlap == null ? null : new ChartData.RatioPeriod(overlap.from(), overlap.to()));
+    }
+
+    /**
+     * KPI spec 2.1、4：只留已經結束的期（跟異常檢查同一個判斷），已經照時間排好，最多留最後 KPI_PERIODS 期。
+     * grouped() 回傳的是新的清單，直接裁。
+     */
+    private static ChartData ended(ChartData d, String grain, LocalDate today) {
+        d.rows().removeIf(r -> !TimeBucket.ended(String.valueOf(r.get(0)), today, grain));
+        d.rows().subList(0, Math.max(0, d.rows().size() - KPI_PERIODS)).clear();
+        return d;
     }
 
     /** 比率只算 from～to 這幾個月；from 比 to 晚時沒有重疊，每一列都不算。月份是 TimeBucket 的 2026-07，照字串比大小。 */

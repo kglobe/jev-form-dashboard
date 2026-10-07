@@ -625,7 +625,7 @@ class DashboardControllerTest {
             "一次存入的圖表要來自同一個資料來源");
         appendFails(id, "{\"layout\":[" + card("c1", strangers, 0) + "]}", 404, "找不到資料源");
         appendFails(id, "{\"layout\":[" + card("c1", returns, 0).replace("\"type\":\"bar\"", "\"type\":\"donut\"") + "]}", 400,
-            "圖表 c1：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar 其中之一");
+            "圖表 c1：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar、kpi 其中之一");
         appendFails(id, "{\"intents\":[\" \"],\"layout\":[" + card("c1", returns, 0) + "]}", 400, "需求紀錄不能有空白的句子");
 
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))

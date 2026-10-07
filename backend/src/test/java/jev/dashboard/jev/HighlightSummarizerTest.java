@@ -63,6 +63,20 @@ class HighlightSummarizerTest {
             Map.of("name", "refund", "previous", 10.0, "current", 5.0, "changePercent", -50.0)));
     }
 
+    @Test
+    void aKpiIsSummarizedLikeALineWithoutSeries() {
+        ChartSpec kpi = new ChartSpec("c1", "kpi", "amount", new GridPos(0, 0, 4, 2), LINE, Map.of());
+        ChartData d = new ChartData("c1", "kpi", List.of("order_date", "amount"),
+            List.of(r("2024-04", 80.0), r("2024-05", 100.0)), null, null);
+
+        assertThat(HighlightSummarizer.summarizable(kpi)).isTrue();
+        Map<String, Object> s = HighlightSummarizer.summarize(kpi, d, TODAY);
+        assertThat(s).containsEntry("title", "amount").containsEntry("metric", "amount")
+            .containsEntry("previousPeriod", "2024-04").containsEntry("period", "2024-05");
+        assertThat(s.get("series")).isEqualTo(List.of(
+            Map.of("name", "全部", "previous", 80.0, "current", 100.0, "changePercent", 25.0)));
+    }
+
     @SafeVarargs
     static ChartData line(List<Object>... rows) {
         return new ChartData("c1", "line", List.of("order_date", "amount"), List.of(rows), null, null);
