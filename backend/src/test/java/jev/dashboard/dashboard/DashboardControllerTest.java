@@ -570,4 +570,122 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
             .andExpect(jsonPath("$.layout.length()").value(4));
     }
+
+    static final String NORTH_SOUTH = "{\"period\":\"last_quarter\",\"fields\":[{\"field\":\"region\",\"values\":[\"北區\",\"南區\"]}]}";
+
+    /** 在儀表板 JSON 最前面加上 filters。 */
+    static String withFilters(String dashboardJson, String filters) {
+        return "{\"filters\":" + filters + "," + dashboardJson.substring(1);
+    }
+
+    MockHttpServletRequestBuilder putJson(String id, String json) {
+        return put("/api/dashboards/" + id).with(TestData.as("u1")).contentType(MediaType.APPLICATION_JSON).content(json);
+    }
+
+    @Test
+    void filtersAreSavedAndReadBackKeptByAppendAndClearedByAPutWithoutThem() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String json = TestData.dashboardJson(ds);
+        // 建立時不收篩選，跟 basis 一樣
+        String id = create("u1", withFilters(json, NORTH_SOUTH));
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.filters").doesNotExist());
+
+        mvc.perform(putJson(id, withFilters(json, NORTH_SOUTH)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.filters.period").value("last_quarter"))
+            .andExpect(jsonPath("$.filters.fields[0].field").value("region"))
+            .andExpect(jsonPath("$.filters.fields[0].values").value(contains("北區", "南區")));
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1")))
+            .andExpect(jsonPath("$.filters.period").value("last_quarter"))
+            .andExpect(jsonPath("$.filters.fields[0].values").value(contains("北區", "南區")));
+
+        mvc.perform(post("/api/dashboards/" + id + "/charts").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"layout\":[" + card("c1", ds, 0) + "]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.layout.length()").value(5))
+            .andExpect(jsonPath("$.filters.period").value("last_quarter"));
+
+        mvc.perform(putJson(id, json)).andExpect(status().isOk()).andExpect(jsonPath("$.filters").doesNotExist());
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.filters").doesNotExist());
+
+        // 沒有任何篩選就當作沒存
+        mvc.perform(putJson(id, withFilters(json, "{\"period\":null,\"fields\":[]}")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.filters").doesNotExist());
+    }
+
+    static final String[][] BAD_FILTERS = {
+        {"{\"period\":\"yesterday\"}", "期間只能是 本月、上月、本季、上季、今年、去年"},
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[\"1\"]},{\"field\":\"b\",\"values\":[\"1\"]},{\"field\":\"c\",\"values\":[\"1\"]},"
+            + "{\"field\":\"d\",\"values\":[\"1\"]}]}", "分類篩選最多 3 個"},
+        {"{\"fields\":[{\"field\":\" \",\"values\":[\"1\"]}]}", "篩選的欄位名稱不能空白"},
+        {"{\"fields\":[{\"field\":\"" + "欄".repeat(51) + "\",\"values\":[\"1\"]}]}", "篩選的欄位名稱最多 50 個字"},
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[\"1\"]},{\"field\":\"a\",\"values\":[\"2\"]}]}", "同一個欄位只能篩選一次"},
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[]}]}", "每個篩選要選 1～200 個值"},
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[null]}]}", "每個篩選要選 1～200 個值"},
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[\"" + "值".repeat(201) + "\"]}]}", "篩選的值最多 200 個字"},
+    };
+
+    @Test
+    void savingAndQueryingShareTheFilterRules() throws Exception {
+        String json = TestData.dashboardJson(TestData.uploadSales(mvc, "u1"));
+        String id = create("u1", json);
+
+        for (String[] bad : BAD_FILTERS) {
+            mvc.perform(putJson(id, withFilters(json, bad[0])))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(bad[1]));
+            for (String path : new String[] {"/api/dashboards/" + id + "/data", "/api/jev/highlight/" + id}) {
+                mvc.perform(get(path).param("filters", bad[0]).with(TestData.as("u1")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(bad[1]));
+            }
+        }
+        mvc.perform(get("/api/dashboards/" + id + "/data").param("filters", "{\"period\":").with(TestData.as("u1")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("篩選的格式不對"));
+        mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.filters").doesNotExist());
+    }
+
+    @Test
+    void dataAppliesTheFiltersAndNamesTheOnesThatDidNotApply() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String id = create("u1", TestData.dashboardJson(ds));
+        // 沒帶篩選：不會自動套預設
+        mvc.perform(putJson(id, withFilters(TestData.dashboardJson(ds), "{\"period\":\"last_year\"}"))).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].rows.length()").value(6))
+            .andExpect(jsonPath("$[0].filterSkipped").doesNotExist());
+
+        // 北區：1、2、4、6 月
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1"))
+                .param("filters", "{\"fields\":[{\"field\":\"region\",\"values\":[\"北區\"]},{\"field\":\"通路\",\"values\":[\"網路\"]}]}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$[0].rows[*][0]").value(contains("2024-01", "2024-02", "2024-04", "2024-06")))
+            .andExpect(jsonPath("$[0].filterSkipped").value(contains("通路")))
+            .andExpect(jsonPath("$[2].rows.length()").value(1))
+            .andExpect(jsonPath("$[2].rows[0][1]").value(7400.0))
+            .andExpect(jsonPath("$[3].error").value("FIELD_MISSING"));
+
+        // 資料都是 2024 年：去年（2025 年以後）沒有資料；沒有 timeGrain 的圓餅圖用第一個日期欄位 order_date
+        mvc.perform(get("/api/dashboards/" + id + "/data").with(TestData.as("u1")).param("filters", "{\"period\":\"last_year\"}"))
+            .andExpect(jsonPath("$[0].rows.length()").value(0))
+            .andExpect(jsonPath("$[2].rows.length()").value(0))
+            .andExpect(jsonPath("$[2].filterSkipped").doesNotExist());
+    }
+
+    @Test
+    void filterOptionsListTheTextFieldsForAnyoneWhoCanSeeTheDashboard() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        for (String user : new String[] {"u1", "u2"}) {
+            mvc.perform(get("/api/dashboards/" + id + "/filter-options").with(TestData.as(user)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fields[*].field").value(contains("region", "product", "memo")))
+                .andExpect(jsonPath("$.fields[0].values").value(contains("中區", "北區", "南區", "東區")))
+                .andExpect(jsonPath("$.fields[1].values").value(contains("A", "B", "C")));
+        }
+        notFound(get("/api/dashboards/" + id + "/filter-options").with(TestData.as("u3")));
+    }
 }

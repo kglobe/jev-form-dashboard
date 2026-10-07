@@ -172,6 +172,27 @@ class JevControllerTest {
     }
 
     @Test
+    void highlightChecksTheFilteredData() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        String north = "{\"fields\":[{\"field\":\"region\",\"values\":[\"北區\"]}]}";
+
+        // 先打有篩選的 /data，再打沒篩選的 /highlight：不能拿到篩選過的資料
+        mvc.perform(get("/api/dashboards/" + id + "/data").param("filters", north).with(TestData.as("u1"))).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).param("filters", north).with(TestData.as("u1"))).andExpect(status().isOk());
+
+        // 全部的列：最後兩期是 5 月 3200、6 月 4300；北區 5 月沒有資料，是 4 月 1700、6 月 3000
+        assertThat(JEV.bodies).hasSize(2);
+        assertThat(JEV.bodies.get(0)).contains("\"previous\":3200.0,\"current\":4300.0");
+        assertThat(JEV.bodies.get(1)).contains("\"previous\":1700.0,\"current\":3000.0").doesNotContain("4300.0");
+    }
+
+    @Test
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """

@@ -14,6 +14,7 @@ import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardConfig;
 import jev.dashboard.dashboard.DashboardDataService;
 import jev.dashboard.dashboard.DashboardService;
+import jev.dashboard.dashboard.Filters;
 import jev.dashboard.datasource.Datasource;
 import jev.dashboard.datasource.DatasourceService;
 import jev.dashboard.datasource.FieldSchema;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -90,8 +92,11 @@ public class JevController {
         return intents.stream().filter(Objects::nonNull).map(String::strip).filter(s -> !s.isEmpty()).toList();
     }
 
+    /** 篩選器 spec 2.4：filters 跟 /data 一樣，異常檢查照篩選後的資料判斷。 */
     @GetMapping("/highlight/{dashboardId}")
-    public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId) {
+    public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId,
+                                     @RequestParam(required = false) String filters) {
+        Filters f = Filters.parse(filters);
         DashboardConfig c = dashboards.view(principal.getName(), dashboardId);
         // 唯讀分享 spec 6.3：敏感欄位和資料都照擁有者的來源；recent 的 key 跟 /data 一樣是擁有者
         String owner = c.createdBy();
@@ -110,7 +115,7 @@ public class JevController {
         if (eligible.isEmpty()) return List.of();
         List<ChartData> data;
         try {
-            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
+            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible), f);
         } catch (ApiException e) {
             // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
             if (owner.equals(principal.getName())) throw e;
