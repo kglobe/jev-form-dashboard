@@ -124,8 +124,10 @@ function apply() {
     >
       存成預設
     </v-btn>
+    <!-- 自動更新 spec 6.1：最後更新時間和「自動更新」選單由 DashboardView 放進來，在右邊、「加 KPI 卡」左邊 -->
+    <div class="d-flex align-center ga-2 ml-auto"><slot /></div>
     <!-- KPI spec 6.2：擁有者才有，放在篩選列最右邊 -->
-    <v-btn v-if="owner" variant="text" prepend-icon="mdi-numeric" class="ml-auto" @click="emit('add-kpi')">加 KPI 卡</v-btn>
+    <v-btn v-if="owner" variant="text" prepend-icon="mdi-numeric" @click="emit('add-kpi')">加 KPI 卡</v-btn>
     <v-menu v-model="menu" :target="target" :close-on-content-click="false" location="bottom start">
       <v-card width="320">
         <v-progress-linear v-if="loading" indeterminate />

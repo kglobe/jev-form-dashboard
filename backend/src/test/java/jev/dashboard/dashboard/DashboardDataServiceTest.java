@@ -596,7 +596,7 @@ class DashboardDataServiceTest {
     }
 
     static DashboardConfig withDefault(Filters defaults, ChartSpec... layout) {
-        return new DashboardConfig(null, "x", "u1", List.of(layout), null, null, defaults);
+        return new DashboardConfig(null, "x", "u1", List.of(layout), null, null, defaults, null);
     }
 
     @Test

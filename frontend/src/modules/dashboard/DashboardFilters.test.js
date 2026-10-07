@@ -237,9 +237,19 @@ describe('DashboardFilters', () => {
     const add = btn(wrapper, '加 KPI 卡')
     expect(add.props('variant')).toBe('text')
     expect(add.props('prependIcon')).toBe('mdi-numeric')
-    expect(add.classes()).toContain('ml-auto')
     expect(wrapper.findAllComponents({ name: 'VBtn' }).at(-1).text()).toBe('加 KPI 卡')
     await add.trigger('click')
     expect(wrapper.emitted('add-kpi')).toHaveLength(1)
+  })
+
+  it('自動更新 spec 6.1：slot 的內容推到右邊，緊接在「加 KPI 卡」左邊', () => {
+    const wrapper = mount(DashboardFilters, {
+      props: { dashboardId: 'd1', owner: true },
+      slots: { default: '<span class="slotted">最後更新 14:05</span>' },
+      global: { plugins: [vuetify] },
+    })
+    const box = wrapper.get('.slotted').element.parentElement
+    expect(box.classList).toContain('ml-auto')
+    expect(box.nextElementSibling.textContent.trim()).toBe('加 KPI 卡')
   })
 })
