@@ -24,7 +24,7 @@ class DatasourceServiceTest {
             }
 
             @Override
-            public Optional<Datasource> find(UUID id, String userId) {
+            public Optional<Datasource> findUsable(UUID id, String userId) {
                 return saved.stream().filter(d -> d.id().equals(id)).findFirst();
             }
         };

@@ -3,6 +3,7 @@ package jev.dashboard.datasource;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.HttpStatus.BAD_GATEWAY;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CyclicBarrier;
@@ -52,6 +54,35 @@ class MergedDatasourceServiceTest {
         @Override
         public List<Datasource> list(String userId) {
             return sources.values().stream().filter(d -> d.createdBy().equals(userId)).toList();
+        }
+
+        /** 資料來源共享：來源 id → 分享給的帳號。記憶體裡沒有帳號，不管擁有者停用。 */
+        final Map<UUID, Set<String>> shares = new HashMap<>();
+
+        boolean usable(Datasource d, String userId) {
+            return d.createdBy().equals(userId) || shares.getOrDefault(d.id(), Set.of()).contains(userId);
+        }
+
+        @Override
+        public Optional<Datasource> findUsable(UUID id, String userId) {
+            findCalls.merge(id, 1, Integer::sum);
+            return Optional.ofNullable(sources.get(id)).filter(d -> usable(d, userId));
+        }
+
+        @Override
+        public List<Datasource> listUsable(String userId) {
+            return Stream.concat(list(userId).stream(),
+                sources.values().stream().filter(d -> !d.createdBy().equals(userId) && usable(d, userId))).toList();
+        }
+
+        @Override
+        public Optional<Datasource> findAny(UUID id) {
+            return Optional.ofNullable(sources.get(id));
+        }
+
+        @Override
+        public List<Datasource> allMerged() {
+            return sources.values().stream().filter(d -> "merged".equals(d.kind())).toList();
         }
 
         @Override
@@ -435,5 +466,64 @@ class MergedDatasourceServiceTest {
 
         // 同時抓，合併後的順序還是照輸入來源的順序
         assertThat(service.load("u1", m).rows()).extracting(r -> r.get("region")).containsExactly("北區", "南區");
+    }
+
+    @Test
+    void aSharedMergedSourceUsesItsOwnersAccessForItsInputsButTheCallerStillCannotUseThemDirectly() {
+        // 資料來源共享 spec 2.2：u1 把合併來源 m 分享給 u2，m 的輸入 n、s 沒分享
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region,memo", "北區,首購");
+        UUID s = upload("南區", "region,memo", "南區,備註");
+        service.markSensitive("u1", n, List.of("memo"));
+        UUID m = service.createMerged("u1", "全區", union(List.of(n, s), "region", "memo")).id();
+        repo.shares.put(m, Set.of("u2"));
+
+        // 敏感繼承照擁有者查輸入來源，不會因為 u2 查不到就 fail closed 全部變敏感
+        for (Datasource seen : List.of(service.get("u2", m), service.list("u2").getFirst())) {
+            assertThat(field(seen, "region").sensitive()).isFalse();
+            assertThat(field(seen, "memo").sensitiveFrom()).isEqualTo("北區");
+        }
+        assertThat(service.list("u2")).extracting(Datasource::id).containsExactly(m);
+
+        // 同一個 loader：載入 m 時 n 已經快取了，u2 直接拿 n 還是沒有權限
+        Function<UUID, Loaded> load = service.loader("u2");
+        assertThat(load.apply(m).rows()).hasSize(2);
+        assertThatThrownBy(() -> load.apply(n)).isInstanceOfSatisfying(ApiException.class,
+            e -> assertThat(e.status()).isEqualTo(NOT_FOUND));
+    }
+
+    @Test
+    void aMergedSourceWhoseSharedInputIsNoLongerUsableFailsWith400AndFailsClosed() {
+        // 資料來源共享 spec 2.3：u2 拿 u1 分享的 a 建合併來源，u1 取消分享之後
+        DatasourceService service = service(100);
+        UUID a = upload("u1 的", "region,amount", "北區,1");
+        UUID b = uploadFor("u2", "u2 的", "region,amount", "南區,2");
+        repo.shares.put(a, Set.of("u2"));
+        UUID m = service.createMerged("u2", "合起來", union(List.of(a, b), "region", "amount")).id();
+        assertThat(service.load("u2", m).rows()).hasSize(2);
+
+        repo.shares.remove(a);
+
+        assertThatThrownBy(() -> service.load("u2", m)).isInstanceOfSatisfying(ApiException.class,
+                e -> assertThat(e.status()).isEqualTo(BAD_REQUEST))
+            .hasMessage("合併來源的輸入來源已刪除或停止分享，這個合併來源不能用了");
+        assertThat(field(service.get("u2", m), "region").sensitiveFrom()).isEqualTo("（已刪除或停止分享的來源）");
+    }
+
+    @Test
+    void theLayerLimitCountsLayersTheCallerCannotSee() {
+        // 資料來源共享 spec 2.2：層數只看結構，u2 看不到 m1 也照算
+        DatasourceService service = service(100);
+        UUID n = upload("北區", "region", "北區");
+        UUID s = upload("南區", "region", "南區");
+        UUID m1 = service.createMerged("u1", "第一層", union(List.of(n, s), "region")).id();
+        UUID m2 = service.createMerged("u1", "第二層", union(List.of(m1, s), "region")).id();
+        repo.shares.put(m2, Set.of("u2"));
+        UUID e = uploadFor("u2", "東區", "region", "東區");
+
+        UUID m3 = service.createMerged("u2", "第三層", union(List.of(m2, e), "region")).id();
+        assertThat(service.load("u2", m3).rows()).hasSize(4);
+        assertThatThrownBy(() -> service.createMerged("u2", "第四層", union(List.of(m3, e), "region")))
+            .hasMessage("合併最多 3 層");
     }
 }

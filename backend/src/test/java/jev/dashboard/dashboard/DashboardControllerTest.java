@@ -361,11 +361,11 @@ class DashboardControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[0].rows.length()").value(6));
-        // 別人的來源跟已刪除的一樣查不到，只回 SOURCE_DELETED，不會拿到資料（刪除來源 spec 4.1）
+        // 別人沒分享的來源拿不到資料；來源還在，所以跟停止分享一樣是 SOURCE_UNSHARED（資料來源共享 spec 2.3）
         mvc.perform(post("/api/dashboards/preview/data").with(TestData.as("u2"))
                 .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$[0].error").value("SOURCE_DELETED"))
+            .andExpect(jsonPath("$[0].error").value("SOURCE_UNSHARED"))
             .andExpect(jsonPath("$[0].rows").doesNotExist());
     }
 

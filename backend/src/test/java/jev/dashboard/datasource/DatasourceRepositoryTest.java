@@ -272,4 +272,68 @@ class DatasourceRepositoryTest {
         assertThatThrownBy(() -> repo.insertWithRows(ds, List.of(Map.of("memo", "a\u0000b")))).isInstanceOf(DataAccessException.class);
         assertThat(repo.find(ds.id(), "u1")).isEmpty();
     }
+
+    /** owner 的上傳來源，created_at 是 2026-10-0{day}，清單的順序才不靠插入時的時鐘。 */
+    UUID sourceOf(String owner, String name, int day) {
+        UUID id = UUID.randomUUID();
+        repo.insert(new Datasource(id, name, "upload", List.of(), null, Map.of(), owner, null));
+        jdbc.sql("update datasource set created_at = cast(:at as timestamptz) where id = :id")
+            .param("at", "2026-10-0" + day + "T00:00:00Z").param("id", id).update();
+        return id;
+    }
+
+    @Test
+    void usableMeansOwnNamedOrSharedWithEveryoneWhileTheOwnerIsEnabled() {
+        // 資料來源共享 spec 3、7.1
+        UUID own = sourceOf("u1", "沒分享", 1);
+        UUID named = sourceOf("u1", "給 u2", 2);
+        UUID everyone = sourceOf("u1", "所有帳號", 3);
+        repo.setShare(named, new DatasourceRepository.Share(false, List.of("u2")));
+        repo.setShare(everyone, new DatasourceRepository.Share(true, List.of()));
+        assertThat(repo.share(named)).isEqualTo(new DatasourceRepository.Share(false, List.of("u2")));
+        assertThat(repo.share(everyone)).isEqualTo(new DatasourceRepository.Share(true, List.of()));
+
+        for (UUID id : List.of(own, named, everyone)) assertThat(repo.findUsable(id, "u1")).isPresent();
+        assertThat(repo.findUsable(own, "u2")).isEmpty();
+        assertThat(repo.findUsable(named, "u2")).isPresent();
+        assertThat(repo.findUsable(everyone, "u2")).isPresent();
+        assertThat(repo.findUsable(named, "u3")).isEmpty();
+        assertThat(repo.findUsable(everyone, "u3")).isPresent();
+
+        // 擁有者停用：別人一律用不到，擁有者自己那條不看帳號
+        jdbc.sql("update account set enabled = false where username = 'u1'").update();
+        assertThat(repo.findUsable(named, "u2")).isEmpty();
+        assertThat(repo.findUsable(everyone, "u3")).isEmpty();
+        assertThat(repo.findUsable(own, "u1")).isPresent();
+        UUID legacy = sourceOf("沒有帳號的人", "舊資料", 1);
+        assertThat(repo.findUsable(legacy, "沒有帳號的人")).isPresent();
+        assertThat(repo.findAny(named)).isPresent();
+        assertThat(repo.findAny(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void listUsablePutsOwnSourcesFirstEachGroupNewestFirst() {
+        UUID oldMine = sourceOf("u2", "我的舊的", 1);
+        UUID newMine = sourceOf("u2", "我的新的", 4);
+        UUID oldShared = sourceOf("u1", "分享的舊的", 2);
+        UUID newShared = sourceOf("u3", "分享的新的", 5);
+        sourceOf("u1", "沒分享", 6);
+        repo.setShare(oldShared, new DatasourceRepository.Share(false, List.of("u2", "u3")));
+        repo.setShare(newShared, new DatasourceRepository.Share(true, List.of()));
+
+        assertThat(repo.listUsable("u2")).extracting(Datasource::id).containsExactly(newMine, oldMine, newShared, oldShared);
+    }
+
+    @Test
+    void setShareReplacesTheWholeShare() {
+        UUID id = sourceOf("u1", "銷售", 1);
+        repo.setShare(id, new DatasourceRepository.Share(true, List.of("u2", "u3")));
+        repo.setShare(id, new DatasourceRepository.Share(false, List.of("u3")));
+        assertThat(repo.share(id)).isEqualTo(new DatasourceRepository.Share(false, List.of("u3")));
+        assertThat(repo.accountExists("u3")).isTrue();
+        assertThat(repo.accountExists("nobody")).isFalse();
+
+        repo.delete(id, "u1");
+        assertThat(jdbc.sql("select count(*) from datasource_share").query(Integer.class).single()).isZero();
+    }
 }

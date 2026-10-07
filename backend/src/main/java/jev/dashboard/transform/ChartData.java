@@ -69,4 +69,9 @@ public record ChartData(String chartId, String type, List<String> dimensions, Li
     public static ChartData sourceDeleted(String chartId, String type) {
         return new ChartData(chartId, type, null, null, "SOURCE_DELETED", null, null, null, null);
     }
+
+    /** 資料來源共享 spec 2.3：來源還在，只是不能用了（取消分享、擁有者停用）。 */
+    public static ChartData sourceUnshared(String chartId, String type) {
+        return new ChartData(chartId, type, null, null, "SOURCE_UNSHARED", null, null, null, null);
+    }
 }

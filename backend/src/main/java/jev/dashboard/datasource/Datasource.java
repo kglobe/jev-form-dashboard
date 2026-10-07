@@ -37,4 +37,9 @@ public record Datasource(UUID id, String name, String kind, List<FieldSchema> sc
     public Datasource withRowCount(Integer value) {
         return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, value);
     }
+
+    /** 資料來源共享 spec 4.2：給別人看的，不露出外部 API 的網址和 header（含 ${DS_…} 名稱）。 */
+    public Datasource withoutApi() {
+        return new Datasource(id, name, kind, schema, null, Map.of(), createdBy, createdAt, merge, ratios, rowCount);
+    }
 }
