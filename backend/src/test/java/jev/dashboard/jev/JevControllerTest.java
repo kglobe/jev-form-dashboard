@@ -154,6 +154,30 @@ class JevControllerTest {
     }
 
     @Test
+    void withoutLoginTheHighlightOpensOnlyForAnAnonymousDashboard() throws Exception { // 資料來源共享 spec 4.4
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"users\":[]}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到儀表板"));
+
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"anonymous\":true,\"users\":[]}"))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].chartId").value("c1"));
+    }
+
+    @Test
     void highlightRightAfterDataUsesTheRowsDataAlreadyRead() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))

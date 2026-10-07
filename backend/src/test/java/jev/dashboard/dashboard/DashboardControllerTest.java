@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -114,6 +115,7 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.publicLink").value(false))
+            .andExpect(jsonPath("$.anonymous").value(false))
             .andExpect(jsonPath("$.users").value(empty()));
 
         mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
@@ -131,6 +133,59 @@ class DashboardControllerTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.publicLink").value(false))
             .andExpect(jsonPath("$.users").value(empty()));
+    }
+
+    @Test
+    void theAnonymousSwitchNeedsThePublicLink() throws Exception { // 資料來源共享 spec 4.3
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false,\"anonymous\":true}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("要先打開公開連結"));
+
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"anonymous\":true}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.publicLink").value(true))
+            .andExpect(jsonPath("$.anonymous").value(true));
+        mvc.perform(get("/api/dashboards/" + id + "/share").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.anonymous").value(true));
+
+        // 沒給當作 false
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.anonymous").value(false));
+    }
+
+    @Test
+    void withoutLoginOnlyTheReadsOfAnAnonymousDashboardAreOpen() throws Exception { // 資料來源共享 spec 4.4
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":true,\"users\":[]}", 200);
+        notFound(get("/api/dashboards/" + id));
+        notFound(get("/api/dashboards/" + id + "/data"));
+
+        putShare("u1", id, "{\"publicLink\":true,\"anonymous\":true,\"users\":[]}", 200);
+        mvc.perform(get("/api/dashboards/" + id))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.createdBy").value("u1"));
+        mvc.perform(get("/api/dashboards/" + id + "/data"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(4));
+        mvc.perform(get("/api/dashboards/" + id + "/data?filters=%7B%7D")).andExpect(status().isOk());
+
+        // 其他 API 照舊要登入；/shared 不能被當成 {id} 放行
+        for (MockHttpServletRequestBuilder req : new MockHttpServletRequestBuilder[] {
+                get("/api/dashboards/shared"), get("/api/dashboards"), get("/api/datasources"),
+                get("/api/dashboards/" + id + "/share"),
+                put("/api/dashboards/" + id).contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson("x")),
+                delete("/api/dashboards/" + id)}) {
+            mvc.perform(req.with(csrf())).andExpect(status().isUnauthorized());
+        }
+
+        jdbc.sql("update account set enabled = false where username = 'u1'").update();
+        notFound(get("/api/dashboards/" + id));
+        notFound(get("/api/dashboards/" + id + "/data"));
     }
 
     @Test
@@ -284,13 +339,17 @@ class DashboardControllerTest {
                 values (:id, '外部', 'api', '[]', 'http://10.0.0.5/sales', '{"Authorization":"${DS_JEV_TEST_UNSET}"}', 'u1')""")
             .param("id", ds).update();
         String id = create("u1", TestData.dashboardJson(ds.toString()));
-        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        putShare("u1", id, "{\"publicLink\":true,\"anonymous\":true,\"users\":[\"u2\"]}", 200);
 
         for (String path : new String[] {"/api/dashboards/" + id + "/data", "/api/jev/highlight/" + id}) {
             mvc.perform(get(path).with(TestData.as("u1")))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("環境變數 DS_JEV_TEST_UNSET 未設定"));
             mvc.perform(get(path).with(TestData.as("u2")))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("資料來源載入失敗，請聯絡儀表板擁有者"));
+            // 沒登入的人跟檢視者一樣（資料來源共享 spec 4.4）
+            mvc.perform(get(path))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.error").value("資料來源載入失敗，請聯絡儀表板擁有者"));
         }

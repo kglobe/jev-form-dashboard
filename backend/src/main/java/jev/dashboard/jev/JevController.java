@@ -92,7 +92,9 @@ public class JevController {
 
     @GetMapping("/highlight/{dashboardId}")
     public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId) {
-        DashboardConfig c = dashboards.view(principal.getName(), dashboardId);
+        // 資料來源共享 spec 4.4：沒登入也打得到，principal 是 null
+        String viewer = principal == null ? null : principal.getName();
+        DashboardConfig c = dashboards.view(viewer, dashboardId);
         // 唯讀分享 spec 6.3：敏感欄位和資料都照擁有者的來源；recent 的 key 跟 /data 一樣是擁有者
         String owner = c.createdBy();
         // 每個來源各自的敏感欄位（多來源 spec 第 7 節），加上分子或分母敏感的比率（B3 spec 5.4）
@@ -113,7 +115,7 @@ public class JevController {
             data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible));
         } catch (ApiException e) {
             // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
-            if (owner.equals(principal.getName())) throw e;
+            if (owner.equals(viewer)) throw e;
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
 
