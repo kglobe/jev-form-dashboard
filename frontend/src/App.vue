@@ -107,7 +107,13 @@ let openSeq = 0
 
 // spec 7.9：只認 #/d/<uuid>；格式不對的直接說找不到，不打 API；其他 hash 不理
 function openFromHash() {
-  if (!me.value || !location.hash.startsWith('#/d/')) return
+  if (!me.value) {
+    // 資料來源共享 spec 6.6：訪客換到另一份就重新試，打不開就顯示登入頁；同一份、格式不對的都不理
+    const m = location.hash.match(DASHBOARD_HASH)
+    if (guest.value && m && m[1] !== guest.value.id) tryGuest()
+    return
+  }
+  if (!location.hash.startsWith('#/d/')) return
   // open() 自己改的 hash：happy-dom 的 replaceState 會補發 hashchange（瀏覽器不會），不再打開一次。
   // 只在儀表板頁跳過：在「資料」「製圖」頁按上一頁回到同一份，還是要切回來打開
   if (view.value === 'dashboards' && location.hash === `#/d/${lastOpened}`) return
@@ -256,7 +262,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
             <p class="cc-desc">「{{ guest.createdBy }}」分享的儀表板，只能檢視。</p>
           </div>
         </header>
-        <DashboardView :config="guest" :readonly="true" />
+        <DashboardView :key="guest.id" :config="guest" :readonly="true" />
       </section>
     </v-main>
     <v-main v-else>

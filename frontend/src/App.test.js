@@ -848,6 +848,43 @@ describe('App', () => {
       expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(true)
     })
 
+    it('訪客改網址換到另一份就重新試，打不開就顯示登入頁；同一份或格式不對的不理', async () => {
+      const OTHER = '99999999-8888-7777-6666-555555555555'
+      const other = { id: OTHER, name: '另一份', createdBy: 'carol', layout: [] }
+      // happy-dom 20 的 replaceState 會用 setTimeout 補發 hashchange，這裡照瀏覽器手動發一次，再等補發的那次
+      const goTo = async (url) => {
+        history.replaceState(null, '', url)
+        window.dispatchEvent(new HashChangeEvent('hashchange'))
+        await new Promise((r) => setTimeout(r))
+        await flushPromises()
+      }
+      history.replaceState(null, '', `/#/d/${ID}`)
+      notLoggedIn()
+      api.getDashboard.mockResolvedValue(config)
+      const wrapper = mountApp()
+      await flushPromises()
+      const first = wrapper.findComponent({ name: 'DashboardView' }).vm
+
+      await goTo('/#/d/not-a-uuid')
+      await goTo(`/#/d/${ID}`)
+      expect(api.getDashboard).toHaveBeenCalledTimes(1)
+
+      api.getDashboard.mockResolvedValue(other)
+      await goTo(`/#/d/${OTHER}`)
+      expect(api.getDashboard).toHaveBeenLastCalledWith(OTHER)
+      expect(wrapper.get('.cc-title').text()).toBe('另一份')
+      expect(wrapper.get('.cc-desc').text()).toBe('「carol」分享的儀表板，只能檢視。')
+      const view = wrapper.findComponent({ name: 'DashboardView' })
+      expect(view.props('config')).toEqual(other)
+      // 換一份就重建，不會沿用上一份抓到的資料
+      expect(view.vm).not.toBe(first)
+
+      api.getDashboard.mockRejectedValue(Object.assign(new Error('找不到儀表板'), { status: 404 }))
+      await goTo(`/#/d/${ID}`)
+      expect(wrapper.findComponent({ name: 'LoginPage' }).exists()).toBe(true)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).exists()).toBe(false)
+    })
+
     it.each([404, 401])('getDashboard 回 %i 時照舊顯示登入頁', async (status) => {
       history.replaceState(null, '', `/#/d/${ID}`)
       notLoggedIn()

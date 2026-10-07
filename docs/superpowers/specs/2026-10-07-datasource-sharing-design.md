@@ -184,6 +184,7 @@ alter table dashboard add constraint dashboard_anonymous_needs_public check (not
   - 成功：進「訪客檢視」。頂部導覽列只有品牌、深淺主題切換和「登入」按鈕。下面就是唯讀檢視（分享 spec 7.8），說明文字是「「擁有者」分享的儀表板，只能檢視。」。
   - 401 或 404：照舊顯示登入頁。
 - 訪客按「登入」，顯示登入頁；登入成功後照舊開機，`openFromHash` 會打開同一份。
+- 訪客把網址改成另一份 `#/d/<uuid>`：再試一次 `GET /api/dashboards/{id}`，打不開就顯示登入頁。同一份、格式不對的 hash 都不理。
 - 訪客模式沒有 `me`，`onUnauthorized` 不會跳重新登入對話框（`App.vue` 原本就只在有 `me` 時才跳）。
 
 ## 7. 測試
