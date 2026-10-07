@@ -32,8 +32,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class DashboardService {
     static final int MAX_INTENTS = 10;
     static final int MAX_INTENT_LENGTH = 200;
-    /** 自動更新 spec 2.1：最長 15 分鐘，工作階段閒置 30 分鐘就過期。 */
-    static final Set<Integer> REFRESH_MINUTES = Set.of(1, 5, 10, 15);
+    /** 自動更新 spec 2.1：存成分鐘，後五個是 1、3、6、12、24 小時。 */
+    static final Set<Integer> REFRESH_MINUTES = Set.of(1, 5, 10, 15, 60, 180, 360, 720, 1440);
 
     private final DashboardRepository repo;
     private final DatasourceService datasources;
@@ -209,10 +209,10 @@ public class DashboardService {
         }
     }
 
-    /** 自動更新 spec 3：不自動更新是 null，其他只能是 1、5、10、15。 */
+    /** 自動更新 spec 3：不自動更新是 null，其他只能是 REFRESH_MINUTES 裡的。 */
     static void requireValidRefresh(Integer minutes) {
         if (minutes != null && !REFRESH_MINUTES.contains(minutes)) {
-            throw new ApiException(BAD_REQUEST, "自動更新只能選 1、5、10、15 分鐘");
+            throw new ApiException(BAD_REQUEST, "自動更新只能選 1、5、10、15 分鐘或 1、3、6、12、24 小時");
         }
     }
 

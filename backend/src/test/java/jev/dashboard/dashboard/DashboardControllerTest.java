@@ -724,16 +724,16 @@ class DashboardControllerTest {
         String id = create("u1", withRefresh(json, 5));
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.refreshMinutes").doesNotExist());
 
-        for (int minutes : new int[] {1, 5, 10, 15}) {
+        for (int minutes : new int[] {60, 180, 360, 720, 1440, 1, 5, 10, 15}) {
             mvc.perform(putJson(id, withRefresh(json, minutes)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.refreshMinutes").value(minutes));
         }
         mvc.perform(get("/api/dashboards/" + id).with(TestData.as("u1"))).andExpect(jsonPath("$.refreshMinutes").value(15));
-        for (String bad : new String[] {"0", "2", "30", "60", "-1"}) {
+        for (String bad : new String[] {"0", "2", "30", "120", "-1"}) {
             mvc.perform(putJson(id, withRefresh(json, bad)))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("自動更新只能選 1、5、10、15 分鐘"));
+                .andExpect(jsonPath("$.error").value("自動更新只能選 1、5、10、15 分鐘或 1、3、6、12、24 小時"));
         }
 
         // 被分享的人、沒登入的訪客都拿得到

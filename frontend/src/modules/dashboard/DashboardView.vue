@@ -50,7 +50,10 @@ const refreshFailed = ref(false)
 // 自動更新 spec 6.2：改間隔的 PUT 還沒回來，理由同 savingFilters
 const savingRefresh = ref(false)
 
-const REFRESH_ITEMS = [{ title: '不自動更新', value: null }, ...[1, 5, 10, 15].map((m) => ({ title: `每 ${m} 分鐘`, value: m }))]
+// 自動更新 spec 2.1：存的是分鐘，整點的寫成小時
+const everyText = (m) => (m % 60 ? `每 ${m} 分鐘` : `每 ${m / 60} 小時`)
+const REFRESH_ITEMS = [{ title: '不自動更新', value: null },
+  ...[1, 5, 10, 15, 60, 180, 360, 720, 1440].map((m) => ({ title: everyText(m), value: m }))]
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 // 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
@@ -82,7 +85,7 @@ const updatedText = computed(() => {
   const at = clock(updatedAt.value)
   if (refreshFailed.value) return `更新失敗，顯示的是 ${at} 的資料`
   // 擁有者旁邊就是選單，不另外寫間隔
-  const every = props.readonly && props.config.refreshMinutes ? `每 ${props.config.refreshMinutes} 分鐘自動更新，` : ''
+  const every = props.readonly && props.config.refreshMinutes ? `${everyText(props.config.refreshMinutes)}自動更新，` : ''
   return `${every}最後更新 ${at}`
 })
 
@@ -201,12 +204,24 @@ async function fetchData(seq, refresh = false) {
 const refreshMs = computed(() =>
   props.preview || !props.config.layout.length ? 0 : (props.config.refreshMinutes ?? 0) * 60_000)
 let refreshTimer = 0
+// 自動更新 spec 2.1：工作階段閒置 30 分鐘就過期。間隔超過 15 分鐘時，中間每 15 分鐘打一次 me 續住，
+// 跟 15 分鐘以內的間隔一樣，掛在電視上的儀表板不會跳「登入逾時」
+const KEEP_ALIVE_MS = 15 * 60_000
+let keepAliveTimer = 0
 // 時間到了但分頁在背景，等回到前景再抓
 let refreshOverdue = false
 
 function scheduleRefresh() {
   clearTimeout(refreshTimer)
+  clearTimeout(keepAliveTimer)
   if (refreshMs.value) refreshTimer = setTimeout(refresh, refreshMs.value)
+  if (refreshMs.value > KEEP_ALIVE_MS) keepAliveTimer = setTimeout(keepAlive, KEEP_ALIVE_MS)
+}
+
+// 背景分頁不續，跟自動更新一樣暫停；沒登入的訪客 me 回 401，不理它
+function keepAlive() {
+  keepAliveTimer = setTimeout(keepAlive, KEEP_ALIVE_MS)
+  if (document.visibilityState === 'visible') api.me().catch(() => {})
 }
 
 // 先排好下一次：這次的回應被丟掉（例如移除卡片走了不重抓的捷徑）時，計時也不會斷
@@ -246,6 +261,7 @@ watch(() => props.config, load, { immediate: true })
 onBeforeUnmount(() => {
   loadSeq++
   clearTimeout(refreshTimer)
+  clearTimeout(keepAliveTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
