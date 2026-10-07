@@ -15,6 +15,7 @@ vi.mock('./api.js', () => ({
     updateDashboard: vi.fn(),
     filterOptions: vi.fn(),
     appendCharts: vi.fn(),
+    me: vi.fn(),
   },
 }))
 
@@ -1129,6 +1130,40 @@ describe('DashboardView', () => {
       expect(statusText(wrapper)).toBe('更新失敗，顯示的是 10/6 23:59 的資料')
     })
 
+    it('間隔超過 15 分鐘時，前景每 15 分鐘打一次 me 續住工作階段；背景不打，15 分鐘以內不打，卸載後停掉', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.me.mockResolvedValue({})
+      const short = mountView({ config: every(15) })
+      await flushPromises()
+      await tick(45 * MIN)
+      expect(api.me).not.toHaveBeenCalled()
+      short.unmount()
+
+      const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+      const wrapper = mountView({ config: every(60) })
+      await flushPromises()
+      api.dashboardData.mockClear()
+      await tick(15 * MIN)
+      expect(api.me).toHaveBeenCalledTimes(1)
+      visibility.mockReturnValue('hidden')
+      await tick(15 * MIN)
+      expect(api.me).toHaveBeenCalledTimes(1)
+      visibility.mockReturnValue('visible')
+      await tick(15 * MIN)
+      expect(api.me).toHaveBeenCalledTimes(2)
+      // 到了 60 分鐘照常更新，從那時重新計時
+      await tick(15 * MIN)
+      expect(api.dashboardData).toHaveBeenCalledTimes(1)
+      expect(api.me).toHaveBeenCalledTimes(2)
+      await tick(15 * MIN)
+      expect(api.me).toHaveBeenCalledTimes(3)
+      wrapper.unmount()
+      await tick(60 * MIN)
+      expect(api.me).toHaveBeenCalledTimes(3)
+      visibility.mockRestore()
+    })
+
     it('卸載之後不再自動更新', async () => {
       api.dashboardData.mockResolvedValue([])
       api.highlights.mockResolvedValue([])
@@ -1143,17 +1178,20 @@ describe('DashboardView', () => {
       api.dashboardData.mockResolvedValue([])
       api.highlights.mockResolvedValue([])
       const viewer = mountView({ config: every(5), readonly: true })
+      const hourViewer = mountView({ config: every(180), readonly: true })
       const plainViewer = mountView({ config: makeConfig(), readonly: true })
       const owner = mountView({ config: every(5) })
       await flushPromises()
 
       expect(refreshSelect(viewer)).toBeUndefined()
       expect(statusText(viewer)).toBe('每 5 分鐘自動更新，最後更新 14:05')
+      expect(statusText(hourViewer)).toBe('每 3 小時自動更新，最後更新 14:05')
       expect(statusText(plainViewer)).toBe('最後更新 14:05')
       expect(statusText(owner)).toBe('最後更新 14:05')
       expect(refreshSelect(owner).props('modelValue')).toBe(5)
       expect(refreshSelect(owner).props('items').map((i) => i.title))
-        .toEqual(['不自動更新', '每 1 分鐘', '每 5 分鐘', '每 10 分鐘', '每 15 分鐘'])
+        .toEqual(['不自動更新', '每 1 分鐘', '每 5 分鐘', '每 10 分鐘', '每 15 分鐘',
+          '每 1 小時', '每 3 小時', '每 6 小時', '每 12 小時', '每 24 小時'])
     })
 
     it('擁有者改間隔：PUT 格線上的版面、存著的預設篩選和新的間隔，交給 App 換設定，不重抓；從那時重新計時', async () => {
@@ -1197,13 +1235,13 @@ describe('DashboardView', () => {
     it('改間隔失敗時錯誤顯示在上面，選單還是存著的值', async () => {
       api.dashboardData.mockResolvedValue([])
       api.highlights.mockResolvedValue([])
-      api.updateDashboard.mockRejectedValue(new Error('自動更新只能選 1、5、10、15 分鐘'))
+      api.updateDashboard.mockRejectedValue(new Error('自動更新只能選 1、5、10、15 分鐘或 1、3、6、12、24 小時'))
       const wrapper = mountView({ config: every(5) })
       await flushPromises()
 
       await refreshSelect(wrapper).vm.$emit('update:modelValue', 1)
       await flushPromises()
-      expect(wrapper.get('.v-alert').text()).toBe('自動更新只能選 1、5、10、15 分鐘')
+      expect(wrapper.get('.v-alert').text()).toBe('自動更新只能選 1、5、10、15 分鐘或 1、3、6、12、24 小時')
       expect(refreshSelect(wrapper).props('modelValue')).toBe(5)
       expect(refreshSelect(wrapper).props('disabled')).toBe(false)
       expect(wrapper.emitted('updated')).toBeUndefined()
