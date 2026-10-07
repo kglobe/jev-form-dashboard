@@ -3,7 +3,7 @@
 日期：2026-10-02
 對象：用 Chrome DevTools MCP 操作瀏覽器的 agent。照章節順序跑完，App 現有的每個功能都會走過一次。
 
-S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。S19 測儀表板篩選器（`feat/dashboard-filters`，2026-10-07 加的），還沒全跑過。S20 測資料來源共享和「不用登入也能看」（`feat/datasource-sharing`，2026-10-07 加上，還沒全跑過）。
+S16～S18 測最後加上的三個功能：外部 API 允許清單和密鑰綁 host（`feat/api-secret-hosts`）、登入失敗鎖定（`feat/login-lockout`）、更新資料（`feat/datasource-reload`）。步驟裡的畫面文字和錯誤訊息都照這三個 branch 的程式寫。要測的 checkout 少了哪一個，對應的那一節就整節記「沒跑」。S19 測儀表板篩選器（`feat/dashboard-filters`，2026-10-07 加的），還沒全跑過。S20 測資料來源共享和「不用登入也能看」（`feat/datasource-sharing`，2026-10-07 加上，還沒全跑過）。S21 測 KPI 大數字卡（`feat/kpi-card`，2026-10-07 加上，還沒全跑過）。有了這個 branch，有日期欄位的分析結果最上面一排會多幾張 KPI 卡，所以 S07～S09 說的「第一張卡片」可能是 KPI 卡。KPI 卡的 `x` 和 `sums` 照樣符合第 5 節的判斷規則。
 
 第一次全跑在 2026-10-02，commit `79435c3`（integ：main 加上這三個 branch 和這份劇本）。241 步裡 236 PASS、4 FAIL，S10-5 條件沒成立所以沒跑。4 個 FAIL 都是已知的產品問題，那幾步的預期結果後面都標了「已知問題（backlog 2026-10-02）」。劇本跟 App 實際行為對不上的步驟，已經照那次的結果改了。
 
@@ -268,6 +268,15 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       filterNote: el.querySelector('.tc-filter-note')?.textContent.trim() ?? null,
       empty: el.querySelector('.tc-empty')?.textContent.trim() ?? null,
       canvas: !!el.querySelector('canvas, svg'),
+      // KPI 卡：大數字、完整數字（滑過去的 title）、比較的那一行、門檻那一行、大數字的顏色；不是 KPI 卡是 null
+      kpi: el.querySelector('.tc-kpi__value') && {
+        value: el.querySelector('.tc-kpi__value').textContent.trim(),
+        full: el.querySelector('.tc-kpi__value').title,
+        note: el.querySelector('.tc-kpi__note').textContent.trim(),
+        alert: el.querySelector('.tc-kpi__alert')?.textContent.trim() ?? null,
+        color: getComputedStyle(el.querySelector('.tc-kpi__value')).color,
+      },
+      settings: !!el.querySelector('[aria-label="KPI 卡設定"]'),
     })),
     setField: (label, value) => {
       const visible = (el) => el && el.offsetParent !== null
@@ -331,7 +340,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 用名稱找來源 | `async () => window.jev.source('銷售')` |
 | 用名稱找儀表板 id | `async () => window.jev.dashId('E2E 銷售總覽')` |
 | 自己組一張卡片驗數字（不經過 JEV） | `async () => { const ds = await window.jev.source('退貨（補產品主檔）'); return window.jev.card(ds.id, { x: '類別', value: '退貨金額' }) }` |
-| 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告 | `() => window.jev.cards()` |
+| 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告、KPI 卡的數字和「設定」 | `() => window.jev.cards()` |
 | 取代欄位內容（只送 `input`；顯示名稱這類靠 `change` 存檔的欄位不能用，見 2.5） | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
 | 拖拉或縮放卡片 | `async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` |
 
@@ -360,6 +369,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 散佈 | 看得到點，點數大約等於資料列數，不是空的座標平面 |
 | 比率 | Y 軸和 tooltip 是百分比；空的那期是缺口，不是畫成 0%；有排除期間時，圖下方有「只算 …（分子、分母都有資料的月份）」 |
 | 明細表 | 表頭是顯示名稱，列數對；沒有「僅顯示前 500 筆」 |
+| KPI 卡 | 沒有座標軸，只有一個大數字和下面一行小字；大數字沒有換行，也沒被切掉；漲跌的箭頭和文字是灰色，不是綠色或紅色；碰到門檻時，大數字和「低於／高於門檻 …」那一行是紅色 |
 
 - X 軸標籤擠到被省略時，用 `resize_page` 把視窗拉寬再截一次，不要猜。1440px 寬的視窗裡，半寬（w6）卡片的 7 個月份會隔一個省略一個，拉到 1900px 寬才會全部顯示。
 
@@ -986,6 +996,63 @@ async () => {
 
 留下的狀態：覆蓋測試沒有分享；bob 有「E2E 分享來源」，卡片都是「資料來源已停止分享」；「E2E 對照」開著公開連結，「不用登入也能看」關著。
 
+### S21 KPI 大數字卡
+
+- 目的：分析時自動放的 KPI 卡、本期和上期、加 KPI 卡、設定和門檻、檢視者、篩選後數字跟著變。規則見 `docs/superpowers/specs/2026-10-07-kpi-card-design.md`。
+- 帳號／context：`alice`；`bob`。
+- 前置條件：S20 完成；「E2E 銷售總覽」分享給 bob（S13-18），預設篩選是「區域：北區」（S19-15）；銷售 63 筆，資料到 2026-07（S18）。
+
+本期是資料裡最後一個已經結束的期。銷售資料到 2026-07。在 2026-10-01 之後執行時，期別是月的本期是 2026-07、上期是 2026-06；期別是季的本期是 2026-Q3。「上季」的預期跟 S19 一樣，以在 2026-10-01～12-31 之間執行為準。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S21-1 | alice「製圖」，資料來源選「銷售」；跑 helper；「想看什麼？」留白，按「分析」，等「存成新儀表板」 | 預覽最上面一排是 KPI 卡，其他圖排在 KPI 卡下面；KPI 卡沒有座標軸，只有一個大數字和下面一行小字。有幾張、是哪幾個數值〔JEV〕，最多 3 張 | 畫面、截圖 |
+| S21-2 | `jev.preview()`；`jev.last('/api/jev/analyze').body.layout.map((s) => [s.type, s.gridPos])` | KPI 卡的 `gridPos` 依序是 `{ x: 0, y: 0, w: 4, h: 2 }`、`{ x: 4, y: 0, w: 4, h: 2 }`、`{ x: 8, y: 0, w: 4, h: 2 }`（有幾張排幾張），其他圖的 `y` 從 2 開始；KPI 卡的 `mapping` 是 `x: "日期"`、`aggregate: "sum"`、`timeGrain: "month"`，`x` 是 2026-01～2026-07；營收那張（有的話）`data` 最後兩列是 `["2026-06", 45000]`、`["2026-07", 73600]`，毛利率那張（有的話）`percent: true`，最後兩列是 0.395、0.405 | API |
+| S21-3 | `jev.cards()` | 營收那張（有的話）標題「營收（元）」，`kpi` 是 `{ value: "7.4萬", full: "73,600", note: "2026-07 · 比 2026-06 ▲ 63.6%", alert: null }`；每張 KPI 卡都有 ✕、`settings: false`（預覽沒有「設定」）、`canvas: false` | 畫面 |
+| S21-4 | 每張 KPI 卡各截一張 | 照第 6 節的 KPI 卡那一列 | 截圖 |
+| S21-5 | 在第一張 KPI 卡按 ✕（等提示自己消失，不要按「復原」）；截預覽整頁；按「捨棄」 | 剩下的 KPI 卡往左補，還在最上面一排；其他圖接在 KPI 卡下面（KPI 卡全拿掉時從最上面開始） | 截圖 |
+| S21-6 | alice 打開「E2E 銷售總覽」；跑 helper | 篩選列最右邊有「加 KPI 卡」（`mdi-numeric`）；篩選是預設的「區域：北區」 | 畫面 |
+| S21-7 | 按「加 KPI 卡」 | 對話框「加 KPI 卡」，只有「來源」；「加入」停用 | 畫面 |
+| S21-8 | 「來源」選「產品主檔」 | 「這個來源沒有日期欄位，不能做 KPI 卡」；「加入」停用 | 畫面 |
+| S21-9 | 「來源」改選「銷售」 | 出現「數值」「加總方式」「日期欄位」「期別」「標題」「門檻」「門檻值」；「數值」的選項是營收（元）、毛利、數量、毛利率；「日期欄位」是「日期」；「期別」是「月」；「門檻」是「不設」，「門檻值」停用 | 畫面、截圖 |
+| S21-10 | 「數值」選「營收（元）」，按「加入」 | 對話框關掉；`POST /api/dashboards/<id>/charts` 回 200；最下面多一張「營收（元）」；篩選還是「區域：北區」，這張照北區算：`jev.cards()` 的 `kpi` 是 `{ value: "3.2萬", full: "32,000", note: "2026-07 · 比 2026-06 ▲ 433.3%", alert: null }`；`settings: true` | 畫面、API |
+| S21-11 | 再按「加 KPI 卡」：「來源」銷售，「數值」毛利率，「門檻」高於，「門檻值」`5`，按「加入」 | 選了毛利率之後「加總方式」不見，「門檻值」後面有「%」；新卡片「毛利率」的 `kpi` 是 `{ value: "40.5%", note: "2026-07 · 比 2026-06 ▲ 1 個百分點", alert: "高於門檻 5%" }`，`color` 是 `--tc-err`：淺色主題 `rgb(190, 18, 60)`，深色主題 `rgb(251, 113, 133)`（跟「嚴重警示」徽章的字同一個顏色） | 畫面、API |
+| S21-12 | 截毛利率那張 | 大數字和「高於門檻 5%」是紅色，「▲ 1 個百分點」那行是灰色 | 截圖 |
+| S21-13 | `(await jev.api('GET', '/api/dashboards/' + location.hash.slice(4))).body.layout.filter((s) => s.type === 'kpi').slice(-2)`；`jev.dashboard()` | 營收那張 `mapping` 是 `{ x: "日期", value: "營收", aggregate: "sum", timeGrain: "month" }`，沒有 `options.threshold`；毛利率那張 `mapping.aggregate` 是 `sum`，`options.threshold` 是 `{ op: "above", value: 0.05 }`，兩張的 `gridPos` 都是 4×2、在原本卡片的下面；`jev.dashboard()`（沒帶篩選）裡營收那張最後兩列是 45000、73600，毛利率那張是 0.395、0.405 | API |
+| S21-14 | 毛利率那張按「KPI 卡設定」（齒輪，在 ✕ 左邊） | 對話框「KPI 卡設定」：「來源」是「銷售」而且停用；「數值」毛利率；「門檻」高於，「門檻值」5，後面有「%」；「標題」是空的；按鈕是「儲存」 | 畫面、截圖 |
+| S21-15 | 「標題」填 `毛利率（月）`，「門檻」改「低於」，「門檻值」改 `40`，按「儲存」 | `PUT /api/dashboards/<id>` 回 200；卡片標題「毛利率（月）」；40.5% 沒有低於 40%，大數字變回一般顏色，門檻那一行不見；篩選還是「區域：北區」 | 畫面、API |
+| S21-16 | 重新整理；跑 helper；`jev.cards()` | 毛利率那張標題還是「毛利率（月）」、`kpi.alert` 是 null；`settings: true` 的只有 KPI 卡；篩選還是預設的「區域：北區」。KPI 卡有沒有異常標註〔JEV〕，有的話在標題列 | 畫面、API |
+| S21-17 | 再按毛利率那張的「KPI 卡設定」，「門檻值」改 `41`，按「儲存」 | 大數字變紅，下面多一行「低於門檻 41%」 | 畫面 |
+| S21-18 | 按「清除篩選」；`jev.cards()` | 營收那張變成 `{ value: "7.4萬", note: "2026-07 · 比 2026-06 ▲ 63.6%" }`；毛利率還是 40.5%（每一區的毛利率都一樣） | 畫面 |
+| S21-19 | 「期間」選「上季」；`jev.cards()` | 營收那張還是「7.4萬」，下面變成「2026-07 · 沒有前一期可以比」（上季只有 7 月有資料）；退貨的卡片「篩選後沒有資料」 | 畫面 |
+| S21-20 | 截營收那張和毛利率那張 | 照第 6 節的 KPI 卡那一列；營收那張寫「沒有前一期可以比」 | 截圖 |
+| S21-21 | bob 打開「E2E 銷售總覽」；跑 helper；`jev.cards()` | 看得到兩張新的 KPI 卡；毛利率那張大數字是紅的、有「低於門檻 41%」；每張卡片 `settings: false`，篩選列沒有「加 KPI 卡」；營收那張照預設篩選（北區）是「3.2萬」 | 畫面、截圖 |
+| S21-22 | alice：跑下方的「KPI API 檢查」 | `badOp` 400「圖表 <毛利率那張的 chartId>：KPI 門檻的條件只能是低於或高於」；`badValue` 400「圖表 <同一張>：KPI 門檻要是數字」；`day` 400「圖表 c1：kpi 的 timeGrain 只能是 month、quarter」；`quarter` 是 200，`data` 是 `[["2026-Q1", 151800], ["2026-Q2", 169200], ["2026-Q3", 73600]]`；`saved` 還是 S21-17 存的 `{ op: "below", value: 0.41 }` | API |
+
+KPI API 檢查（S21-22，在 alice 分頁用 `evaluate_script` 跑，要停在「E2E 銷售總覽」）：
+
+```js
+async () => {
+  const id = location.hash.slice(4)
+  const config = (await window.jev.api('GET', `/api/dashboards/${id}`)).body
+  const ratio = config.layout.filter((s) => s.type === 'kpi').at(-1)
+  const withThreshold = (threshold) => ({
+    ...config, layout: config.layout.map((s) => (s === ratio ? { ...s, options: { ...s.options, threshold } } : s)),
+  })
+  const sales = (await window.jev.source('銷售')).id
+  return {
+    chartId: ratio.chartId,
+    badOp: await window.jev.api('PUT', `/api/dashboards/${id}`, withThreshold({ op: 'equal', value: 0.4 })),
+    badValue: await window.jev.api('PUT', `/api/dashboards/${id}`, withThreshold({ op: 'below', value: '40%' })),
+    day: await window.jev.card(sales, { x: '日期', value: '營收', timeGrain: 'day' }, 'kpi'),
+    quarter: await window.jev.card(sales, { x: '日期', value: '營收', timeGrain: 'quarter' }, 'kpi'),
+    saved: (await window.jev.api('GET', `/api/dashboards/${id}`)).body.layout.find((s) => s.chartId === ratio.chartId).options.threshold,
+  }
+}
+```
+
+留下的狀態：「E2E 銷售總覽」多了兩張 KPI 卡（營收、毛利率（月），毛利率設了「低於 41%」），預設篩選還是「區域：北區」。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -1024,6 +1091,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 更新資料：接在後面、整份覆蓋、Excel 工作表、下游跟著更新 | S18 |
 | 儀表板篩選器：期間、分類、照顯示名稱對欄位、沒套用的篩選、存成預設、檢視者臨時改 | S19 |
 | 資料來源分享、別人分享的來源唯讀、停止分享的卡片、不用登入也能看 | S20 |
+| KPI 大數字卡：分析自動放、加 KPI 卡、設定、門檻、檢視者、篩選後跟著變 | S21 |
 
 ## 9. 結果範本
 

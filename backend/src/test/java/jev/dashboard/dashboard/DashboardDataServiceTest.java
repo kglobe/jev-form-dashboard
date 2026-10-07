@@ -412,6 +412,27 @@ class DashboardDataServiceTest {
     }
 
     @Test
+    void aKpiOnlyGetsEndedPeriodsFromTheFilteredRowsAndItsTitleUsesTheValueLabel() {
+        ChartSpec kpi = new ChartSpec("c1", "kpi", "amount", new GridPos(0, 0, 4, 2),
+            new Mapping("d", null, null, "amount", null, null, "sum", "month"), Map.of(), ORDERS);
+        Datasource labelled = ORDERS_DS.withSchema(ORDERS_DS.schema().stream()
+            .map(f -> f.name().equals("amount") ? f.withLabel("金額") : f).toList());
+        DashboardDataService service = new DashboardDataService(
+            sources(Map.of(ORDERS, labelled), Map.of(ORDERS, ORDER_ROWS), Set.of(), new HashMap<>()), CLOCK);
+
+        // 今天 2026-10-07：10 月還沒結束，那一列不算；沒有日期的列也不算
+        ChartData all = service.display("u1", config(kpi), null, Set.of()).get(0);
+        assertThat(all.rows()).isEqualTo(List.of(List.of("2026-06", 8.0), List.of("2026-07", 1.0), List.of("2026-09", 2.0)));
+        assertThat(all.dimensions()).isEqualTo(List.of("訂單日", "金額"));
+        assertThat(all.title()).isEqualTo("金額");
+        // 上季配月：本期是上季最後一個已經結束的月，6 月在上季之外
+        assertThat(service.display("u1", config(kpi), new Filters("last_quarter", null), Set.of()).get(0).rows())
+            .isEqualTo(List.of(List.of("2026-07", 1.0), List.of("2026-09", 2.0)));
+        // 異常檢查拿到的也是已經結束的期
+        assertThat(service.load("u1", config(kpi), null, Set.of()).get(0).rows().getLast()).isEqualTo(List.of("2026-09", 2.0));
+    }
+
+    @Test
     void aTimeGrainFieldThatIsNotADateSaysSoUnderAPeriod() {
         ChartData shown = orders(new Filters("this_month", null), monthlyOn("c1", "region")).get(0);
 

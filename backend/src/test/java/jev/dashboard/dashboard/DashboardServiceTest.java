@@ -61,8 +61,8 @@ class DashboardServiceTest {
     }
 
     @Test
-    void typeMustBeOneOfTheEight() {
-        String message = "圖表 c1：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar 其中之一";
+    void typeMustBeOneOfTheNine() {
+        String message = "圖表 c1：type 必須是 line、bar、pie、scatter、table、radar、heatmap、stacked_bar、kpi 其中之一";
         rejects(config(card("donut", x("region"))), message);
         rejects(config(card(null, x("region"))), message);
     }
@@ -104,6 +104,45 @@ class DashboardServiceTest {
         rejects(config(card("line", new Mapping("date", null, null, null, Arrays.asList("sales", null), null, "sum", null))), two);
         rejects(config(card("bar", new Mapping("region", null, null, null, List.of("sales", "refund"), null, "none", null))),
             "圖表 c1：兩個數值的圖不能用 aggregate none");
+    }
+
+    static Mapping kpi(String x, String value, String aggregate, String grain) {
+        return new Mapping(x, null, null, value, null, null, aggregate, grain);
+    }
+
+    static ChartSpec kpiWith(Map<String, Object> options) {
+        return new ChartSpec("c1", "kpi", "amount", new GridPos(0, 0, 4, 2), kpi("order_date", "amount", "sum", "month"), options, DS);
+    }
+
+    @Test
+    void aKpiNeedsADateAValueAndAMonthOrQuarterGrainWithAnAggregate() {
+        rejects(config(card("kpi", kpi(null, "amount", "sum", "month"))), "圖表 c1：kpi 需要 mapping.x");
+        rejects(config(card("kpi", kpi("order_date", " ", "sum", "month"))), "圖表 c1：kpi 需要 mapping.value");
+        rejects(config(card("kpi", kpi("order_date", "amount", "sum", null))), "圖表 c1：kpi 需要 mapping.timeGrain");
+        rejects(config(card("kpi", kpi("order_date", "amount", "sum", "day"))), "圖表 c1：kpi 的 timeGrain 只能是 month、quarter");
+        rejects(config(card("kpi", kpi("order_date", "amount", "none", "month"))), "圖表 c1：kpi 不能用 aggregate none");
+        for (String agg : Arrays.asList("sum", "avg", "count", null)) {
+            assertThatCode(() -> DashboardService.requireComplete(config(card("kpi", kpi("order_date", "amount", agg, "quarter")))))
+                .doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void aKpiThresholdIsBelowOrAboveAFiniteNumber() {
+        String op = "圖表 c1：KPI 門檻的條件只能是低於或高於";
+        rejects(config(kpiWith(Map.of("threshold", Map.of("op", "equal", "value", 5)))), op);
+        rejects(config(kpiWith(Map.of("threshold", Map.of("value", 5)))), op);
+        rejects(config(kpiWith(Map.of("threshold", "below 5"))), op);
+        String number = "圖表 c1：KPI 門檻要是數字";
+        rejects(config(kpiWith(Map.of("threshold", Map.of("op", "below")))), number);
+        rejects(config(kpiWith(Map.of("threshold", Map.of("op", "below", "value", "5")))), number);
+        rejects(config(kpiWith(Map.of("threshold", Map.of("op", "above", "value", Double.POSITIVE_INFINITY)))), number);
+        rejects(config(kpiWith(Map.of("threshold", Map.of("op", "above", "value", Double.NaN)))), number);
+
+        for (Map<String, Object> ok : List.of(Map.<String, Object>of(), Map.<String, Object>of("threshold", Map.of("op", "below", "value", 1000000)),
+                Map.<String, Object>of("threshold", Map.of("op", "above", "value", 0.05)))) {
+            assertThatCode(() -> DashboardService.requireComplete(config(kpiWith(ok)))).doesNotThrowAnyException();
+        }
     }
 
     @Test

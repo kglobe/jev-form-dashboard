@@ -139,7 +139,8 @@ public class AnalyzeService {
             List<String> tableColumns = !columns.isEmpty() ? columns
                 // B2 spec 5.5：對照來源的來源欄不進明細表
                 : schema.stream().map(FieldSchema::name).filter(n -> compare == null || !n.equals(compare.sourceColumn())).toList();
-            layout = ConfigAssembler.assemble(combos, a2, k, tableColumns);
+            // KPI spec 2.3：第一次分析照第一輪的答案放 KPI 卡，調整模式不新增
+            layout = ConfigAssembler.assemble(ConfigAssembler.kpis(candidates, provides), combos, a2, k, tableColumns);
         } else {
             Set<String> focus = evals.stream().filter(FieldEval::focus).map(FieldEval::name).collect(Collectors.toSet());
             layout = ConfigAssembler.adjust(current, kept, combos, a2, focus);

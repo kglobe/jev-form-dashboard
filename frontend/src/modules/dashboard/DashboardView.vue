@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { GridItem, GridLayout } from 'grid-layout-plus'
 import ChartCard from './ChartCard.vue'
 import DashboardFilters from './DashboardFilters.vue'
+import KpiForm from './KpiForm.vue'
 import { api } from './api.js'
 import { filterCount, filterKey } from './filters.js'
 import { prefersReducedMotion } from './motion.js'
@@ -40,6 +41,9 @@ const removing = ref(false)
 const filters = ref(null)
 // 「存成預設」的 PUT 還沒回來：理由同 removing，拖拉和移除帶的還是舊的預設，會把它蓋回去
 const savingFilters = ref(false)
+// KPI spec 2.3：「加 KPI 卡」和 KPI 卡「設定」共用的表單；kpiSpec 是要改的那張，加新卡時是 null
+const kpiOpen = ref(false)
+const kpiSpec = ref(null)
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 // 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
@@ -70,13 +74,14 @@ let ownUpdatePending = false
 let highlightsPending = 0
 // dataById 是用哪一組篩選抓的；跟目前的篩選不一樣（新篩選的資料還沒回來）時，不能走「只少了卡片」的捷徑
 let fetchedKey = filterKey(null)
-// 同一份儀表板的 PUT 依操作順序送出，舊的版面存檔才不會在移除圖表之後覆蓋新版面
+// 同一份儀表板的寫入依操作順序送出，舊的版面存檔才不會在移除圖表、加 KPI 卡之後覆蓋新版面
 let writeTail = Promise.resolve()
-function queueUpdate(config) {
-  const write = writeTail.catch(() => {}).then(() => api.updateDashboard(config.id, config))
+function queueWrite(send) {
+  const write = writeTail.catch(() => {}).then(send)
   writeTail = write
   return write
 }
+const queueUpdate = (config) => queueWrite(() => api.updateDashboard(config.id, config))
 // 預覽裡最近一次被拿掉的卡片：chartId → { spec, data }；按「復原」放回同一張圖時直接沿用資料
 let removed = {}
 const sameChart = (a, b) => a.type === b.type && JSON.stringify(a.mapping) === JSON.stringify(b.mapping)
@@ -235,6 +240,27 @@ async function saveFilters() {
     savingFilters.value = false
   }
 }
+
+function openKpi(spec) {
+  kpiSpec.value = spec
+  kpiOpen.value = true
+}
+
+// KPI spec 2.3：加新卡走「加到既有儀表板」（一批一張，後端接在最下面）；改設定用格線上目前的版面換掉那張再存，
+// filters 是存著的預設。成功後交給 App 換設定，臨時的篩選不變；失敗丟回表單顯示
+async function saveKpi(card) {
+  const editing = kpiSpec.value
+  const reply = editing
+    ? await queueUpdate({
+      ...props.config,
+      layout: currentLayout().map((s) => (s.chartId === card.chartId ? { ...card, gridPos: s.gridPos } : s)),
+    })
+    : await queueWrite(() => api.appendCharts(props.config.id, { layout: [card] }))
+  // 改過的卡片要重抓資料，不能走「只少了卡片」的捷徑
+  if (editing) delete dataById.value[card.chartId]
+  ownUpdatePending = true
+  emit('updated', reply)
+}
 </script>
 
 <template>
@@ -256,6 +282,7 @@ async function saveFilters() {
     :saving="savingFilters"
     @update:model-value="setFilters"
     @save="saveFilters"
+    @add-kpi="openKpi(null)"
   />
   <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
@@ -289,16 +316,20 @@ async function saveFilters() {
           :highlight="highlightById[item.i]"
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
           :removable="!readonly && (!preview || specById[item.i].type !== 'table')"
+          :configurable="!preview && !readonly && specById[item.i].type === 'kpi'"
           :readonly="readonly"
           :remove-disabled="busy || removing || savingFilters"
           :filtered="filterCount(filters) > (dataById[item.i]?.filterSkipped?.length ?? 0)"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
           @remove="preview ? emit('remove', item.i) : askRemove(item.i)"
+          @configure="openKpi(specById[item.i])"
         />
       </GridItem>
     </GridLayout>
   </div>
+  <!-- KPI spec 2.3、2.5：只有擁有者看已存的儀表板時能加、能改 KPI 卡；來源選單照擁有者標「（來自 帳號）」 -->
+  <KpiForm v-if="!preview && !readonly" v-model="kpiOpen" :spec="kpiSpec" :username="config.createdBy" :save="saveKpi" />
   <!-- 多來源 spec 3.4：已存儀表板移除單張圖前先確認，樣式跟 App 的「刪除儀表板」一樣 -->
   <v-dialog :model-value="!!confirmRemove" max-width="420" @update:model-value="(v) => !v && (confirmRemove = null)">
     <v-card v-if="confirmRemove">

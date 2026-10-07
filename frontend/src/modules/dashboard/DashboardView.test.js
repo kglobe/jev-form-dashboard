@@ -14,6 +14,7 @@ vi.mock('./api.js', () => ({
     highlights: vi.fn(),
     updateDashboard: vi.fn(),
     filterOptions: vi.fn(),
+    appendCharts: vi.fn(),
   },
 }))
 
@@ -22,9 +23,18 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly', 'filtered'],
-    emits: ['remove'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly', 'filtered', 'configurable'],
+    emits: ['remove', 'configure'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
+  },
+}))
+
+vi.mock('./KpiForm.vue', () => ({
+  default: {
+    name: 'KpiForm',
+    props: ['modelValue', 'spec', 'username', 'save'],
+    emits: ['update:modelValue'],
+    template: '<div class="kpi-form-stub" />',
   },
 }))
 
@@ -966,6 +976,114 @@ describe('DashboardView', () => {
       await flushPromises()
       expect(filterBar(viewer).exists()).toBe(true)
       expect(filterBar(viewer).props('owner')).toBe(false)
+    })
+  })
+
+  describe('KPI 卡', () => {
+    const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
+    const LAST_YEAR = { period: 'last_year', fields: [] }
+    const kpi = {
+      chartId: 'c3', type: 'kpi', title: 'amount', gridPos: { x: 0, y: 9, w: 4, h: 2 }, datasourceId: 'ds1',
+      mapping: { x: 'order_date', value: 'amount', aggregate: 'sum', timeGrain: 'month' },
+    }
+    const withKpi = () => ({ ...makeConfig(), createdBy: 'u1', filters: LAST_YEAR, layout: [...makeConfig().layout, kpi] })
+    const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })
+    const form = (wrapper) => wrapper.findComponent({ name: 'KpiForm' })
+
+    beforeEach(() => {
+      prefersReducedMotion.mockReturnValue(true)
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3', rows: [] }])
+      api.highlights.mockResolvedValue([])
+      api.previewData.mockResolvedValue([])
+    })
+
+    it('「設定」只給擁有者看已存儀表板的 KPI 卡；檢視者、預覽沒有，也沒有表單', async () => {
+      const owner = mountView({ config: withKpi() })
+      await flushPromises()
+      expect(chartCard(owner, 'c3').props('configurable')).toBe(true)
+      expect(chartCard(owner, 'c1').props('configurable')).toBe(false)
+      expect(form(owner).exists()).toBe(true)
+
+      const viewer = mountView({ config: withKpi(), readonly: true })
+      await flushPromises()
+      expect(chartCard(viewer, 'c3').props('configurable')).toBe(false)
+      expect(filterBar(viewer).props('owner')).toBe(false) // 篩選列也就沒有「加 KPI 卡」
+      expect(form(viewer).exists()).toBe(false)
+
+      const preview = mountView({ config: withKpi(), preview: true })
+      await flushPromises()
+      expect(chartCard(preview, 'c3').props('configurable')).toBe(false)
+    })
+
+    it('加 KPI 卡：打開空白的表單，存檔走「加到既有儀表板」一批一張；交給 App 換設定後，臨時的篩選不變，用它抓新卡的資料', async () => {
+      const config = withKpi()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      await filterBar(wrapper).vm.$emit('add-kpi')
+      expect(form(wrapper).props('modelValue')).toBe(true)
+      expect(form(wrapper).props('spec')).toBeNull()
+      expect(form(wrapper).props('username')).toBe('u1')
+
+      const card = { ...kpi, chartId: 'c1', title: 'qty', mapping: { ...kpi.mapping, value: 'qty' } }
+      const reply = { ...config, layout: [...config.layout, { ...card, chartId: 'c4', gridPos: { x: 0, y: 11, w: 4, h: 2 } }] }
+      api.appendCharts.mockResolvedValue(reply)
+      await form(wrapper).props('save')(card)
+      expect(api.appendCharts).toHaveBeenCalledWith('d1', { layout: [card] })
+      expect(wrapper.emitted('updated')).toEqual([[reply]])
+
+      await wrapper.setProps({ config: reply })
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
+    })
+
+    it('設定：表單帶著那張卡；存檔 PUT 格線上目前的版面、換掉那張卡（位置照格線）、filters 是存著的預設；那張卡的資料重抓', async () => {
+      const config = withKpi()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      await wrapper.getComponent({ name: 'GridLayout' }).vm.$emit('update:layout', [
+        { i: 'c1', x: 6, y: 0, w: 6, h: 4 },
+        { i: 'c2', x: 0, y: 4, w: 12, h: 5 },
+        { i: 'c3', x: 8, y: 0, w: 4, h: 2 },
+      ])
+
+      await chartCard(wrapper, 'c3').vm.$emit('configure')
+      expect(form(wrapper).props('modelValue')).toBe(true)
+      expect(form(wrapper).props('spec')).toEqual(kpi)
+
+      const edited = { ...kpi, title: '營收', options: { threshold: { op: 'below', value: 5 } } }
+      api.updateDashboard.mockImplementation((id, c) => Promise.resolve(c))
+      await form(wrapper).props('save')(edited)
+      const [id, sent] = api.updateDashboard.mock.calls[0]
+      expect(id).toBe('d1')
+      expect(sent.filters).toEqual(LAST_YEAR)
+      expect(sent.layout.map((s) => s.gridPos)).toEqual([
+        { x: 6, y: 0, w: 6, h: 4 }, { x: 0, y: 4, w: 12, h: 5 }, { x: 8, y: 0, w: 4, h: 2 }])
+      expect(sent.layout[2]).toEqual({ ...edited, gridPos: { x: 8, y: 0, w: 4, h: 2 } })
+      expect(wrapper.emitted('updated')).toEqual([[sent]])
+
+      // 卡片數目沒變，但那張卡的設定變了：不能走「只少了卡片」的捷徑
+      await wrapper.setProps({ config: sent })
+      await flushPromises()
+      expect(api.dashboardData).toHaveBeenCalledTimes(3)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c3').data).toEqual({ chartId: 'c3', rows: [] })
+    })
+
+    it('存檔失敗時錯誤丟回表單，不交給 App', async () => {
+      const wrapper = mountView({ config: withKpi() })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('add-kpi')
+      api.appendCharts.mockRejectedValue(new Error('找不到儀表板'))
+
+      await expect(form(wrapper).props('save')(kpi)).rejects.toThrow('找不到儀表板')
+      expect(wrapper.emitted('updated')).toBeUndefined()
     })
   })
 })

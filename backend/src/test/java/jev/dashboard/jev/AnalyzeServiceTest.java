@@ -41,7 +41,9 @@ class AnalyzeServiceTest {
             assertThat(c.id()).isNull();
             assertThat(c.name()).isEqualTo("銷售 總覽");
             assertThat(c.layout()).extracting(ChartSpec::datasourceId).containsOnly(ds);
-            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "stacked_bar", "bar", "table");
+            // KPI spec 2.3：最上面一排是 KPI 卡，amount 是重要的數值；不另外問 JEV
+            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("kpi", "line", "stacked_bar", "bar", "table");
+            assertThat(c.layout().get(0).mapping()).isEqualTo(new Mapping("order_date", null, null, "amount", null, null, "sum", "month"));
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
             assertThat(server.bodies).hasSize(2);
             assertThat(server.bodies.get(0))
@@ -110,11 +112,12 @@ class AnalyzeServiceTest {
             assertThat(c.intents()).containsExactly("各產品的數量");
             assertThat(c.layout()).extracting(ChartSpec::chartId, ChartSpec::type, ChartSpec::title, ChartSpec::options)
                 .containsExactly(
-                    tuple("c1", "bar", "amount 依 product", Map.of("focus", true)),
-                    tuple("c2", "bar", "qty 依 product", Map.of("focus", true)),
-                    tuple("c3", "table", "明細", Map.of()));
+                    tuple("c1", "kpi", "amount", Map.of()),
+                    tuple("c2", "bar", "amount 依 product", Map.of("focus", true)),
+                    tuple("c3", "bar", "qty 依 product", Map.of("focus", true)),
+                    tuple("c4", "table", "明細", Map.of()));
             // 明細表的欄位是候選欄位，焦點欄位排最前面
-            assertThat(c.layout().get(2).mapping().columns()).containsExactly("product", "order_date", "amount", "region", "qty");
+            assertThat(c.layout().get(3).mapping().columns()).containsExactly("product", "order_date", "amount", "region", "qty");
 
             String round1 = server.bodies.get(0);
             assertThat(round1).contains("\"rel_0\"").contains("\"rel_5\"").contains("\"chart_count\"")
@@ -176,6 +179,14 @@ class AnalyzeServiceTest {
     }
 
     @Test
+    void theKeepQuestionOfAKpiUsesItsChineseName() {
+        ChartSpec kpi = new ChartSpec("c1", "kpi", "amount", new GridPos(0, 0, 4, 2),
+            new Mapping("order_date", null, null, "amount", null, null, "sum", "month"), Map.of());
+        assertThat(AnalyzeService.keepQuestion("不要 KPI", kpi)).isEqualTo(
+            "使用者最新的要求：「不要 KPI」。目前有一張圖「amount」（KPI 大數字卡，欄位：order_date、amount），這張圖要保留還是移除？");
+    }
+
+    @Test
     void longSamplesAreClippedInTheStateSoOneMemoFieldCannotBlowTheRequestSize() {
         String memo = "備".repeat(200);
         List<FieldSchema> schema = List.of(new FieldSchema("memo", FieldType.STRING, 2, List.of(memo, "短"), false, null, null));
@@ -204,11 +215,12 @@ class AnalyzeServiceTest {
                 List.of(), null, Set.of(), compare);
 
             // round2.json：combo_0（對照組合配時間）答 line；combo_4（銷售·amount 依 region）答 bar
-            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("line", "bar", "table");
-            assertThat(c.layout().get(0).mapping()).isEqualTo(
+            assertThat(c.layout()).extracting(ChartSpec::type).containsExactly("kpi", "line", "bar", "table");
+            assertThat(c.layout().get(0).title()).isEqualTo("銷售·amount");
+            assertThat(c.layout().get(1).mapping()).isEqualTo(
                 new Mapping("date", null, null, null, List.of("銷售·amount", "退貨·amount"), null, "sum", "month"));
-            assertThat(c.layout().get(0).title()).isEqualTo("銷售·amount 與 退貨·amount 依 date");
-            assertThat(c.layout().get(2).mapping().columns()).containsExactly("date", "銷售·amount", "region", "退貨·amount");
+            assertThat(c.layout().get(1).title()).isEqualTo("銷售·amount 與 退貨·amount 依 date");
+            assertThat(c.layout().get(3).mapping().columns()).containsExactly("date", "銷售·amount", "region", "退貨·amount");
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
             assertThat(server.bodies.get(1)).contains("兩個數值來自不同來源，要放在同一張圖上對照。")
                 .doesNotContain("來源（分類）");
@@ -263,12 +275,13 @@ class AnalyzeServiceTest {
             DashboardConfig c = service(server).analyze("毛利 總覽", UUID.randomUUID(), schema, 12,
                 List.of(), null, Set.of(), null, ratios);
 
+            // 毛利率不重要，不放 KPI 卡；revenue 重要，放一張
             assertThat(c.layout()).extracting(ChartSpec::type, ChartSpec::title).containsExactly(
-                tuple("line", "毛利率 依 order_date"), tuple("bar", "毛利率 依 region"), tuple("table", "明細"));
-            assertThat(c.layout().get(0).mapping())
+                tuple("kpi", "revenue"), tuple("line", "毛利率 依 order_date"), tuple("bar", "毛利率 依 region"), tuple("table", "明細"));
+            assertThat(c.layout().get(1).mapping())
                 .isEqualTo(new Mapping("order_date", null, null, "毛利率", null, null, "sum", "month"));
             // 明細表不放比率
-            assertThat(c.layout().get(2).mapping().columns()).containsExactly("order_date", "region", "revenue");
+            assertThat(c.layout().get(3).mapping().columns()).containsExactly("order_date", "region", "revenue");
             assertThatCode(() -> DashboardService.requireComplete(c)).doesNotThrowAnyException();
 
             JsonNode fields = JSON.readTree(server.bodies.get(0)).at("/state/fields");

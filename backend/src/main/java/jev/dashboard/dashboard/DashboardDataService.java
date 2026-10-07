@@ -208,7 +208,8 @@ public class DashboardDataService {
             ChartData d;
             try {
                 Filtered f = filtered(s, src, filters, denied, today);
-                d = UniversalTransformer.transform(s, f.rows(), src.available(), src.ratios(), src.dates()).withFilterSkipped(f.skipped());
+                d = UniversalTransformer.transform(s, f.rows(), src.available(), src.ratios(), src.dates(), today)
+                    .withFilterSkipped(f.skipped());
             } catch (DateTimeParseException e) {
                 // 期間篩選遇到不是日期的值：schema 的日期欄位都整理過，只有手動編的卡片 timeGrain 的 x 不是日期才會這樣，跟轉換時一樣
                 d = ChartData.notADate(s.chartId(), s.type(), s.mapping().x());

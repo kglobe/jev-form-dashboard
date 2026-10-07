@@ -125,12 +125,16 @@ function discard() {
   preview.value = null
 }
 
-// spec 6.6：依順序每列兩張（6×4），明細表放最後（12×5），跟後端的 ConfigAssembler.layOut 同一套
+// spec 6.6：依順序每列兩張（6×4），明細表放最後（12×5），跟後端的 ConfigAssembler.layOut 同一套；
+// KPI spec 2.3：KPI 卡排在最上面，每排 3 張（4×2），其他圖從 KPI 下面開始
 function relayout(layout) {
-  const charts = layout.filter((s) => s.type !== 'table')
-  const y = Math.ceil(charts.length / 2) * 4
+  const kpis = layout.filter((s) => s.type === 'kpi')
+  const charts = layout.filter((s) => s.type !== 'table' && s.type !== 'kpi')
+  const top = Math.ceil(kpis.length / 3) * 2
+  const y = top + Math.ceil(charts.length / 2) * 4
   return [
-    ...charts.map((s, n) => ({ ...s, gridPos: { x: (n % 2) * 6, y: Math.floor(n / 2) * 4, w: 6, h: 4 } })),
+    ...kpis.map((s, n) => ({ ...s, gridPos: { x: (n % 3) * 4, y: Math.floor(n / 3) * 2, w: 4, h: 2 } })),
+    ...charts.map((s, n) => ({ ...s, gridPos: { x: (n % 2) * 6, y: top + Math.floor(n / 2) * 4, w: 6, h: 4 } })),
     ...layout.filter((s) => s.type === 'table').map((s) => ({ ...s, gridPos: { x: 0, y, w: 12, h: 5 } })),
   ]
 }

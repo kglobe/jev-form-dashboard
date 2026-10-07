@@ -3,6 +3,7 @@ package jev.dashboard.transform;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -386,6 +387,68 @@ class UniversalTransformerTest {
             MISALIGNED_FIELDS, List.of(RETURN_RATE), List.of());
         assertThat(noDates.rows().get(0)).isEqualTo(List.of("北區", 17.0 / 700));
         assertThat(noDates.ratioPeriod()).isNull();
+    }
+
+    static Map<String, Object> sale(String date, double sales) {
+        return Map.of("date", date, "sales", sales);
+    }
+
+    static ChartData kpi(List<Map<String, Object>> rows, String grain, LocalDate today) {
+        return UniversalTransformer.transform(spec("kpi", xv("date", "sales", "sum", grain)), rows, RATIO_FIELDS,
+            List.of(), List.of(), today);
+    }
+
+    static final List<Map<String, Object>> MONTHS = List.of(
+        sale("2025-11-20", 1.0), sale("2025-12-31", 2.0), sale("2026-01-01", 4.0),
+        sale("2026-08-31", 8.0), sale("2026-09-01", 16.0), sale("2026-09-30", 32.0),
+        sale("2026-10-01", 64.0), sale("2026-11-02", 128.0));
+
+    @Test
+    void aKpiOnlyKeepsThePeriodsThatHaveEndedLikeTheAnomalyCheck() {
+        // 今天 2026-10-07：10 月還沒結束、11 月還沒到，都不算；照時間排
+        ChartData d = kpi(MONTHS, "month", LocalDate.of(2026, 10, 7));
+        assertThat(d.dimensions()).containsExactly("date", "sales");
+        assertThat(d.rows().subList(d.rows().size() - 2, d.rows().size()))
+            .isEqualTo(List.of(List.of("2026-08", 8.0), List.of("2026-09", 48.0)));
+        // 月底：9 月 30 日當天 9 月還沒結束
+        assertThat(kpi(MONTHS, "month", LocalDate.of(2026, 9, 30)).rows().getLast()).isEqualTo(List.of("2026-08", 8.0));
+        // 月初：10 月 1 日 9 月就結束了
+        assertThat(kpi(MONTHS, "month", LocalDate.of(2026, 10, 1)).rows().getLast()).isEqualTo(List.of("2026-09", 48.0));
+        // 跨年：1 月 5 日的本期是去年 12 月，上期是 11 月
+        assertThat(kpi(MONTHS, "month", LocalDate.of(2026, 1, 5)).rows())
+            .isEqualTo(List.of(List.of("2025-11", 1.0), List.of("2025-12", 2.0)));
+        // 季：第四季還沒結束，本期是第三季，上期是有資料的前一季（第一季）
+        assertThat(kpi(MONTHS, "quarter", LocalDate.of(2026, 10, 7)).rows())
+            .isEqualTo(List.of(List.of("2025-Q4", 3.0), List.of("2026-Q1", 4.0), List.of("2026-Q3", 56.0)));
+    }
+
+    @Test
+    void aKpiWithOneOrNoEndedPeriodReturnsWhatThereIs() {
+        assertThat(kpi(List.of(sale("2026-09-10", 5.0), sale("2026-10-02", 7.0)), "month", LocalDate.of(2026, 10, 7)).rows())
+            .isEqualTo(List.of(List.of("2026-09", 5.0)));
+        ChartData none = kpi(List.of(sale("2026-10-02", 7.0)), "month", LocalDate.of(2026, 10, 7));
+        assertThat(none.error()).isNull();
+        assertThat(none.rows()).isEmpty();
+    }
+
+    @Test
+    void aKpiKeepsAtMostTheLast13EndedPeriods() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int m = 1; m <= 15; m++) rows.add(sale(LocalDate.of(2025, 1, 1).plusMonths(m - 1).toString(), m));
+        ChartData d = kpi(rows, "month", LocalDate.of(2026, 10, 7));
+        assertThat(d.rows()).hasSize(13);
+        assertThat(d.rows().getFirst()).isEqualTo(List.of("2025-03", 3.0));
+        assertThat(d.rows().getLast()).isEqualTo(List.of("2026-03", 15.0));
+    }
+
+    @Test
+    void aRatioKpiIsPercentAndItsLatestPeriodIsNullWhenTheDenominatorIsZero() {
+        ChartData d = UniversalTransformer.transform(spec("kpi", xv("date", "退貨率", "sum", "month")), RATIO_ROWS, RATIO_FIELDS,
+            List.of(RETURN_RATE), List.of("date"), LocalDate.of(2026, 4, 7));
+        assertThat(d.percent()).isTrue();
+        // 3 月銷售加總是 0；4 月兩邊都沒有值，本來就不輸出
+        assertThat(d.rows()).isEqualTo(List.of(
+            Arrays.asList("2026-01", null), List.of("2026-02", 0.0375), Arrays.asList("2026-03", null)));
     }
 
     @Test

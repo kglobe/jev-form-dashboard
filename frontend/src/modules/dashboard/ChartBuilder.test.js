@@ -672,6 +672,34 @@ describe('ChartBuilder', () => {
     expect(api.analyze.mock.calls[1][2].map((s) => s.chartId)).toEqual(['c2', 'c3', 'c4'])
   })
 
+  it('KPI spec 2.3：✕ 之後 KPI 卡照樣排在最上面一排（每排 3 張、4×2），其他圖從 KPI 下面開始', async () => {
+    const kpi = (chartId, n) => ({ chartId, type: 'kpi', title: chartId, gridPos: { x: n * 4, y: 0, w: 4, h: 2 },
+      mapping: { x: 'date', value: 'amount', aggregate: 'sum', timeGrain: 'month' } })
+    const shifted = (s) => ({ ...s, gridPos: { ...s.gridPos, y: s.gridPos.y + 2 } })
+    api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1',
+      layout: [kpi('c1', 0), kpi('c2', 1), ...[bar('c3', 'A', 0), bar('c4', 'B', 1), bar('c5', 'C', 2), table('c6', 8)].map(shifted)] })
+    const wrapper = await openPreview()
+
+    view(wrapper).vm.$emit('remove', 'c3')
+    await flushPromises()
+    expect(view(wrapper).props('config').layout.map((s) => [s.chartId, s.gridPos])).toEqual([
+      ['c1', { x: 0, y: 0, w: 4, h: 2 }],
+      ['c2', { x: 4, y: 0, w: 4, h: 2 }],
+      ['c4', { x: 0, y: 2, w: 6, h: 4 }],
+      ['c5', { x: 6, y: 2, w: 6, h: 4 }],
+      ['c6', { x: 0, y: 6, w: 12, h: 5 }],
+    ])
+
+    view(wrapper).vm.$emit('remove', 'c1')
+    view(wrapper).vm.$emit('remove', 'c2')
+    await flushPromises()
+    expect(view(wrapper).props('config').layout.map((s) => [s.chartId, s.gridPos])).toEqual([
+      ['c4', { x: 0, y: 0, w: 6, h: 4 }],
+      ['c5', { x: 6, y: 0, w: 6, h: 4 }],
+      ['c6', { x: 0, y: 4, w: 12, h: 5 }],
+    ])
+  })
+
   it('復原 puts the card back in its old slot and closes the notice', async () => {
     api.analyze.mockResolvedValueOnce({ name: 'p', datasourceId: 'ds1', layout: layout4() })
     const wrapper = await openPreview()

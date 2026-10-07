@@ -9,6 +9,7 @@ import { toOption } from './charts/index.js'
 import commandDark from './charts/themes/command-dark.json'
 import commandLight from './charts/themes/command-light.json'
 import { prefersReducedMotion } from './motion.js'
+import { kpiView } from './kpi.js'
 
 const props = defineProps({
   spec: { type: Object, required: true },
@@ -23,8 +24,10 @@ const props = defineProps({
   readonly: { type: Boolean, default: false },
   // 篩選器 spec 6.4：有篩選對這張圖生效；沒有資料時用來分「篩選後沒有資料」和「沒有資料」
   filtered: { type: Boolean, default: false },
+  // KPI spec 6.1：擁有者看已存儀表板的 KPI 卡時才有「設定」，由 DashboardView 決定
+  configurable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['remove'])
+const emit = defineEmits(['remove', 'configure'])
 
 // spec 3.5：正常波動用中性灰、不加修飾子；好消息不染綠
 const SEVERITY_CLASS = { 正常波動: '', 值得注意: 'tc-badge--info', 需要關注: 'tc-badge--warn', 嚴重警示: 'tc-badge--err' }
@@ -60,7 +63,8 @@ const vuetifyTheme = useTheme()
 const chartTheme = computed(() => (vuetifyTheme.current.value.dark ? commandDark : commandLight))
 
 const ready = computed(() => props.data && !props.data.error)
-const unsupportedType = computed(() => ready.value && !Object.hasOwn(toOption, props.spec.type))
+// KPI spec 6.1：KPI 卡不走 ECharts
+const unsupportedType = computed(() => ready.value && props.spec.type !== 'kpi' && !Object.hasOwn(toOption, props.spec.type))
 const table = computed(() => (ready.value && props.spec.type === 'table' ? toOption.table(props.data) : null))
 const option = computed(() =>
   ready.value && props.spec.type !== 'table' && Object.hasOwn(toOption, props.spec.type)
@@ -74,8 +78,12 @@ const ratioPeriodNote = computed(() => {
   if (p.from > p.to) return '分子、分母的資料期間沒有重疊'
   return `只算 ${p.from === p.to ? p.from : `${p.from}～${p.to}`}（分子、分母都有資料的月份）`
 })
-// 篩選器 spec 6.4：一列資料都沒有時不畫空的圖
-const empty = computed(() => ready.value && props.data.rows?.length === 0)
+// 篩選器 spec 6.4：一列資料都沒有時不畫空的圖。KPI 卡不算：它的 rows 只有已經結束的期，選「本月」時有資料、
+// 只是這期還沒結束，說明由 kpiView 寫（KPI spec 2.1）
+const empty = computed(() => ready.value && props.data.rows?.length === 0 && props.spec.type !== 'kpi')
+const kpi = computed(() =>
+  ready.value && props.spec.type === 'kpi' ? kpiView(props.data, props.spec.options?.threshold, props.filtered) : null,
+)
 const filterNote = computed(() =>
   ready.value && props.data.filterSkipped?.length
     ? `沒套用篩選：${props.data.filterSkipped.join('、')}（這張圖的來源沒有這些欄位）`
@@ -94,7 +102,18 @@ const filterNote = computed(() =>
       <span v-if="highlight" class="tc-badge tc-fade-in" :class="SEVERITY_CLASS[highlight.severity]">
         {{ highlight.severity }}
       </span>
-      <!-- grid-layout-plus 的 dragIgnoreFrom 預設是 'a, button'，按「✕」不會被當成拖拉 -->
+      <!-- grid-layout-plus 的 dragIgnoreFrom 預設是 'a, button'，按「設定」「✕」不會被當成拖拉 -->
+      <v-btn
+        v-if="configurable"
+        icon="mdi-cog-outline"
+        size="small"
+        density="default"
+        variant="text"
+        class="tc-remove ml-1"
+        aria-label="KPI 卡設定"
+        :disabled="removeDisabled"
+        @click="emit('configure')"
+      />
       <v-btn
         v-if="removable"
         icon="mdi-close"
@@ -131,6 +150,14 @@ const filterNote = computed(() =>
       </v-alert>
       <div v-else-if="empty" class="tc-empty text-body-2 text-medium-emphasis tc-fade-in">
         {{ filtered ? '篩選後沒有資料' : '沒有資料' }}
+      </div>
+      <!-- KPI spec 6.1：大數字太長時不換行，截斷後滑過去看完整數字 -->
+      <div v-else-if="kpi" class="tc-kpi tc-fade-in">
+        <div class="tc-kpi__value text-truncate" :class="{ 'tc-kpi__value--alert': kpi.alert }" :title="kpi.full ?? undefined">
+          {{ kpi.value }}
+        </div>
+        <div class="tc-kpi__note text-truncate">{{ kpi.note }}</div>
+        <div v-if="kpi.alert" class="tc-kpi__alert text-truncate">{{ kpi.alert }}</div>
       </div>
       <div v-else-if="table" class="table-wrap">
         <div v-if="data.truncated" class="text-caption text-medium-emphasis">僅顯示前 500 筆</div>
@@ -173,6 +200,18 @@ const filterNote = computed(() =>
 /* 篩選器 spec 6.4：沒套用篩選的說明跟比率期間的說明一樣，排在卡片最下面（內容區左右各 8px，再縮 4px） */
 .tc-filter-note { padding: 2px 12px 6px; }
 .tc-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
+/* KPI spec 6.1：大數字上下置中、靠左；變化的文字一律中性色，只有碰到門檻才用警示色（主 spec 3.5 好消息不染綠） */
+.tc-kpi { height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 0 8px 8px; }
+.tc-kpi__value {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--tc-text, rgba(var(--v-theme-on-surface), var(--v-high-emphasis-opacity)));
+}
+.tc-kpi__value--alert, .tc-kpi__alert { color: var(--tc-err, rgb(var(--v-theme-error))); }
+.tc-kpi__note, .tc-kpi__alert { font-size: 12px; margin-top: 2px; }
+.tc-kpi__note { color: var(--tc-muted, rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity))); }
 /* 明細表也撐滿內容區：v-table 有確定的高度，height="100%" 的捲動區才不會跟著列數長高、被卡片切掉 */
 .table-wrap { height: 100%; display: flex; flex-direction: column; }
 .table-scroll { flex: 1 1 0; min-height: 0; }

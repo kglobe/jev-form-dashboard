@@ -376,4 +376,56 @@ describe('ChartCard', () => {
     }
     expect(mountCard({ spec: barSpec, data: barData, highlight: null, filtered: true }).find('.tc-empty').exists()).toBe(false)
   })
+
+  const kpiSpec = { chartId: 'c1', type: 'kpi', title: 'amount', mapping: { x: 'date', value: 'amount', aggregate: 'sum', timeGrain: 'month' } }
+  const kpiData = (rows, extra) => ({ chartId: 'c1', type: 'kpi', dimensions: ['日期', '金額'], rows, ...extra })
+  const kpiCard = (props) => mountCard({ spec: kpiSpec, highlight: null, ...props })
+
+  it('KPI spec 6.1：KPI 卡不畫 ECharts，大數字不換行、title 是完整數字，下面一行是比較的文字', () => {
+    const card = kpiCard({ data: kpiData([['2026-08', 114000000], ['2026-09', 120000000]], { title: '金額' }) })
+    expect(card.find('.v-chart-stub').exists()).toBe(false)
+    expect(card.text()).not.toContain('不支援的圖表類型')
+    expect(card.get('.tc-card-title').text()).toBe('金額')
+    const value = card.get('.tc-kpi__value')
+    expect(value.text()).toBe('1.2億')
+    expect(value.attributes('title')).toBe('120,000,000')
+    expect(value.classes()).toContain('text-truncate')
+    expect(value.classes()).not.toContain('tc-kpi__value--alert')
+    expect(card.get('.tc-kpi__note').text()).toBe('2026-09 · 比 2026-08 ▲ 5.3%')
+    expect(card.find('.tc-kpi__alert').exists()).toBe(false)
+  })
+
+  it('KPI spec 2.2：碰到門檻時大數字換成警示色，多一行「低於門檻 …」；比率的門檻寫百分比', () => {
+    const below = kpiCard({ spec: { ...kpiSpec, options: { threshold: { op: 'below', value: 1000000 } } }, data: kpiData([['2026-09', 800000]]) })
+    expect(below.get('.tc-kpi__value').classes()).toContain('tc-kpi__value--alert')
+    expect(below.get('.tc-kpi__alert').text()).toBe('低於門檻 100萬')
+
+    const ratio = kpiCard({ spec: { ...kpiSpec, options: { threshold: { op: 'above', value: 0.05 } } }, data: kpiData([['2026-08', 0.04], ['2026-09', 0.052]], { percent: true }) })
+    expect(ratio.get('.tc-kpi__value').text()).toBe('5.2%')
+    expect(ratio.get('.tc-kpi__note').text()).toBe('2026-09 · 比 2026-08 ▲ 1.2 個百分點')
+    expect(ratio.get('.tc-kpi__alert').text()).toBe('高於門檻 5%')
+  })
+
+  it('KPI 卡一期都還沒結束時寫「還沒有已經結束的期間」；有篩選生效時寫「篩選範圍內沒有已經結束的期間」，不寫「篩選後沒有資料」', () => {
+    const none = kpiCard({ data: kpiData([]) })
+    expect(none.get('.tc-kpi__value').text()).toBe('—')
+    expect(none.get('.tc-kpi__note').text()).toBe('還沒有已經結束的期間')
+    expect(none.find('.tc-empty').exists()).toBe(false)
+    // 選了「本月」時資料是有的，只是這一期還沒結束
+    const filtered = kpiCard({ data: kpiData([]), filtered: true })
+    expect(filtered.find('.tc-empty').exists()).toBe(false)
+    expect(filtered.get('.tc-kpi__value').text()).toBe('—')
+    expect(filtered.get('.tc-kpi__note').text()).toBe('篩選範圍內沒有已經結束的期間')
+  })
+
+  it('KPI spec 6.1：「設定」只在 configurable 時有，在「✕」左邊，名稱是「KPI 卡設定」，按了 emit configure', async () => {
+    const card = kpiCard({ data: null, configurable: true, removable: true })
+    const buttons = card.findAll('.tc-card-title button').map((b) => b.attributes('aria-label'))
+    expect(buttons).toEqual(['KPI 卡設定', '移除這張圖'])
+    expect(card.get('button[aria-label="KPI 卡設定"] .mdi-cog-outline').exists()).toBe(true)
+    await card.get('button[aria-label="KPI 卡設定"]').trigger('click')
+    expect(card.emitted('configure')).toHaveLength(1)
+
+    expect(kpiCard({ data: null, removable: true }).find('button[aria-label="KPI 卡設定"]').exists()).toBe(false)
+  })
 })

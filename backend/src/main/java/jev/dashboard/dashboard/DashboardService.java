@@ -6,6 +6,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
@@ -226,6 +227,14 @@ public class DashboardService {
         }
         // 多來源 spec 4.1：來源記在每張圖上
         if (s.datasourceId() == null) return "缺少 datasourceId";
+        // KPI spec 3：門檻有給時，條件是低於或高於，值是有限的數字
+        Object threshold = s.options() == null ? null : s.options().get("threshold");
+        if (threshold != null) {
+            if (!(threshold instanceof Map<?, ?> t) || !("below".equals(t.get("op")) || "above".equals(t.get("op")))) {
+                return "KPI 門檻的條件只能是低於或高於";
+            }
+            if (!(t.get("value") instanceof Number n) || !Double.isFinite(n.doubleValue())) return "KPI 門檻要是數字";
+        }
         return null;
     }
 

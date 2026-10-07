@@ -229,4 +229,17 @@ describe('DashboardFilters', () => {
     await save.trigger('click')
     expect(wrapper.emitted('save')).toHaveLength(1)
   })
+
+  it('KPI spec 6.2：只有擁有者在篩選列最右邊有「加 KPI 卡」，按了送出 add-kpi', async () => {
+    expect(btn(mountBar(), '加 KPI 卡')).toBeUndefined()
+
+    const wrapper = mountBar({ owner: true, modelValue: { period: 'last_month', fields: [region] } })
+    const add = btn(wrapper, '加 KPI 卡')
+    expect(add.props('variant')).toBe('text')
+    expect(add.props('prependIcon')).toBe('mdi-numeric')
+    expect(add.classes()).toContain('ml-auto')
+    expect(wrapper.findAllComponents({ name: 'VBtn' }).at(-1).text()).toBe('加 KPI 卡')
+    await add.trigger('click')
+    expect(wrapper.emitted('add-kpi')).toHaveLength(1)
+  })
 })
