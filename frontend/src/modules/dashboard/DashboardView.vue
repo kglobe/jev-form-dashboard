@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { GridItem, GridLayout } from 'grid-layout-plus'
 import ChartCard from './ChartCard.vue'
+import DashboardFilters from './DashboardFilters.vue'
 import { api } from './api.js'
+import { filterCount, filterKey } from './filters.js'
 import { prefersReducedMotion } from './motion.js'
 import './motion.css'
 
@@ -34,6 +36,10 @@ const entering = ref(new Set())
 const confirmRemove = ref(null)
 // 移除卡片的 PUT 還沒回來：「✕」停用、拖拉/縮放先不存版面，避免跟這次的移除互相蓋過去
 const removing = ref(false)
+// 篩選器 spec 2.3：目前的篩選，打開時是存著的預設（config.filters）；臨時改的不存檔
+const filters = ref(null)
+// 「存成預設」的 PUT 還沒回來：理由同 removing，拖拉和移除帶的還是舊的預設，會把它蓋回去
+const savingFilters = ref(false)
 
 const onlyTable = computed(() => props.config.layout.every((s) => s.type === 'table'))
 // 多來源 spec 3.2：圖來自兩個以上的來源時，卡片才標來源名稱
@@ -62,6 +68,8 @@ let loadSeq = 0
 let ownUpdatePending = false
 // 上一次的 highlights 還在等 JEV 回應
 let highlightsInFlight = false
+// dataById 是用哪一組篩選抓的；跟目前的篩選不一樣（新篩選的資料還沒回來）時，不能走「只少了卡片」的捷徑
+let fetchedKey = filterKey(null)
 // 同一份儀表板的 PUT 依操作順序送出，舊的版面存檔才不會在移除圖表之後覆蓋新版面
 let writeTail = Promise.resolve()
 function queueUpdate(config) {
@@ -111,18 +119,33 @@ async function load() {
   // 不能套這個捷徑，一定要重抓
   const ownRemoval = props.preview || ownUpdatePending
   ownUpdatePending = false
-  if (ownRemoval && next.every((s) => dataById.value[s.chartId])) {
+  // 篩選器 spec 6.3：App 換了一份設定（打開、重新打開）就回到存著的預設；自己的移除、存預設不動目前的篩選
+  if (!ownRemoval) filters.value = props.config.filters ?? null
+  if (ownRemoval && fetchedKey === filterKey(filters.value) && next.every((s) => dataById.value[s.chartId])) {
     highlightById.value = Object.fromEntries(Object.entries(highlightById.value).filter(([id]) => ids.has(id)))
     // 上一次的 highlights 還沒回來：那個回應會因為 loadSeq 換了被丟掉，這裡要重問一次才看得到標註
     if (props.preview || !highlightsInFlight) return
     await fetchHighlights(seq)
     return
   }
+  await fetchData(seq)
+}
+
+// 篩選器 spec 6.1：篩選一變就重抓；跟 load() 一樣，卡片先留著舊資料，新資料回來再換（多來源 spec 10.3）
+function setFilters(next) {
+  filters.value = next
+  loadError.value = ''
+  fetchData(++loadSeq)
+}
+
+async function fetchData(seq) {
   highlightById.value = {}
+  const f = filters.value
   try {
-    const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id)
+    const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id, f)
     if (seq !== loadSeq) return
     dataById.value = Object.fromEntries(data.map((d) => [d.chartId, d]))
+    fetchedKey = filterKey(f)
   } catch (e) {
     if (seq !== loadSeq) return
     loadError.value = e.message
@@ -133,10 +156,10 @@ async function load() {
   await fetchHighlights(seq)
 }
 
-// 異常檢查失敗就不標註，不顯示錯誤
+// 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷
 async function fetchHighlights(seq) {
   highlightsInFlight = true
-  const found = await api.highlights(props.config.id).catch(() => [])
+  const found = await api.highlights(props.config.id, filters.value).catch(() => [])
   highlightsInFlight = false
   if (seq !== loadSeq) return
   highlightById.value = Object.fromEntries(found.map((h) => [h.chartId, h]))
@@ -161,8 +184,9 @@ function currentLayout() {
   return props.config.layout.map((s) => ({ ...s, gridPos: pos[s.chartId] }))
 }
 
+// 篩選器 spec 6.3：存的是整份設定，filters 是 config 裡存著的預設，不是臨時的篩選
 async function saveLayout() {
-  if (props.preview || props.readonly || removing.value) return
+  if (props.preview || props.readonly || removing.value || savingFilters.value) return
   error.value = ''
   await queueUpdate({ ...props.config, layout: currentLayout() }).catch((e) => {
     if (!removing.value) error.value = e.message
@@ -192,6 +216,22 @@ async function removeCard() {
     removing.value = false
   }
 }
+
+// 篩選器 spec 2.3、6.1：目前的篩選連同格線上目前的版面一起存；成功後交給 App 換成回傳的設定，
+// 篩選沒變、資料也都在，load() 走「只少了卡片」的捷徑，不重抓
+async function saveFilters() {
+  error.value = ''
+  savingFilters.value = true
+  try {
+    const reply = await queueUpdate({ ...props.config, layout: currentLayout(), filters: filters.value })
+    ownUpdatePending = true
+    emit('updated', reply)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    savingFilters.value = false
+  }
+}
 </script>
 
 <template>
@@ -203,6 +243,17 @@ async function removeCard() {
   <v-alert v-else-if="onlyTable" type="info" class="mb-4">找不到適合的圖表</v-alert>
   <!-- spec 3.3：已存的儀表板顯示這份設定是依據哪些需求做的，每次分析一行 -->
   <div v-for="(line, n) in basisLines" :key="n" class="dash-basis text-caption text-medium-emphasis mb-2">{{ line }}</div>
+  <!-- 篩選器 spec 6.1、6.2：已存的儀表板有卡片時才有篩選列，在依據下面、格線上面；檢視者沒有「存成預設」 -->
+  <DashboardFilters
+    v-if="!preview && config.layout.length"
+    :model-value="filters"
+    :saved="config.filters ?? null"
+    :dashboard-id="config.id"
+    :owner="!readonly"
+    :saving="savingFilters"
+    @update:model-value="setFilters"
+    @save="saveFilters"
+  />
   <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
       v-if="!loadError"
@@ -236,7 +287,8 @@ async function removeCard() {
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
           :removable="!readonly && (!preview || specById[item.i].type !== 'table')"
           :readonly="readonly"
-          :remove-disabled="busy || removing"
+          :remove-disabled="busy || removing || savingFilters"
+          :filtered="filterCount(filters) > (dataById[item.i]?.filterSkipped?.length ?? 0)"
           :class="{ 'tc-card-leave': leaving.has(item.i), 'tc-card-enter': entering.has(item.i) }"
           :style="entering.has(item.i) ? { '--tc-i': screenOrder[item.i] } : undefined"
           @remove="preview ? emit('remove', item.i) : askRemove(item.i)"

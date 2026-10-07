@@ -350,4 +350,22 @@ describe('ChartCard', () => {
     expect(mountCard({ spec: barSpec, data: null, highlight: null, readonly: true }).get('.tc-card-title').classes()).not.toContain('card-drag')
     expect(mountCard({ spec: barSpec, data: null, highlight: null }).get('.tc-card-title').classes()).toContain('card-drag')
   })
+
+  it('篩選器 spec 6.4：filterSkipped 有東西時，卡片最下面寫出哪些篩選沒套用；沒有就不寫', () => {
+    const note = (filterSkipped) => mountCard({ spec: barSpec, data: { ...barData, filterSkipped }, highlight: null }).find('.tc-filter-note')
+    expect(note(['地區', '期間']).text()).toBe('沒套用篩選：地區、期間（這張圖的來源沒有這些欄位）')
+    expect(note(undefined).exists()).toBe(false)
+  })
+
+  it('篩選器 spec 6.4：一列資料都沒有時不畫空的圖；有生效的篩選寫「篩選後沒有資料」，不然寫「沒有資料」，明細表也一樣', () => {
+    const empty = (type, filtered) => mountCard({ spec: { ...barSpec, type }, data: { ...barData, type, rows: [] }, highlight: null, filtered })
+    for (const type of ['bar', 'table']) {
+      const filteredCard = empty(type, true)
+      expect(filteredCard.get('.tc-empty').text()).toBe('篩選後沒有資料')
+      expect(filteredCard.find('.v-chart-stub').exists()).toBe(false)
+      expect(filteredCard.find('table').exists()).toBe(false)
+      expect(empty(type, false).get('.tc-empty').text()).toBe('沒有資料')
+    }
+    expect(mountCard({ spec: barSpec, data: barData, highlight: null, filtered: true }).find('.tc-empty').exists()).toBe(false)
+  })
 })

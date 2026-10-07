@@ -21,6 +21,8 @@ const props = defineProps({
   source: { type: String, default: null },
   // 唯讀分享 spec 7.8：檢視者看的卡片，沒有移動游標，錯誤訊息不叫他按 ✕、改成請聯絡擁有者
   readonly: { type: Boolean, default: false },
+  // 篩選器 spec 6.4：有篩選對這張圖生效；沒有資料時用來分「篩選後沒有資料」和「沒有資料」
+  filtered: { type: Boolean, default: false },
 })
 const emit = defineEmits(['remove'])
 
@@ -72,6 +74,13 @@ const ratioPeriodNote = computed(() => {
   if (p.from > p.to) return '分子、分母的資料期間沒有重疊'
   return `只算 ${p.from === p.to ? p.from : `${p.from}～${p.to}`}（分子、分母都有資料的月份）`
 })
+// 篩選器 spec 6.4：一列資料都沒有時不畫空的圖
+const empty = computed(() => ready.value && props.data.rows?.length === 0)
+const filterNote = computed(() =>
+  ready.value && props.data.filterSkipped?.length
+    ? `沒套用篩選：${props.data.filterSkipped.join('、')}（這張圖的來源沒有這些欄位）`
+    : null,
+)
 </script>
 
 <template>
@@ -116,6 +125,9 @@ const ratioPeriodNote = computed(() => {
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
       </v-alert>
+      <div v-else-if="empty" class="tc-empty text-body-2 text-medium-emphasis tc-fade-in">
+        {{ filtered ? '篩選後沒有資料' : '沒有資料' }}
+      </div>
       <div v-else-if="table" class="table-wrap">
         <div v-if="data.truncated" class="text-caption text-medium-emphasis">僅顯示前 500 筆</div>
         <v-table density="compact" fixed-header height="100%" class="table-scroll tc-fade-in">
@@ -134,6 +146,7 @@ const ratioPeriodNote = computed(() => {
         <div v-if="ratioPeriodNote" class="tc-ratio-period text-caption text-medium-emphasis">{{ ratioPeriodNote }}</div>
       </div>
     </v-card-text>
+    <div v-if="filterNote" class="tc-filter-note text-caption text-medium-emphasis">{{ filterNote }}</div>
   </v-card>
 </template>
 
@@ -153,6 +166,9 @@ const ratioPeriodNote = computed(() => {
 .chart-wrap { height: 100%; display: flex; flex-direction: column; }
 .chart-canvas { flex: 1 1 0; min-height: 0; }
 .tc-ratio-period { padding: 2px 4px 6px; }
+/* 篩選器 spec 6.4：沒套用篩選的說明跟比率期間的說明一樣，排在卡片最下面（內容區左右各 8px，再縮 4px） */
+.tc-filter-note { padding: 2px 12px 6px; }
+.tc-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
 /* 明細表也撐滿內容區：v-table 有確定的高度，height="100%" 的捲動區才不會跟著列數長高、被卡片切掉 */
 .table-wrap { height: 100%; display: flex; flex-direction: column; }
 .table-scroll { flex: 1 1 0; min-height: 0; }
