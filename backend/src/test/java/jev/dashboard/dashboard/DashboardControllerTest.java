@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.util.Collections;
 import java.util.UUID;
 import jev.dashboard.TestData;
 import org.junit.jupiter.api.BeforeEach;
@@ -624,6 +625,9 @@ class DashboardControllerTest {
         {"{\"fields\":[{\"field\":\"a\",\"values\":[]}]}", "每個篩選要選 1～200 個值"},
         {"{\"fields\":[{\"field\":\"a\",\"values\":[null]}]}", "每個篩選要選 1～200 個值"},
         {"{\"fields\":[{\"field\":\"a\",\"values\":[\"" + "值".repeat(201) + "\"]}]}", "篩選的值最多 200 個字"},
+        // 200 個「北區」：URL 編碼後約 5400 個字，放不進網址
+        {"{\"fields\":[{\"field\":\"a\",\"values\":[" + String.join(",", Collections.nCopies(200, "\"北區\"")) + "]}]}",
+            "篩選選太多了，請少選一些值"},
     };
 
     @Test
@@ -679,13 +683,50 @@ class DashboardControllerTest {
         String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
         putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
 
-        for (String user : new String[] {"u1", "u2"}) {
-            mvc.perform(get("/api/dashboards/" + id + "/filter-options").with(TestData.as(user)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.fields[*].field").value(contains("region", "product", "memo")))
-                .andExpect(jsonPath("$.fields[0].values").value(contains("中區", "北區", "南區", "東區")))
-                .andExpect(jsonPath("$.fields[1].values").value(contains("A", "B", "C")));
-        }
+        mvc.perform(get("/api/dashboards/" + id + "/filter-options").with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.fields[*].field").value(contains("region", "product", "memo")))
+            .andExpect(jsonPath("$.fields[0].values").value(contains("中區", "北區", "南區", "東區")))
+            .andExpect(jsonPath("$.fields[1].values").value(contains("A", "B", "C")));
+        // 檢視者只有卡片用到的欄位（spec 2.3，詳見下一個測試）
+        mvc.perform(get("/api/dashboards/" + id + "/filter-options").with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.fields[*].field").value(contains("region")))
+            .andExpect(jsonPath("$.fields[0].values").value(contains("中區", "北區", "南區", "東區")));
         notFound(get("/api/dashboards/" + id + "/filter-options").with(TestData.as("u3")));
+    }
+
+    @Test
+    void someoneOtherThanTheOwnerOnlyFiltersOnFieldsTheCardsUseOrTheDefaultFilters() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String json = TestData.dashboardJson(ds);
+        String id = create("u1", json);
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        String options = "/api/dashboards/" + id + "/filter-options";
+        String data = "/api/dashboards/" + id + "/data";
+        String productA = "{\"fields\":[{\"field\":\"product\",\"values\":[\"A\"]}]}";
+
+        // 卡片用到的文字欄位只有 region；擁有者看得到全部的文字欄位
+        mvc.perform(get(options).with(TestData.as("u2"))).andExpect(jsonPath("$.fields[*].field").value(contains("region")));
+        mvc.perform(get(options).with(TestData.as("u1")))
+            .andExpect(jsonPath("$.fields[*].field").value(contains("region", "product", "memo")));
+
+        // 擁有者照樣能用 product 篩（A 在 1、2、3、5、6 月）；檢視者帶了 product，每張卡都不生效
+        mvc.perform(get(data).param("filters", productA).with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].rows.length()").value(5))
+            .andExpect(jsonPath("$[0].filterSkipped").doesNotExist());
+        mvc.perform(get(data).param("filters", productA).with(TestData.as("u2")))
+            .andExpect(jsonPath("$[0].rows.length()").value(6))
+            .andExpect(jsonPath("$[*].filterSkipped[0]").value(contains("product", "product", "product", "product")));
+        mvc.perform(get(data).param("filters", "{\"fields\":[{\"field\":\"region\",\"values\":[\"北區\"]}]}").with(TestData.as("u2")))
+            .andExpect(jsonPath("$[2].rows.length()").value(1))
+            .andExpect(jsonPath("$[2].filterSkipped").doesNotExist());
+
+        // 擁有者把 product 存進預設之後，檢視者也能用
+        mvc.perform(putJson(id, withFilters(json, productA))).andExpect(status().isOk());
+        mvc.perform(get(options).with(TestData.as("u2"))).andExpect(jsonPath("$.fields[*].field").value(contains("region", "product")));
+        mvc.perform(get(data).param("filters", productA).with(TestData.as("u2")))
+            .andExpect(jsonPath("$[0].rows.length()").value(5))
+            .andExpect(jsonPath("$[0].filterSkipped").doesNotExist());
     }
 }

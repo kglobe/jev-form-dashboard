@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.HashSet;
@@ -29,6 +30,8 @@ public record Filters(String period, List<Field> fields) {
     static final int MAX_FIELD_LENGTH = 50;
     static final int MAX_VALUES = 200;
     static final int MAX_VALUE_LENGTH = 200;
+    /** 篩選放在 GET 的查詢參數裡，Spring Boot 的 header 上限是 8KB；留一半給網址的其他部分和 cookie。 */
+    static final int MAX_ENCODED_LENGTH = 4000;
     /** filterSkipped 裡代表期間的名稱。 */
     static final String PERIOD = "期間";
 
@@ -65,6 +68,21 @@ public record Filters(String period, List<Field> fields) {
             }
             if (x.values().stream().anyMatch(v -> v.length() > MAX_VALUE_LENGTH)) throw invalid("篩選的值最多 200 個字");
         }
+        // 存成預設的篩選之後每次打開都要放進網址，太長就連儀表板都打不開
+        if (encodedLength(f.key()) > MAX_ENCODED_LENGTH) throw invalid("篩選選太多了，請少選一些值");
+    }
+
+    /**
+     * 跟瀏覽器的 encodeURIComponent 算法一樣的長度：英數字和 -_.!~*'() 一個字，其他每個 UTF-8 位元組寫成 %XX。
+     * 前端用 encodeURIComponent(JSON.stringify(filters)).length 擋，這裡量的 JSON 沒有 null 的 period，只會比前端短，
+     * 前端放行的這裡一定放行。
+     */
+    static int encodedLength(String s) {
+        int n = 0;
+        for (byte b : s.getBytes(StandardCharsets.UTF_8)) {
+            n += b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || "-_.!~*'()".indexOf(b) >= 0 ? 1 : 3;
+        }
+        return n;
     }
 
     /** 沒有任何篩選時回 null：存檔不寫出來，recent 的 key 也跟不篩選一樣。 */

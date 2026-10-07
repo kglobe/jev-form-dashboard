@@ -113,9 +113,12 @@ public class JevController {
                 && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
         }).toList();
         if (eligible.isEmpty()) return List.of();
+        // 篩選器 spec 2.3：擁有者以外的人不能用的欄位照整份儀表板算（不只摘要得了的卡片），跟 /data 一樣
+        boolean viewer = principal == null || !owner.equals(principal.getName());
         List<ChartData> data;
         try {
-            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible), f);
+            data = dashboardData.load(owner, new DashboardConfig(c.id(), c.name(), c.createdBy(), eligible), f,
+                viewer ? dashboardData.denied(owner, c, f) : Set.of());
         } catch (ApiException e) {
             // 唯讀分享 spec 11：檢視者看到的錯誤換成通用訊息，跟 /data 一樣
             if (owner.equals(principal.getName())) throw e;

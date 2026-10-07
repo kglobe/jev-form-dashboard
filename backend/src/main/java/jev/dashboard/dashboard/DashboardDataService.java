@@ -4,10 +4,10 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,30 +90,61 @@ public class DashboardDataService {
 
     /**
      * 原始欄位名稱的資料；異常檢查用這個，送給 JEV 的是原始名稱。剛打過同一份儀表板、同一組篩選的 /data 就沿用那次的資料。
-     * filters 是 null 時不篩選。
+     * filters 是 null 時不篩選；denied 是這個人不能用的分類篩選（見 denied()），每張卡都不生效。
      */
-    public List<ChartData> load(String userId, DashboardConfig c, Filters filters) {
-        Recent r = c.id() == null ? null : recent.remove(recentKey(userId, c, filters));
+    public List<ChartData> load(String userId, DashboardConfig c, Filters filters, Set<String> denied) {
+        Recent r = c.id() == null ? null : recent.remove(recentKey(userId, c, filters, denied));
         if (r != null && System.nanoTime() - r.at() < RECENT_NANOS && r.data().keySet().containsAll(c.layout())) {
             return c.layout().stream().map(r.data()::get).toList();
         }
-        return build(userId, c.layout(), filters).stream().map(Built::data).toList();
+        return build(userId, c.layout(), filters, denied).stream().map(Built::data).toList();
     }
 
-    /** 給畫面用：維度名稱和自動產生的標題換成欄位的顯示名稱。filters 是 null 時不篩選。 */
-    public List<ChartData> display(String userId, DashboardConfig c, Filters filters) {
-        List<Built> built = build(userId, c.layout(), filters);
+    /** 給畫面用：維度名稱和自動產生的標題換成欄位的顯示名稱。filters、denied 同 load()。 */
+    public List<ChartData> display(String userId, DashboardConfig c, Filters filters, Set<String> denied) {
+        List<Built> built = build(userId, c.layout(), filters, denied);
         if (c.id() != null) {
             Map<ChartSpec, ChartData> keep = new HashMap<>();
             built.stream().filter(b -> HighlightSummarizer.summarizable(b.spec())).forEach(b -> keep.put(b.spec(), b.data()));
-            recent.put(recentKey(userId, c, filters), new Recent(keep, System.nanoTime()));
+            recent.put(recentKey(userId, c, filters, denied), new Recent(keep, System.nanoTime()));
         }
         return built.stream().map(b -> relabelled(b.spec(), b.data(), b.labels())).toList();
     }
 
-    /** 篩選器 spec 5：擁有者:儀表板 id，有篩選時再接篩選的標準 JSON；篩選過的資料不會被沒篩選的 /highlight 拿去用。 */
-    private static String recentKey(String userId, DashboardConfig c, Filters filters) {
-        return userId + ":" + c.id() + (filters == null ? "" : ":" + filters.key());
+    /**
+     * 篩選器 spec 5：擁有者:儀表板 id，有篩選時再接篩選的標準 JSON 和不生效的欄位；篩選過的資料不會被沒篩選的 /highlight、
+     * 擁有者篩過的資料也不會被檢視者的 /highlight 拿去用。
+     */
+    private static String recentKey(String userId, DashboardConfig c, Filters filters, Set<String> denied) {
+        return userId + ":" + c.id() + (filters == null ? "" : ":" + filters.key() + ":" + String.join("\u0000", new TreeSet<>(denied)));
+    }
+
+    /**
+     * 篩選器 spec 2.3：擁有者以外的人（唯讀檢視者、沒登入的訪客）只能用卡片 mapping 用到的欄位和預設篩選裡的欄位；
+     * 回傳這組篩選裡不能用的分類（畫面上的名稱）。只查來源的 schema，不載入資料列；查不到的來源（已刪除）沒有欄位可用。
+     */
+    public Set<String> denied(String owner, DashboardConfig c, Filters filters) {
+        if (filters == null || filters.fields() == null) return Set.of();
+        Set<String> allowed = new HashSet<>();
+        for (UUID ds : c.layout().stream().map(ChartSpec::datasourceId).collect(Collectors.toSet())) {
+            try {
+                allowed.addAll(viewerTexts(texts(datasources.get(owner, ds).schema()), ds, c).keySet());
+            } catch (ApiException e) {
+                // 已刪除的來源
+            }
+        }
+        return filters.fields().stream().map(Filters.Field::field).filter(f -> !allowed.contains(f)).collect(Collectors.toSet());
+    }
+
+    /** 篩選器 spec 2.3：非擁有者在這個來源能用的文字欄位：這個來源的卡片用到的，加上畫面名稱在預設篩選裡的。 */
+    private static Map<String, String> viewerTexts(Map<String, String> texts, UUID ds, DashboardConfig c) {
+        Set<String> used = c.layout().stream().filter(s -> ds.equals(s.datasourceId()))
+            .flatMap(s -> UniversalTransformer.referencedFields(s.mapping()).stream()).collect(Collectors.toSet());
+        Set<String> defaults = c.filters() == null || c.filters().fields() == null ? Set.of()
+            : c.filters().fields().stream().map(Filters.Field::field).collect(Collectors.toSet());
+        Map<String, String> out = new LinkedHashMap<>(texts);
+        out.entrySet().removeIf(e -> !used.contains(e.getValue()) && !defaults.contains(e.getKey()));
+        return out;
     }
 
     // 「（空白）」排最後，其他照字串排
@@ -123,32 +154,36 @@ public class DashboardDataService {
     /**
      * 篩選器 spec 4：每張卡片來源的文字欄位，照畫面上的名稱合併、值取聯集，欄位照卡片、schema 的順序；
      * 聯集超過 200 個值的欄位不列。載入失敗、已刪除的來源跳過，全部失敗也只是沒有欄位可選。
+     * 驗證不收的東西不列：畫面名稱超過 50 字的欄位整欄不列，超過 200 字的值只拿掉那個值。
+     * viewer 是擁有者以外的人：每個來源只取 viewerTexts() 的欄位再合併（spec 2.3）。
      */
-    public FilterOptions filterOptions(String userId, List<ChartSpec> layout) {
-        Collection<Source> loaded;
+    public FilterOptions filterOptions(String userId, DashboardConfig c, boolean viewer) {
+        Map<UUID, Source> loaded;
         try {
-            loaded = sources(userId, layout).values();
+            loaded = sources(userId, c.layout());
         } catch (ApiException e) {
             return new FilterOptions(List.of());
         }
         Map<String, Set<String>> values = new LinkedHashMap<>();
-        for (Source src : loaded) {
-            if (src.rows() == null) continue;
-            src.texts().forEach((label, field) -> {
+        loaded.forEach((id, src) -> {
+            if (src.rows() == null) return;
+            (viewer ? viewerTexts(src.texts(), id, c) : src.texts()).forEach((label, field) -> {
+                if (label.length() > Filters.MAX_FIELD_LENGTH) return;
                 Set<String> set = values.computeIfAbsent(label, k -> new TreeSet<>(BLANK_LAST));
                 for (Map<String, Object> row : src.rows()) {
                     if (set.size() > Filters.MAX_VALUES) break; // 已經不會列出來，不必再收
-                    set.add(text(row.get(field)));
+                    String v = text(row.get(field));
+                    if (v.length() <= Filters.MAX_VALUE_LENGTH) set.add(v);
                 }
             });
-        }
+        });
         return new FilterOptions(values.entrySet().stream()
             .filter(e -> !e.getValue().isEmpty() && e.getValue().size() <= Filters.MAX_VALUES)
             .map(e -> new Filters.Field(e.getKey(), List.copyOf(e.getValue()))).toList());
     }
 
     /** 回傳的順序跟 layout 一樣，每一筆都帶來源名稱。 */
-    private List<Built> build(String userId, List<ChartSpec> layout, Filters filters) {
+    private List<Built> build(String userId, List<ChartSpec> layout, Filters filters, Set<String> denied) {
         Map<UUID, Source> sources = sources(userId, layout);
         LocalDate today = LocalDate.now(clock);
         List<Built> out = new ArrayList<>();
@@ -164,7 +199,7 @@ public class DashboardDataService {
             }
             ChartData d;
             try {
-                Filtered f = filtered(s, src, filters, today);
+                Filtered f = filtered(s, src, filters, denied, today);
                 d = UniversalTransformer.transform(s, f.rows(), src.available(), src.ratios(), src.dates()).withFilterSkipped(f.skipped());
             } catch (DateTimeParseException e) {
                 // 期間篩選遇到不是日期的值：schema 的日期欄位都整理過，只有手動編的卡片 timeGrain 的 x 不是日期才會這樣，跟轉換時一樣
@@ -177,21 +212,22 @@ public class DashboardDataService {
 
     /**
      * 篩選器 spec 2.2：分類照畫面上的名稱對到這個來源的文字欄位；期間用卡片 timeGrain 的 x，沒有就用來源第一個日期欄位，
-     * 日期是空的列不算。對不到欄位的篩選不生效，記在 skipped，其他篩選照樣生效。
+     * 日期是空的列不算。對不到欄位、或在 denied 裡的篩選不生效，記在 skipped，其他篩選照樣生效。
      * 每張卡各自過濾成新的清單，不動 loader 共用的那份資料列：同一個來源的卡片，期間用的日期欄位可能不同。
+     * 一個篩選都沒生效時直接用那份資料列，不必複製。
      */
-    private static Filtered filtered(ChartSpec s, Source src, Filters filters, LocalDate today) {
+    private static Filtered filtered(ChartSpec s, Source src, Filters filters, Set<String> denied, LocalDate today) {
         if (filters == null) return new Filtered(src.rows(), null);
         List<String> skipped = new ArrayList<>();
-        Predicate<Map<String, Object>> keep = row -> true;
+        List<Predicate<Map<String, Object>>> keep = new ArrayList<>();
         for (Filters.Field f : filters.fields() == null ? List.<Filters.Field>of() : filters.fields()) {
             String field = src.texts().get(f.field());
-            if (field == null) {
+            if (field == null || denied.contains(f.field())) {
                 skipped.add(f.field());
                 continue;
             }
             Set<String> values = Set.copyOf(f.values());
-            keep = keep.and(row -> values.contains(text(row.get(field))));
+            keep.add(row -> values.contains(text(row.get(field))));
         }
         if (filters.period() != null) {
             String field = s.mapping().timeGrain() != null ? s.mapping().x() : src.dates().isEmpty() ? null : src.dates().getFirst();
@@ -199,7 +235,7 @@ public class DashboardDataService {
                 skipped.add(Filters.PERIOD);
             } else {
                 LocalDate[] range = filters.range(today);
-                keep = keep.and(row -> {
+                keep.add(row -> {
                     Object v = row.get(field);
                     if (v == null) return false;
                     LocalDate d = LocalDate.parse(String.valueOf(v));
@@ -207,7 +243,9 @@ public class DashboardDataService {
                 });
             }
         }
-        return new Filtered(src.rows().stream().filter(keep).toList(), skipped.isEmpty() ? null : skipped);
+        List<Map<String, Object>> rows = keep.isEmpty() ? src.rows()
+            : src.rows().stream().filter(row -> keep.stream().allMatch(k -> k.test(row))).toList();
+        return new Filtered(rows, skipped.isEmpty() ? null : skipped);
     }
 
     /** 分類篩選比對的值：空值歸到「（空白）」，跟分組一樣。 */
@@ -248,10 +286,14 @@ public class DashboardDataService {
         Map<String, String> labels = schema.stream().filter(f -> f.label() != null)
             .collect(Collectors.toMap(FieldSchema::name, FieldSchema::label));
         List<String> dates = schema.stream().filter(f -> f.type() == FieldType.DATE).map(FieldSchema::name).toList();
-        Map<String, String> texts = schema.stream().filter(f -> f.type() == FieldType.STRING).collect(Collectors.toMap(
-            f -> f.label() != null ? f.label() : f.name(), FieldSchema::name, (a, b) -> a, LinkedHashMap::new));
         return new Source(loaded.datasource().name(), loaded.rows(), available, labels, loaded.datasource().ratios(), dates,
-            texts, false);
+            texts(schema), false);
+    }
+
+    /** 文字欄位：畫面上的名稱（顯示名稱，沒有就是欄位名稱）對到欄位名稱，照 schema 順序。 */
+    private static Map<String, String> texts(List<FieldSchema> schema) {
+        return schema.stream().filter(f -> f.type() == FieldType.STRING).collect(Collectors.toMap(
+            f -> f.label() != null ? f.label() : f.name(), FieldSchema::name, (a, b) -> a, LinkedHashMap::new));
     }
 
     /** 載入失敗時才查名稱給卡片顯示；來源本身找不到（NOT_FOUND）就是已刪除，其他錯誤只是沒有名稱。 */

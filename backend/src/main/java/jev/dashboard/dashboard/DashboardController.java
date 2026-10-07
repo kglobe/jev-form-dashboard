@@ -2,6 +2,7 @@ package jev.dashboard.dashboard;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import jev.dashboard.ApiException;
 import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
@@ -83,30 +84,35 @@ public class DashboardController {
     /**
      * 唯讀分享 spec 4.5：用擁有者的身分載入；檢視者看到的錯誤換成通用訊息，不露出擁有者那邊的細節。
      * 篩選器 spec 4：filters 是 URL 編碼過的 JSON，沒帶就是不篩選（不會自動套預設）。
+     * 篩選器 spec 2.3：擁有者以外的人（沒登入的也算）只能用卡片用到的欄位和預設篩選的欄位，其他的不生效。
      */
     @GetMapping("/{id}/data")
     public List<ChartData> data(Principal principal, @PathVariable UUID id, @RequestParam(required = false) String filters) {
         Filters f = Filters.parse(filters);
         DashboardConfig c = service.view(principal.getName(), id);
+        boolean viewer = principal == null || !c.createdBy().equals(principal.getName());
         try {
-            return data.display(c.createdBy(), c, f);
+            return data.display(c.createdBy(), c, f, viewer ? data.denied(c.createdBy(), c, f) : Set.of());
         } catch (ApiException e) {
             if (c.createdBy().equals(principal.getName())) throw e;
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
     }
 
-    /** 篩選器 spec 4：能看這份儀表板的人都能用，用擁有者的身分載入；載入失敗的來源跳過，不報錯。 */
+    /**
+     * 篩選器 spec 4：能看這份儀表板的人都能用，用擁有者的身分載入；載入失敗的來源跳過，不報錯。
+     * 擁有者以外的人只列卡片用到的欄位和預設篩選的欄位（spec 2.3）。
+     */
     @GetMapping("/{id}/filter-options")
     public DashboardDataService.FilterOptions filterOptions(Principal principal, @PathVariable UUID id) {
         DashboardConfig c = service.view(principal.getName(), id);
-        return data.filterOptions(c.createdBy(), c.layout());
+        return data.filterOptions(c.createdBy(), c, principal == null || !c.createdBy().equals(principal.getName()));
     }
 
     /** 篩選器 spec 4：預覽不收篩選。 */
     @PostMapping("/preview/data")
     public List<ChartData> preview(Principal principal, @RequestBody DashboardConfig body) {
         DashboardService.requireComplete(body);
-        return data.display(principal.getName(), body, null);
+        return data.display(principal.getName(), body, null, Set.of());
     }
 }

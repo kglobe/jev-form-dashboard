@@ -77,10 +77,10 @@ class FiltersTest {
 
     @Test
     void theLimitsThemselvesAreFine() {
-        List<String> values = new ArrayList<>(Collections.nCopies(199, "北區"));
-        values.add("值".repeat(200));
-        Filters.requireValid(new Filters("last_year", List.of(new Field("欄".repeat(50), values),
+        // 各個上限分開測：全部疊在一起會超過網址的長度上限
+        Filters.requireValid(new Filters("last_year", List.of(new Field("欄".repeat(50), List.of("值".repeat(200))),
             new Field("產品", List.of("A")), new Field("通路", List.of(UniversalTransformer.BLANK)))));
+        Filters.requireValid(fields(new Field("a", Collections.nCopies(200, "x"))));
         Filters.requireValid(null);
         Filters.requireValid(new Filters(null, null));
     }
@@ -104,6 +104,32 @@ class FiltersTest {
         assertThat(Filters.parse("{\"period\":null,\"fields\":[]}")).isNull();
         assertThat(Filters.nonEmpty(new Filters(null, List.of()))).isNull();
         assertThat(Filters.nonEmpty(new Filters("this_year", List.of()))).isNotNull();
+    }
+
+    @Test
+    void theEncodedLengthCountsLikeEncodeURIComponent() {
+        // 瀏覽器的 encodeURIComponent('{"a":"北 (x)!"}') 是 %7B%22a%22%3A%22%E5%8C%97%20(x)!%22%7D，38 個字
+        assertThat(Filters.encodedLength("{\"a\":\"北 (x)!\"}")).isEqualTo(38);
+        assertThat(Filters.encodedLength("Az09-_.!~*'()")).isEqualTo(13);
+    }
+
+    /** 一個分類「a」，值都是 x，URL 編碼後剛好 target 個字：第一個值補零頭，其他每個 200 個 x（加上引號、逗號是 209 個字）。 */
+    static Filters encodedTo(int target) {
+        int empty = Filters.encodedLength(new Filters(null, List.of(new Field("a", List.of("")))).key());
+        int full = (target - empty) / 209;
+        List<String> values = new ArrayList<>(Collections.nCopies(full, "x".repeat(200)));
+        values.add(0, "x".repeat(target - empty - full * 209));
+        return new Filters(null, List.of(new Field("a", values)));
+    }
+
+    @Test
+    void filtersThatWouldNotFitInTheAddressAreRejected() {
+        // 篩選器 spec 3：URL 編碼後最多 4000 個字，存預設和查詢參數都一樣
+        assertThat(Filters.encodedLength(encodedTo(4000).key())).isEqualTo(4000);
+        assertThat(Filters.encodedLength(encodedTo(4001).key())).isEqualTo(4001);
+        Filters.requireValid(encodedTo(4000));
+        rejects(encodedTo(4001), "篩選選太多了，請少選一些值");
+        rejects(encodedTo(4001).key(), "篩選選太多了，請少選一些值");
     }
 
     @Test

@@ -193,6 +193,28 @@ class JevControllerTest {
     }
 
     @Test
+    void aViewersFilterOnAFieldNoCardUsesDoesNotSliceTheHighlight() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":false,\"users\":[\"u2\"]}"))
+            .andExpect(status().isOk());
+        String productA = "{\"fields\":[{\"field\":\"product\",\"values\":[\"A\"]}]}";
+
+        mvc.perform(get("/api/jev/highlight/" + id).param("filters", productA).with(TestData.as("u2"))).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).param("filters", productA).with(TestData.as("u1"))).andExpect(status().isOk());
+
+        // 沒有卡片用到 product：檢視者的異常檢查用全部的列（5 月 3200、6 月 4300），擁有者的只算 A（5 月 2500、6 月 1300）
+        assertThat(JEV.bodies).hasSize(2);
+        assertThat(JEV.bodies.get(0)).contains("\"previous\":3200.0,\"current\":4300.0");
+        assertThat(JEV.bodies.get(1)).contains("\"previous\":2500.0,\"current\":1300.0");
+    }
+
+    @Test
     void highlightSkipsCardsThatReferenceSensitiveFields() throws Exception {
         String ds = TestData.uploadSales(mvc, "u1");
         String dashboardJson = """
