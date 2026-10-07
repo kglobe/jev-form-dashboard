@@ -8,11 +8,11 @@ const props = defineProps({
   modelValue: { type: Object, default: null },
   saved: { type: Object, default: null },
   dashboardId: { type: String, required: true },
-  // spec 6.2：只有擁有者有「存成預設」；saving 是存檔的 PUT 還沒回來
+  // spec 6.2：只有擁有者有「存成預設」（KPI spec 6.2：還有「加 KPI 卡」）；saving 是存檔的 PUT 還沒回來
   owner: { type: Boolean, default: false },
   saving: { type: Boolean, default: false },
 })
-const emit = defineEmits(['update:modelValue', 'save'])
+const emit = defineEmits(['update:modelValue', 'save', 'add-kpi'])
 
 const MAX_FIELDS = 3
 const fields = computed(() => props.modelValue?.fields ?? [])
@@ -124,6 +124,8 @@ function apply() {
     >
       存成預設
     </v-btn>
+    <!-- KPI spec 6.2：擁有者才有，放在篩選列最右邊 -->
+    <v-btn v-if="owner" variant="text" prepend-icon="mdi-numeric" class="ml-auto" @click="emit('add-kpi')">加 KPI 卡</v-btn>
     <v-menu v-model="menu" :target="target" :close-on-content-click="false" location="bottom start">
       <v-card width="320">
         <v-progress-linear v-if="loading" indeterminate />
