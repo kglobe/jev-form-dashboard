@@ -116,9 +116,9 @@ const ratioPeriodNote = computed(() => {
       <v-alert v-else-if="unsupportedType" type="warning" density="compact" class="tc-fade-in">
         不支援的圖表類型：{{ spec.type }}
       </v-alert>
-      <template v-else-if="table">
+      <div v-else-if="table" class="table-wrap">
         <div v-if="data.truncated" class="text-caption text-medium-emphasis">僅顯示前 500 筆</div>
-        <v-table density="compact" fixed-header height="100%" class="tc-fade-in">
+        <v-table density="compact" fixed-header height="100%" class="table-scroll tc-fade-in">
           <thead>
             <tr><th v-for="h in table.headers" :key="h">{{ h }}</th></tr>
           </thead>
@@ -128,7 +128,7 @@ const ratioPeriodNote = computed(() => {
             </tr>
           </tbody>
         </v-table>
-      </template>
+      </div>
       <div v-else class="chart-wrap">
         <VChart :option="option" :theme="chartTheme" autoresize class="chart-canvas" />
         <div v-if="ratioPeriodNote" class="tc-ratio-period text-caption text-medium-emphasis">{{ ratioPeriodNote }}</div>
@@ -153,6 +153,9 @@ const ratioPeriodNote = computed(() => {
 .chart-wrap { height: 100%; display: flex; flex-direction: column; }
 .chart-canvas { flex: 1 1 0; min-height: 0; }
 .tc-ratio-period { padding: 2px 4px 6px; }
+/* 明細表也撐滿內容區：v-table 有確定的高度，height="100%" 的捲動區才不會跟著列數長高、被卡片切掉 */
+.table-wrap { height: 100%; display: flex; flex-direction: column; }
+.table-scroll { flex: 1 1 0; min-height: 0; }
 /* 多來源 spec 3.2：標題右邊的來源名稱，次要文字色的小字 */
 .tc-source {
   flex: 0 1 auto;
