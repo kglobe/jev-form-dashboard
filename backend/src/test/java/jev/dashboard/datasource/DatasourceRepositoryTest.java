@@ -107,6 +107,20 @@ class DatasourceRepositoryTest {
         assertThat(repo.rows(ds.id())).hasSize(1);
     }
 
+    @Test
+    void theUnpivotDefinitionIsStoredAndReadBack() { // 寬表轉長表 spec 第 4 節
+        UUID converted = service.upload("u1", "預算", csv("部門,1月,合計\n業務,1,1\n"), null,
+            new Unpivot.Options("2026", null, null)).id();
+        UUID plain = service.upload("u1", "銷售", csv("region,amount\n北區,100\n"), null).id();
+
+        assertThat(repo.find(converted, "u1").orElseThrow().unpivot())
+            .isEqualTo(new Unpivot(List.of("1月"), List.of("合計"), "月份", "數值", 2026));
+        assertThat(repo.find(plain, "u1").orElseThrow().unpivot()).isNull();
+        // 沒轉過的是 SQL 的 NULL，不是 JSON 的 null
+        assertThat(jdbc.sql("select unpivot_json is null from datasource where id = :id").param("id", plain)
+            .query(Boolean.class).single()).isTrue();
+    }
+
     static MockMultipartFile csv(String text) {
         return new MockMultipartFile("file", "new.csv", "text/csv", text.getBytes(UTF_8));
     }

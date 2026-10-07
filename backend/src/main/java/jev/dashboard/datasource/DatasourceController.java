@@ -43,12 +43,18 @@ public class DatasourceController {
         this.dashboards = dashboards;
     }
 
+    /** 寬表轉長表 spec 第 3 節：unpivot=true 才轉，year、periodName、valueName 都是選填。 */
     @PostMapping("/upload")
     public Datasource upload(Principal principal,
                              @RequestParam("file") MultipartFile file,
                              @RequestParam("name") String name,
-                             @RequestParam(value = "sheet", required = false) String sheet) {
-        return service.upload(principal.getName(), name, file, sheet);
+                             @RequestParam(value = "sheet", required = false) String sheet,
+                             @RequestParam(value = "unpivot", required = false) String unpivot,
+                             @RequestParam(value = "year", required = false) String year,
+                             @RequestParam(value = "periodName", required = false) String periodName,
+                             @RequestParam(value = "valueName", required = false) String valueName) {
+        return service.upload(principal.getName(), name, file, sheet,
+            "true".equals(unpivot) ? new Unpivot.Options(year, periodName, valueName) : null);
     }
 
     /** 更新資料 spec 3.1：mode 是 replace（整份覆蓋）或 append（接在後面），只收自己的上傳來源。 */

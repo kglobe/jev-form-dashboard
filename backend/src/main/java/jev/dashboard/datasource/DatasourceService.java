@@ -61,13 +61,22 @@ public class DatasourceService {
         this.guard = guard;
     }
 
-    /** 解析在交易外面做，解析大檔案時不占資料庫連線；只有寫入是一個交易。 */
     public Datasource upload(String userId, String name, MultipartFile file, String sheet) {
+        return upload(userId, name, file, sheet, null);
+    }
+
+    /**
+     * 解析在交易外面做，解析大檔案時不占資料庫連線；只有寫入是一個交易。
+     * unpivot 是寬表轉長表的選項，null 是沒勾；有勾就先轉成長表，再照一般上傳推斷型別（寬表轉長表 spec 第 4 節）。
+     */
+    public Datasource upload(String userId, String name, MultipartFile file, String sheet, Unpivot.Options unpivot) {
         ParsedTable table = parse(file, sheet);
+        Unpivot how = unpivot == null ? null : Unpivot.detect(table.headers(), unpivot);
+        if (how != null) table = how.apply(table);
         checkRows(table.rows().size());
         List<FieldSchema> schema = SchemaInference.infer(table.headers(), table.rows());
         Datasource ds = new Datasource(UUID.randomUUID(), name, "upload", schema, null, Map.of(), userId, null)
-            .withRowCount(table.rows().size());
+            .withRowCount(table.rows().size()).withUnpivot(how);
         repo.insertWithRows(ds, SchemaInference.normalize(table.rows(), schema));
         return get(userId, ds.id());
     }
@@ -84,10 +93,14 @@ public class DatasourceService {
         };
         Datasource ds = stored(userId, id);
         if (!"upload".equals(ds.kind())) throw new ApiException(BAD_REQUEST, "只有上傳的檔案可以更新資料");
-        ParsedTable table = parse(file, sheet);
+        ParsedTable parsed = parse(file, sheet);
+        List<String> columns = ds.schema().stream().map(FieldSchema::name).toList();
+        // 寬表轉長表 spec 2.6：上傳時轉過的，新檔案要跟當時的寬表同一組欄位，再照同樣方式轉
+        if (ds.unpivot() != null) checkSameColumns(ds.unpivot().wideColumns(columns), parsed.headers());
+        ParsedTable table = ds.unpivot() == null ? parsed : ds.unpivot().apply(parsed);
         // 更新資料 spec 2.4：只有標題列的檔案兩種方式都擋下，接在後面也不白白清掉合併來源的筆數
         checkRows(table.rows().size());
-        checkSameColumns(ds.schema(), table.headers());
+        checkSameColumns(columns, table.headers());
         checkTypes(ds.schema(), table.rows());
         List<Map<String, Object>> added = SchemaInference.normalize(table.rows(), ds.schema());
         // ponytail: 只鎖這個來源。同一時間拿它建立的合併來源可能記下舊的筆數（只影響分析時給 JEV 的筆數）；要精準再一起鎖使用者的來源
@@ -113,8 +126,7 @@ public class DatasourceService {
     }
 
     /** 更新資料 spec 2.2：欄位名稱要跟原本是同一組，順序可以不一樣。 */
-    private static void checkSameColumns(List<FieldSchema> schema, List<String> headers) {
-        List<String> before = schema.stream().map(FieldSchema::name).toList();
+    private static void checkSameColumns(List<String> before, List<String> headers) {
         List<String> missing = before.stream().filter(n -> !headers.contains(n)).toList();
         List<String> extra = headers.stream().filter(h -> !before.contains(h)).toList();
         List<String> diff = new ArrayList<>();
