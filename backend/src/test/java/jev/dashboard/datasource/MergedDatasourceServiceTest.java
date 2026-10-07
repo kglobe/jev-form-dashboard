@@ -481,8 +481,11 @@ class MergedDatasourceServiceTest {
         // 敏感繼承照擁有者查輸入來源，不會因為 u2 查不到就 fail closed 全部變敏感
         for (Datasource seen : List.of(service.get("u2", m), service.list("u2").getFirst())) {
             assertThat(field(seen, "region").sensitive()).isFalse();
-            assertThat(field(seen, "memo").sensitiveFrom()).isEqualTo("北區");
+            assertThat(field(seen, "memo").sensitive()).isTrue();
         }
+        // 內部載入用的 get 照舊知道是哪個來源；給 u2 看的清單不說（spec 2.1）
+        assertThat(field(service.get("u2", m), "memo").sensitiveFrom()).isEqualTo("北區");
+        assertThat(field(service.list("u2").getFirst(), "memo").sensitiveFrom()).isNull();
         assertThat(service.list("u2")).extracting(Datasource::id).containsExactly(m);
 
         // 同一個 loader：載入 m 時 n 已經快取了，u2 直接拿 n 還是沒有權限

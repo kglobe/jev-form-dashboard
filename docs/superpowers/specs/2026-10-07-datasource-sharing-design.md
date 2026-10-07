@@ -20,6 +20,7 @@
   - 拿它當自己合併來源的輸入。
 - 使用者不能：
   - 看外部 API 的網址和 header（header 裡的 `${DS_…}` 名稱也不露出來）。
+  - 看合併來源的輸入來源是哪些：合併定義（輸入來源的 id、欄位對應）不給，繼承來的敏感欄位照樣是敏感，但不說是在哪個來源標的（`sensitiveFrom` 是 null）。
   - 改顯示名稱、敏感設定、比率，或更新資料、刪除、再分享給別人。這些 API 對使用者回 404「找不到資料源」，跟現在對「別人」一樣。
 - 分析時照擁有者的設定：敏感欄位一樣不送 JEV，比率照用。
 - 擁有者帳號停用後，他的來源對使用者一律當作不存在，跟分享 spec 2.4 停用擁有者的儀表板一樣。
@@ -99,11 +100,11 @@ alter table dashboard add constraint dashboard_anonymous_needs_public check (not
 ### 4.2 既有的資料來源 API
 
 - `GET /api/datasources`：先列自己的（照舊依建立時間由新到舊），再列別人分享給我的（同樣排序）。每一筆照舊有 `createdBy`，前端拿它跟 `me.username` 比，分出是不是自己的。
-  - 別人的來源：`apiUrl` 是 null，`apiHeaders` 是 `{}`。
+  - 別人的來源：`apiUrl` 是 null，`apiHeaders` 是 `{}`，沒有 `merge`，欄位的 `sensitiveFrom` 是 null（2.1）。
 - `GET /api/datasources/{id}/usage`：照舊只有擁有者。回傳多一個 `shared`：有指定帳號或「所有帳號都能用」時是 true。
 - 只認擁有者（使用者 404）：更新資料、敏感、顯示名稱、比率、刪除、usage、share。
 - 用「能用」的規則：`/api/jev/analyze`、`/api/jev/mapping`、`/api/datasources/merged/preview`、`/api/datasources/merged`（輸入來源）、`POST /api/dashboards`、`PUT /api/dashboards/{id}`、`POST /api/dashboards/{id}/charts`、`POST /api/dashboards/preview/data`、`/data`、`/highlight`。
-- 寫法：`DatasourceService.get(userId, id)` 和 `cachedFinder` 改用「能用」的查詢；`stored(userId, id)` 照舊只認擁有者，所有修改都已經走 `stored`。`list` 在 service 回傳前把別人來源的網址、header 拿掉；`get` 給內部載入用，不拿掉。
+- 寫法：`DatasourceService.get(userId, id)` 和 `cachedFinder` 改用「能用」的查詢；`stored(userId, id)` 照舊只認擁有者，所有修改都已經走 `stored`。`list` 在 service 回傳前把別人來源的網址、header、合併定義和 `sensitiveFrom` 拿掉；`get` 給內部載入用，不拿掉。
 
 ### 4.3 儀表板分享
 

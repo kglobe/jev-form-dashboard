@@ -1,6 +1,7 @@
 package jev.dashboard.datasource;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -163,6 +164,33 @@ class DatasourceSharingTest {
             .andExpect(jsonPath("$[0].id").value(id.toString()))
             .andExpect(jsonPath("$[0].apiUrl").value(nullValue()))
             .andExpect(jsonPath("$[0].apiHeaders").value(anEmptyMap()));
+    }
+
+    @Test
+    void othersDoNotSeeWhichSourcesAMergedSourceIsBuiltFrom() throws Exception {
+        // 資料來源共享 spec 2.1：合併定義（輸入來源的 id、欄位對應）和 sensitiveFrom 都不給別人，敏感照舊
+        String n = TestData.uploadCsv(mvc, "u1", "北區（私人）", "region,amount\n北區,1\n");
+        String s = TestData.uploadCsv(mvc, "u1", "南區", "region,amount\n南區,2\n");
+        mvc.perform(patch("/api/datasources/" + n + "/sensitive").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"amount\"]}"))
+            .andExpect(status().isOk());
+        String m = merged("u1", "全區", n, s);
+        share("u1", m, "{\"allUsers\":false,\"users\":[\"u2\"]}", 200);
+
+        mvc.perform(get("/api/datasources").with(TestData.as("u1")))
+            .andExpect(jsonPath("$[0].id").value(m))
+            .andExpect(jsonPath("$[0].merge.inputs.length()").value(2))
+            .andExpect(jsonPath("$[0].schema[1].sensitiveFrom").value("北區（私人）"));
+        String body = mvc.perform(get("/api/datasources").with(TestData.as("u2")))
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].id").value(m))
+            .andExpect(jsonPath("$[0].kind").value("merged"))
+            .andExpect(jsonPath("$[0].merge").doesNotExist())
+            .andExpect(jsonPath("$[0].schema[1].name").value("amount"))
+            .andExpect(jsonPath("$[0].schema[1].sensitive").value(true))
+            .andExpect(jsonPath("$[0].schema[1].sensitiveFrom").doesNotExist())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        assertThat(body).doesNotContain(n);
     }
 
     @Test

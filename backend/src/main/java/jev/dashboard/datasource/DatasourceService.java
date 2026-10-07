@@ -168,7 +168,7 @@ public class DatasourceService {
         return get(userId, ds.id());
     }
 
-    /** 資料來源共享 spec 4.2：自己的在前，再來是別人分享給我的；別人的來源拿掉網址和 header。 */
+    /** 資料來源共享 spec 4.2：自己的在前，再來是別人分享給我的；別人的來源拿掉網址、header 和合併定義。 */
     public List<Datasource> list(String userId) {
         List<Datasource> all = repo.listUsable(userId);
         Map<UUID, Datasource> byId = all.stream().collect(Collectors.toMap(Datasource::id, d -> d));
@@ -176,7 +176,7 @@ public class DatasourceService {
         BiFunction<String, UUID, Datasource> others = cachedFinder();
         BiFunction<String, UUID, Datasource> find = (by, id) -> by.equals(userId) ? byId.get(id) : others.apply(by, id);
         return all.stream().map(d -> effective(d, find))
-            .map(d -> d.createdBy().equals(userId) ? d : d.withoutApi()).toList();
+            .map(d -> d.createdBy().equals(userId) ? d : d.forOthers()).toList();
     }
 
     /** 能用的來源（自己的或分享給我的）；給內部載入用，網址和 header 不拿掉。改設定一律走 stored。 */
