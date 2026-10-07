@@ -542,8 +542,8 @@ async function reload() {
               <template v-if="unpivot">
                 <v-text-field v-model="unpivotYear" label="年份" hint="標題沒寫年份時用，例如 1月、Q1" persistent-hint inputmode="numeric" class="mt-3" />
                 <div class="d-flex ga-3 mt-3">
-                  <v-text-field v-model="periodName" label="期間欄名稱" placeholder="月份" hint="預設：月份，季是「季」" persistent-hint />
-                  <v-text-field v-model="valueName" label="數值欄名稱" placeholder="數值" hint="預設：數值" persistent-hint />
+                  <v-text-field v-model="periodName" class="flex-1-1-0" label="期間欄名稱" placeholder="月份" hint="預設：月份，季是「季」" persistent-hint />
+                  <v-text-field v-model="valueName" class="flex-1-1-0" label="數值欄名稱" placeholder="數值" hint="預設：數值" persistent-hint />
                 </div>
               </template>
             </v-window-item>

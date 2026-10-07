@@ -67,6 +67,28 @@ for sheet, (money, rows) in stores.items():
         ws.cell(ws.max_row, 1).number_format = 'yyyy-mm-dd'
 wb.save(HERE / 'stores.xlsx')
 
+# S23 寬表轉長表：部門 × 1月～12月，最後一欄是全年合計；只填到 9 月，10 月版多填 10 月，no-dec 少了 12月 這一欄
+BUDGET = {'業務': 100, '研發': 80, '管理': 50}  # 每月是基數加 10 × 月
+MONTHS = [f'{m}月' for m in range(1, 13)]
+
+
+def budget(name, last, months=MONTHS):
+    book = Workbook()
+    ws = book.active
+    ws.title = '預算'
+    ws.append(['部門', *months, '全年合計'])
+    for dept, base in BUDGET.items():
+        values = [base + 10 * m if m <= last else None for m in range(1, len(months) + 1)]
+        ws.append([dept, *values, sum(v for v in values if v)])
+    book.save(HERE / name)
+
+
+budget('budget-2026.xlsx', 9)
+budget('budget-2026-oct.xlsx', 10)
+budget('budget-2026-no-dec.xlsx', 9, MONTHS[:11])
+# 標題自己有年份，不用填年份
+write('region-2025.csv', ['區域', *(f'2025-{m:02d}' for m in range(1, 7))], [['北區', *range(100, 160, 10)], ['南區', *range(50, 110, 10)]])
+
 
 def table(title, keys, values):
     print(f'\n{title}\n')
@@ -105,3 +127,6 @@ table('退貨：各區退貨率（只算 2026-02～2026-06）', ['區域', '退�
 print(f'\n退貨筆數 {len(returns)}，退貨金額合計 {sum(r[3] for r in returns)}')
 for sheet, (money, rows) in stores.items():
     print(f'{sheet}：{len(rows)} 筆，{money}合計 {sum(v for *_, v in rows)}')
+for name, last in [('budget-2026.xlsx', 9), ('budget-2026-oct.xlsx', 10)]:
+    total = {f'2026-{m:02d}': sum(b + 10 * m for b in BUDGET.values()) for m in range(1, last + 1)}
+    print(f'{name}：轉成 {len(BUDGET) * last} 筆，每月合計 {total}')
