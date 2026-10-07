@@ -886,6 +886,63 @@ describe('DashboardView', () => {
       expect(chartCardPayload(wrapper, 'c2').data).toEqual({ chartId: 'c2', rows: [] })
     })
 
+    it('先送出的舊 /highlight 先回來，不會把「還在等異常標註」清掉：移除卡片時照樣重問', async () => {
+      prefersReducedMotion.mockReturnValue(true)
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      let resolveFirst
+      api.highlights
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+        .mockImplementationOnce(() => new Promise(() => {})) // 換篩選之後的那次一直沒回來
+        .mockResolvedValueOnce([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      expect(api.highlights).toHaveBeenCalledTimes(2)
+      resolveFirst([])
+      await flushPromises()
+
+      const reply = { ...config, layout: [config.layout[1]] }
+      api.updateDashboard.mockResolvedValue(reply)
+      chartCard(wrapper, 'c1').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+      await wrapper.setProps({ config: reply })
+      await flushPromises()
+
+      expect(api.highlights).toHaveBeenCalledTimes(3)
+      expect(api.highlights).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c2').highlight).toEqual({ chartId: 'c2', severity: '需要關注', noul: 0.8 })
+    })
+
+    it('移除卡片退場的 120ms 裡換了篩選：退場結束照樣套上新版面，再用新的篩選抓資料', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
+      api.highlights.mockResolvedValue([])
+      const config = makeConfig()
+      const wrapper = mountView({ config })
+      await flushPromises()
+      const reply = { ...config, layout: [config.layout[1]] }
+      api.updateDashboard.mockResolvedValue(reply)
+      chartCard(wrapper, 'c1').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      await wrapper.setProps({ config: reply })
+      expect(wrapper.get('[data-chart-id="c1"]').classes()).toContain('tc-card-leave')
+      api.dashboardData.mockResolvedValue([{ chartId: 'c2', rows: [] }])
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      vi.advanceTimersByTime(120)
+      await flushPromises()
+
+      expect(wrapper.find('[data-chart-id="c1"]').exists()).toBe(false)
+      expect(api.dashboardData).toHaveBeenLastCalledWith('d1', NORTH)
+      expect(chartCardPayload(wrapper, 'c2').data).toEqual({ chartId: 'c2', rows: [] })
+    })
+
     it('卡片的 filtered：有任何篩選對這張圖生效才是 true', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1', filterSkipped: ['地區'] }, { chartId: 'c2' }])
       api.highlights.mockResolvedValue([])

@@ -66,8 +66,8 @@ let loadSeq = 0
 // 這個旗標讓下一次 load() 知道「這次的變化是自己的 PUT 造成的」，才能用「只少了卡片」的捷徑。
 // App 重新打開同一份儀表板不會經過這裡，旗標是 false，就一定重抓
 let ownUpdatePending = false
-// 上一次的 highlights 還在等 JEV 回應
-let highlightsInFlight = false
+// 還在等 JEV 回應的 highlights 是哪一次（seq），0 是沒有；先送出的舊請求先回來時不會把它清掉
+let highlightsPending = 0
 // dataById 是用哪一組篩選抓的；跟目前的篩選不一樣（新篩選的資料還沒回來）時，不能走「只少了卡片」的捷徑
 let fetchedKey = filterKey(null)
 // 同一份儀表板的 PUT 依操作順序送出，舊的版面存檔才不會在移除圖表之後覆蓋新版面
@@ -124,7 +124,7 @@ async function load() {
   if (ownRemoval && fetchedKey === filterKey(filters.value) && next.every((s) => dataById.value[s.chartId])) {
     highlightById.value = Object.fromEntries(Object.entries(highlightById.value).filter(([id]) => ids.has(id)))
     // 上一次的 highlights 還沒回來：那個回應會因為 loadSeq 換了被丟掉，這裡要重問一次才看得到標註
-    if (props.preview || !highlightsInFlight) return
+    if (props.preview || !highlightsPending) return
     await fetchHighlights(seq)
     return
   }
@@ -135,6 +135,9 @@ async function load() {
 function setFilters(next) {
   filters.value = next
   loadError.value = ''
+  // 移除的卡片還在退場：等著的 load() 退場結束會套上新版面，再用這組篩選抓（資料是舊篩選的，不會走捷徑）；
+  // 這裡換掉 loadSeq 的話，那次 load() 會整個作廢，新版面就套不上去
+  if (leaving.value.size) return
   fetchData(++loadSeq)
 }
 
@@ -158,9 +161,9 @@ async function fetchData(seq) {
 
 // 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷
 async function fetchHighlights(seq) {
-  highlightsInFlight = true
+  highlightsPending = seq
   const found = await api.highlights(props.config.id, filters.value).catch(() => [])
-  highlightsInFlight = false
+  if (highlightsPending === seq) highlightsPending = 0
   if (seq !== loadSeq) return
   highlightById.value = Object.fromEntries(found.map((h) => [h.chartId, h]))
 }

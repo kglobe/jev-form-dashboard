@@ -23,7 +23,12 @@ function mountBar(props = {}) {
 const btn = (wrapper, label) => wrapper.findAllComponents({ name: 'VBtn' }).find((b) => b.text() === label)
 const selects = (wrapper) => wrapper.findAllComponents({ name: 'VSelect' })
 const fieldSelect = (wrapper) => selects(wrapper)[1]
-const valuesInput = (wrapper) => wrapper.findComponent({ name: 'VAutocomplete' })
+// 「值」是選單裡直接列出的勾選清單，上面一個搜尋框
+const valueBoxes = (wrapper) => wrapper.findAllComponents({ name: 'VCheckbox' })
+const valueLabels = (wrapper) => valueBoxes(wrapper).map((b) => b.props('label'))
+const checked = (wrapper) => valueBoxes(wrapper).filter((b) => b.find('input').element.checked).map((b) => b.props('label'))
+const toggle = (wrapper, value) => valueBoxes(wrapper).find((b) => b.props('label') === value).find('input').trigger('click')
+const searchBox = (wrapper) => wrapper.findAllComponents({ name: 'VTextField' }).find((t) => t.props('label') === '找值')
 const lastEmitted = (wrapper) => wrapper.emitted('update:modelValue').at(-1)[0]
 // 輸入框自己也帶著一條沒啟用（active 是 false）的進度條，只看選單裡那條
 const loadingBar = (wrapper) => wrapper.findAllComponents({ name: 'VProgressLinear' }).some((p) => p.props('active'))
@@ -69,9 +74,9 @@ describe('DashboardFilters', () => {
     expect(btn(wrapper, '套用').props('disabled')).toBe(true)
 
     await fieldSelect(wrapper).vm.$emit('update:modelValue', '產品')
-    expect(valuesInput(wrapper).props('items')).toEqual(['A', 'B'])
-    expect(valuesInput(wrapper).props('multiple')).toBe(true)
-    await valuesInput(wrapper).vm.$emit('update:modelValue', ['B'])
+    expect(valueLabels(wrapper)).toEqual(['A', 'B'])
+    await toggle(wrapper, 'B')
+    expect(checked(wrapper)).toEqual(['B'])
     expect(btn(wrapper, '套用').props('disabled')).toBe(false)
     await btn(wrapper, '套用').trigger('click')
 
@@ -86,9 +91,9 @@ describe('DashboardFilters', () => {
     const wrapper = mountBar()
     await openAdd(wrapper)
     await fieldSelect(wrapper).vm.$emit('update:modelValue', '地區')
-    await valuesInput(wrapper).vm.$emit('update:modelValue', ['北區'])
+    await toggle(wrapper, '北區')
     await fieldSelect(wrapper).vm.$emit('update:modelValue', '產品')
-    expect(valuesInput(wrapper).props('modelValue')).toEqual([])
+    expect(checked(wrapper)).toEqual([])
     expect(btn(wrapper, '套用').props('disabled')).toBe(true)
   })
 
@@ -111,11 +116,60 @@ describe('DashboardFilters', () => {
 
     expect(fieldSelect(wrapper).props('modelValue')).toBe('地區')
     expect(fieldSelect(wrapper).props('items')).toEqual(['地區'])
-    expect(valuesInput(wrapper).props('modelValue')).toEqual(['北區', '南區'])
-    await valuesInput(wrapper).vm.$emit('update:modelValue', ['中區'])
+    expect(checked(wrapper)).toEqual(['北區', '南區'])
+    await toggle(wrapper, '北區')
+    await toggle(wrapper, '南區')
+    await toggle(wrapper, '中區')
     await btn(wrapper, '套用').trigger('click')
 
     expect(lastEmitted(wrapper)).toEqual({ period: null, fields: [{ field: '地區', values: ['中區'] }, product] })
+  })
+
+  it('值是選單裡直接列出的勾選清單，不再疊一層下拉；搜尋框只過濾清單，勾過的值照樣留著', async () => {
+    const wrapper = mountBar()
+    await openAdd(wrapper)
+    expect(wrapper.findComponent({ name: 'VAutocomplete' }).exists()).toBe(false)
+    await fieldSelect(wrapper).vm.$emit('update:modelValue', '地區')
+    expect(valueLabels(wrapper)).toEqual(['中區', '北區', '南區', '（空白）'])
+    // 清單自己捲動，「取消」「套用」在清單外面
+    const list = document.body.querySelector('.dash-filters__values')
+    expect(list).not.toBeNull()
+    expect(list.contains(btn(wrapper, '套用').element)).toBe(false)
+
+    await toggle(wrapper, '中區')
+    await searchBox(wrapper).vm.$emit('update:modelValue', '北')
+    expect(valueLabels(wrapper)).toEqual(['北區'])
+    await toggle(wrapper, '北區')
+    await searchBox(wrapper).vm.$emit('update:modelValue', '')
+    expect(checked(wrapper)).toEqual(['中區', '北區'])
+    await btn(wrapper, '套用').trigger('click')
+    expect(lastEmitted(wrapper)).toEqual({ period: null, fields: [{ field: '地區', values: ['中區', '北區'] }] })
+  })
+
+  it('「欄位」和搜尋框都是跟其他輸入框一樣的 outlined', async () => {
+    const wrapper = mountBar()
+    await openAdd(wrapper)
+    await fieldSelect(wrapper).vm.$emit('update:modelValue', '地區')
+    expect(fieldSelect(wrapper).props('variant')).toBe(searchBox(wrapper).props('variant'))
+  })
+
+  it('篩選放不進網址（URL 編碼後超過 4000 字）時，「套用」「存成預設」停用，選單裡說「篩選選太多了，請少選一些值」', async () => {
+    const notes = { field: '備註', values: Array.from({ length: 50 }, (_, i) => `很長的備註${i}`.padEnd(12, '值')) }
+    api.filterOptions.mockResolvedValue({ fields: [notes] })
+    const tooLong = { period: null, fields: [notes] }
+    expect(encodeURIComponent(JSON.stringify(tooLong)).length).toBeGreaterThan(4000)
+
+    const wrapper = mountBar({ owner: true, modelValue: tooLong })
+    expect(btn(wrapper, '存成預設').props('disabled')).toBe(true)
+    await wrapper.findAllComponents({ name: 'VChip' })[0].trigger('click')
+    await flushPromises()
+    expect(btn(wrapper, '套用').props('disabled')).toBe(true)
+    expect(document.body.textContent).toContain('篩選選太多了，請少選一些值')
+
+    // 少選幾個就放得進去
+    for (const v of notes.values.slice(0, 16)) await toggle(wrapper, v)
+    expect(btn(wrapper, '套用').props('disabled')).toBe(false)
+    expect(document.body.textContent).not.toContain('篩選選太多了，請少選一些值')
   })
 
   it('已經有 3 個分類篩選時沒有「加篩選」', () => {

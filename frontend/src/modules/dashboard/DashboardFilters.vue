@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { api } from './api.js'
-import { PERIODS, filterCount, filterKey } from './filters.js'
+import { PERIODS, TOO_LONG, filterCount, filterKey, tooLong } from './filters.js'
 
 // 篩選器 spec 6.1：已存儀表板的篩選列。modelValue 是目前的篩選（沒有篩選是 null），saved 是存著的預設
 const props = defineProps({
@@ -37,6 +37,7 @@ const target = ref(null)
 const editing = ref(null)
 const field = ref(null)
 const values = ref([])
+const search = ref('')
 
 // 還沒加的欄位；改 chip 時它自己的欄位也列（存著的預設裡的欄位可能已經不在來源裡）
 const fieldItems = computed(() => {
@@ -44,13 +45,27 @@ const fieldItems = computed(() => {
   const names = (options.value ?? []).map((f) => f.field).filter((name) => !used.has(name))
   return editing.value && !names.includes(editing.value) ? [editing.value, ...names] : names
 })
-const valueItems = computed(() => options.value?.find((f) => f.field === field.value)?.values ?? [])
+// 值直接列成勾選清單，不再疊一層下拉（下拉會蓋住「套用」）；已經勾了、但不在選項裡的值也列，才取消得掉
+const valueItems = computed(() => {
+  const items = options.value?.find((f) => f.field === field.value)?.values ?? []
+  return [...items, ...values.value.filter((v) => !items.includes(v))]
+})
+const shownValues = computed(() => valueItems.value.filter((v) => v.includes(search.value)))
+
+// 按「套用」會送出的篩選：改 chip 就換掉原來那一個、位置不變；加篩選接在最後面
+const pending = computed(() => {
+  const entry = { field: field.value, values: values.value }
+  const list = editing.value ? fields.value.map((f) => (f.field === editing.value ? entry : f)) : [...fields.value, entry]
+  return { period: props.modelValue?.period ?? null, fields: list }
+})
+const pendingTooLong = computed(() => values.value.length > 0 && tooLong(pending.value))
 
 async function openMenu(event, name) {
   target.value = event.currentTarget
   editing.value = name
   field.value = name
   values.value = name ? [...fields.value.find((f) => f.field === name).values] : []
+  search.value = ''
   menu.value = true
   if (options.value || loading.value) return
   loading.value = true
@@ -67,13 +82,11 @@ async function openMenu(event, name) {
 function pickField(name) {
   field.value = name
   values.value = []
+  search.value = ''
 }
 
-// 改 chip 就換掉原來那一個、位置不變；加篩選接在最後面
 function apply() {
-  const entry = { field: field.value, values: values.value }
-  const list = editing.value ? fields.value.map((f) => (f.field === editing.value ? entry : f)) : [...fields.value, entry]
-  change(props.modelValue?.period ?? null, list)
+  change(pending.value.period, pending.value.fields)
   menu.value = false
 }
 </script>
@@ -106,7 +119,7 @@ function apply() {
       v-if="owner"
       variant="tonal"
       prepend-icon="mdi-content-save-outline"
-      :disabled="unchanged || saving"
+      :disabled="unchanged || saving || tooLong(modelValue)"
       @click="emit('save')"
     >
       存成預設
@@ -118,14 +131,21 @@ function apply() {
           <v-alert v-if="loadError" type="error" density="compact">{{ loadError }}</v-alert>
           <p v-else-if="options && !fieldItems.length" class="text-body-2 text-medium-emphasis">這份儀表板沒有可以篩選的文字欄位</p>
           <template v-else-if="options">
-            <v-select :model-value="field" :items="fieldItems" label="欄位" class="mb-2" @update:model-value="pickField" />
-            <v-autocomplete v-model="values" :items="valueItems" label="值" multiple chips closable-chips />
+            <v-select :model-value="field" :items="fieldItems" label="欄位" hide-details class="mb-2" @update:model-value="pickField" />
+            <template v-if="field">
+              <v-text-field v-model="search" label="找值" prepend-inner-icon="mdi-magnify" hide-details class="mb-1" />
+              <!-- 清單自己捲動，「取消」「套用」固定在下面 -->
+              <div class="dash-filters__values">
+                <v-checkbox v-for="v in shownValues" :key="v" v-model="values" :value="v" :label="v" hide-details />
+              </div>
+            </template>
           </template>
+          <p v-if="pendingTooLong" class="text-caption text-error mt-2">{{ TOO_LONG }}</p>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="menu = false">取消</v-btn>
-          <v-btn variant="flat" color="primary" :disabled="!values.length" @click="apply">套用</v-btn>
+          <v-btn variant="flat" color="primary" :disabled="!values.length || pendingTooLong" @click="apply">套用</v-btn>
         </v-card-actions>
       </v-card>
     </v-menu>
@@ -135,4 +155,5 @@ function apply() {
 <style scoped>
 /* spec 6.1：期間選單寬約 140px */
 .dash-filters__period { flex: 0 0 140px; }
+.dash-filters__values { max-height: 240px; overflow-y: auto; }
 </style>
