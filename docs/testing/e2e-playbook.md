@@ -84,7 +84,7 @@ L1 登入：在登入頁 `fill`「帳號」和「密碼」，按「登入」，`
 |---|---|---|---|
 | S00-1 | `netstat -ano \| grep -E ":(8081\|5181\|8082) .*LISTENING"` | 沒有輸出。有的話不要停掉那個程序，整套換成沒人用的 port（例如 8091／5191／8092），後面的步驟照著改 | API |
 | S00-2 | 決定名稱：`RUN=$(date +%Y%m%d-%H%M)`、`SCHEMA=jev_e2e_$(date +%Y%m%d_%H%M)`；建立 `<scratchpad>/e2e-runs/$RUN/`，記下 schema、port、`git rev-parse --short HEAD` | 資料夾建好，結果表開頭寫了這三樣 | 畫面 |
-| S00-3 | 複製固定資料：`cp docs/testing/fixtures/*.csv docs/testing/fixtures/*.xlsx <scratchpad>/e2e-fixtures/`，再把 `products.csv` 另外複製成 `products.txt` | `e2e-fixtures/` 裡有 7 個 `.csv`、1 個 `.xlsx`、1 個 `.txt` | 畫面 |
+| S00-3 | 複製固定資料：`cp docs/testing/fixtures/*.csv docs/testing/fixtures/*.xlsx <scratchpad>/e2e-fixtures/`，再把 `products.csv` 另外複製成 `products.txt` | `e2e-fixtures/` 裡有 8 個 `.csv`、4 個 `.xlsx`、1 個 `.txt` | 畫面 |
 | S00-4 | 在 `backend/` 打包：`export JAVA_HOME="/c/Program Files/Microsoft/jdk-21.0.12.101-hotspot" PATH="$JAVA_HOME/bin:$PATH"; ./mvnw -q package -DskipTests` | 結束碼 0，`target/jev-dashboard-0.1.0-SNAPSHOT.jar` 存在 | 畫面 |
 | S00-5 | 在 `backend/` 用 `run_in_background` 啟動後端（指令見下方） | log 最後是 `Started JevDashboardApplication`，有 Flyway 在新 schema 建表的訊息 | 畫面 |
 | S00-6 | 等後端：until `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/api/auth/options` 回 `200` | 180 秒內等到 | API |
@@ -124,6 +124,10 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | `sales-07-text-number.csv` | （S18 錯誤） | 跟 `sales-07.csv` 一樣，但第一筆的營收是 `N/A` |
 | `bad-rows.csv` | （S04 錯誤） | 標題列 4 欄，第 3 行只有 3 欄 |
 | `products.txt` | （S04 錯誤） | S00-3 從 `products.csv` 複製，副檔名不支援 |
+| `budget-2026.xlsx` | 預算 2026（S23） | 工作表「預算」，欄位：部門、1月～12月、全年合計。業務、研發、管理三列，每月的值是基數（100、80、50）加 10 × 月，只填到 9 月，10～12 月空白。轉成長表是 27 筆，各月合計從 2026-01 的 260 起每月加 30，到 2026-09 是 500 |
+| `budget-2026-oct.xlsx` | （S23 更新資料） | 跟 `budget-2026.xlsx` 一樣，多填了 10 月，轉成長表是 30 筆，2026-10 合計 530 |
+| `budget-2026-no-dec.xlsx` | （S23 錯誤） | 跟 `budget-2026.xlsx` 一樣，但少了「12月」這一欄 |
+| `region-2025.csv` | region-2025.csv（S23） | 欄位：區域、2025-01～2025-06。北區 100～150、南區 50～100，轉成長表是 12 筆 |
 
 ### 4.1 銷售
 
@@ -227,7 +231,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
     source: async (name) => {
       const ds = (await api('GET', '/api/datasources')).body.find((d) => d.name === name)
       return ds && {
-        id: ds.id, kind: ds.kind, rowCount: ds.rowCount, merge: ds.merge,
+        id: ds.id, kind: ds.kind, rowCount: ds.rowCount, merge: ds.merge, unpivot: ds.unpivot,
         schema: ds.schema.map((f) => ({ name: f.name, type: f.type, label: f.label, sensitive: f.sensitive, sensitiveFrom: f.sensitiveFrom })),
         ratios: ds.ratios,
       }
@@ -1078,6 +1082,30 @@ async () => {
 
 留下的狀態：銷售 72 筆（2026-07 接了兩次）；「E2E 銷售總覽」和「E2E 對照」都是每 1 分鐘自動更新；「E2E 對照」的公開連結開著，「不用登入也能看」關著。
 
+### S23 寬表轉長表
+
+- 目的：上傳時把月份欄位轉成兩欄、合計欄不匯入、轉出的日期能按月畫圖和做 KPI 卡、更新資料時照同樣方式轉、找不到月份欄位時的錯誤、標題本身有年份的檔案。規則見 `docs/superpowers/specs/2026-10-08-wide-to-long-design.md`。
+- 帳號／context：`alice`。
+- 前置條件：S22 完成。
+
+KPI 卡的本期是最後一個已經結束的月。以下預期以在 2026-10 執行為準：本期是 2026-09，補上 10 月之後也還是 2026-09。11 月以後執行時，S23-9 的 KPI 卡會變成 2026-10 的 530。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S23-1 | alice 在「資料」按「新增來源」，選 `budget-2026.xlsx`，名稱填 `預算 2026` | 「工作表」下面有「把 1月、2月…這類欄位轉成兩欄（寬表轉長表）」，沒有勾；看不到「年份」 | 畫面 |
+| S23-2 | 勾「寬表轉長表」 | 出現「年份」（預設今年，提示「標題沒寫年份時用，例如 1月、Q1」）；下面一排是「期間欄名稱」「數值欄名稱」，兩格一樣寬，提示是「預設：月份，季是「季」」「預設：數值」 | 畫面、截圖 |
+| S23-3 | 「年份」填 `2026`，「數值欄名稱」填 `預算金額`，按「上傳」 | 對話框關閉；頁面上方顯示「已把 1月～12月 共 12 欄轉成「月份」「預算金額」兩欄，共 27 筆；沒有匯入：全年合計」；欄位表三列：部門（文字，業務、研發、管理）、月份（日期，2026-01-01、2026-02-01、2026-03-01）、預算金額（數字，110、120、130） | 畫面、截圖 |
+| S23-4 | 跑 helper；`jev.source('預算 2026')` | `rowCount: 27`；`unpivot` 是 `{ columns: ["1月", …, "12月"]（12 個）, dropped: ["全年合計"], periodName: "月份", valueName: "預算金額", year: 2026 }` | API |
+| S23-5 | 按「用這個來源製圖」；需求 `各部門每月預算趨勢`，按「分析」，等「存成新儀表板」 | 有按月份的折線圖，X 軸 2026-01～2026-09 照順序，值從 260 每月加 30 到 500；有 KPI 卡「500」「2026-09 · 比 2026-08 ▲ 6.4%」。還有哪些圖〔JEV〕 | 畫面、截圖 |
+| S23-6 | 按「存成新儀表板」（名稱用預設的「預算 2026 總覽」） | 儀表板打開，卡片跟預覽一樣 | 畫面 |
+| S23-7 | 回「資料」選「預算 2026」，按「更新資料」 | 說明是「「預算 2026」目前有 27 筆資料。上傳時把 1月～12月 共 12 欄轉成「月份」「預算金額」兩欄。新檔案的欄位要跟第一次上傳的一樣，會照同樣方式轉。」 | 畫面 |
+| S23-8 | 選 `budget-2026-no-dec.xlsx`、「整份覆蓋」，按「更新」 | 對話框裡「欄位跟原本的不一樣：少了 12月」；對話框沒關 | 畫面 |
+| S23-9 | 檔案換成 `budget-2026-oct.xlsx`，按「更新」；打開「預算 2026 總覽」 | 「已更新「預算 2026」：共 30 筆」；折線圖多了 2026-10，10 個點，最後一個是 530；KPI 卡還是 2026-09 的 500 | 畫面、截圖 |
+| S23-10 | 回「資料」按「新增來源」，選 `sales-07.csv`，勾「寬表轉長表」，按「上傳」 | 對話框裡「找不到標題是月份或季的欄位，例如 1月、2024-01、Q1」；來源數沒變 | 畫面 |
+| S23-11 | 檔案換成 `region-2025.csv`，清空「年份」，按「上傳」；跑 helper；`jev.source('region-2025.csv')` | 「已把 2025-01～2025-06 共 6 欄轉成「月份」「數值」兩欄，共 12 筆」，沒有「沒有匯入」；欄位是區域（文字）、月份（日期）、數值（數字）；`rowCount: 12`，`unpivot.year` 是 null | 畫面、API |
+
+留下的狀態：多了「預算 2026」（30 筆）、「region-2025.csv」（12 筆）兩個來源，和「預算 2026 總覽」儀表板。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -1118,6 +1146,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 資料來源分享、別人分享的來源唯讀、停止分享的卡片、不用登入也能看 | S20 |
 | KPI 大數字卡：分析自動放、加 KPI 卡、設定、門檻、檢視者、篩選後跟著變 | S21 |
 | 儀表板自動更新：擁有者設定間隔、最後更新時間、保留臨時篩選、檢視者和訪客、更新失敗 | S22 |
+| 寬表轉長表：上傳時轉換、合計欄不匯入、按月畫圖和 KPI 卡、更新資料照同樣方式轉、標題自己有年份 | S23 |
 
 ## 9. 結果範本
 
