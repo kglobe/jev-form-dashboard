@@ -11,31 +11,36 @@ import java.util.UUID;
  * ratios 是使用者加的比率（B3 spec 4.1），沒有就是空清單。
  * rowCount 是建立時的筆數，上傳來源更新資料後跟著換。null 有兩種：V5 之前建立的外部 API、合併來源沒記；
  * 合併來源的輸入來源更新過資料，筆數被清掉（更新資料 spec 2.6）。
+ * unpivot 是上傳時寬表轉長表的轉換方式（寬表轉長表 spec 第 3 節），沒轉過是 null，JSON 不輸出。
  */
 public record Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                          Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt,
                          @JsonInclude(JsonInclude.Include.NON_NULL) MergeDefinition merge, List<Ratio> ratios,
-                         Integer rowCount) {
+                         Integer rowCount, @JsonInclude(JsonInclude.Include.NON_NULL) Unpivot unpivot) {
     public Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                       Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt) {
-        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, null, List.of(), null);
+        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, null, List.of(), null, null);
     }
 
     public Datasource(UUID id, String name, String kind, List<FieldSchema> schema, String apiUrl,
                       Map<String, String> apiHeaders, String createdBy, OffsetDateTime createdAt, MergeDefinition merge) {
-        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, List.of(), null);
+        this(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, List.of(), null, null);
     }
 
     public Datasource withSchema(List<FieldSchema> value) {
-        return new Datasource(id, name, kind, value, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, rowCount);
+        return new Datasource(id, name, kind, value, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, rowCount, unpivot);
     }
 
     public Datasource withRatios(List<Ratio> value) {
-        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, value, rowCount);
+        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, value, rowCount, unpivot);
     }
 
     public Datasource withRowCount(Integer value) {
-        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, value);
+        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, value, unpivot);
+    }
+
+    public Datasource withUnpivot(Unpivot value) {
+        return new Datasource(id, name, kind, schema, apiUrl, apiHeaders, createdBy, createdAt, merge, ratios, rowCount, value);
     }
 
     /**
@@ -44,6 +49,6 @@ public record Datasource(UUID id, String name, String kind, List<FieldSchema> sc
      */
     public Datasource forOthers() {
         List<FieldSchema> hidden = schema.stream().map(f -> f.sensitiveFrom() == null ? f : f.withInheritedSensitive(null)).toList();
-        return new Datasource(id, name, kind, hidden, null, Map.of(), createdBy, createdAt, null, ratios, rowCount);
+        return new Datasource(id, name, kind, hidden, null, Map.of(), createdBy, createdAt, null, ratios, rowCount, unpivot);
     }
 }

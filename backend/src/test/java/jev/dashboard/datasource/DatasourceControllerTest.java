@@ -89,6 +89,31 @@ class DatasourceControllerTest {
     }
 
     @Test
+    void uploadPassesTheUnpivotOptionsAndReturnsTheDefinition() throws Exception { // 寬表轉長表 spec 第 3 節
+        mvc.perform(multipart("/api/datasources/upload").file(csv("b.csv", "部門,1月,2月,合計\n業務,1,2,3\n"))
+                .param("name", "預算").param("unpivot", "true").param("year", "115")
+                .param("periodName", "期間").param("valueName", "金額").with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.rowCount").value(2))
+            .andExpect(jsonPath("$.schema[1].name").value("期間"))
+            .andExpect(jsonPath("$.schema[1].type").value("date"))
+            .andExpect(jsonPath("$.unpivot.columns[1]").value("2月"))
+            .andExpect(jsonPath("$.unpivot.dropped[0]").value("合計"))
+            .andExpect(jsonPath("$.unpivot.periodName").value("期間"))
+            .andExpect(jsonPath("$.unpivot.valueName").value("金額"))
+            .andExpect(jsonPath("$.unpivot.year").value(2026));
+        // 沒帶 unpivot 就照舊，回傳裡也沒有 unpivot
+        mvc.perform(multipart("/api/datasources/upload").file(csv("b.csv", "部門,1月\n業務,1\n"))
+                .param("name", "預算").param("year", "2026").with(TestData.as("u1")))
+            .andExpect(jsonPath("$.schema[1].name").value("1月"))
+            .andExpect(jsonPath("$.unpivot").doesNotExist());
+        mvc.perform(multipart("/api/datasources/upload").file(csv("b.csv", "部門,1月\n業務,1\n"))
+                .param("name", "預算").param("unpivot", "true").with(TestData.as("u1")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("欄位「1月」沒寫年份，請填年份"));
+    }
+
+    @Test
     void badCsvReportsLineNumber() throws Exception {
         mvc.perform(multipart("/api/datasources/upload").file(csv("bad.csv", "a,b\n1,2\n3\n"))
                 .param("name", "壞檔").with(TestData.as("u1")))

@@ -1020,4 +1020,79 @@ describe('DatasourcePanel', () => {
     expect(cancelReload(wrapper).element.disabled).toBe(false)
     expect(reloadDialog(wrapper).props('persistent')).toBe(false)
   })
+
+  // 寬表轉長表 spec 第 5 節
+  const budget = {
+    ...ds1,
+    id: 'b1',
+    name: '預算',
+    rowCount: 36,
+    unpivot: { columns: ['1月', '2月', '3月', '4月'], dropped: ['全年合計', '小計'], periodName: '月份', valueName: '數值', year: 2026 },
+  }
+  const unpivotBox = (wrapper) => wrapper.findAllComponents({ name: 'VCheckbox' }).find((c) => c.props('label').includes('寬表轉長表'))
+
+  it('寬表轉長表：沒勾不帶參數，勾了才出現三格並送出；成功後提示轉了哪些欄，表單回到預設', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 8))
+    api.listDatasources.mockResolvedValue([ds1])
+    api.uploadDatasource.mockResolvedValueOnce({ id: 'ds2' }).mockResolvedValueOnce(budget)
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openAdd(wrapper)
+
+    expect(field(wrapper, '年份')).toBeUndefined()
+    await pickFile(wrapper, new File(['a,b'], 'b.csv'))
+    await click('上傳')
+    const plain = api.uploadDatasource.mock.calls[0][0]
+    for (const key of ['unpivot', 'year', 'periodName', 'valueName']) expect(plain.has(key)).toBe(false)
+    expect(wrapper.text()).not.toContain('已把')
+
+    await openAdd(wrapper)
+    await pickFile(wrapper, new File(['a,b'], 'b.csv'))
+    await unpivotBox(wrapper).vm.$emit('update:modelValue', true)
+    await flushPromises()
+    expect(field(wrapper, '年份').props('modelValue')).toBe('2026')
+    await field(wrapper, '年份').find('input').setValue('115')
+    await field(wrapper, '數值欄名稱').find('input').setValue('金額')
+    await click('上傳')
+
+    const form = api.uploadDatasource.mock.calls[1][0]
+    expect([...form.entries()].filter(([k]) => k !== 'file')).toEqual([
+      ['name', 'b.csv'], ['unpivot', 'true'], ['year', '115'], ['periodName', ''], ['valueName', '金額'],
+    ])
+    expect(wrapper.find('.v-alert').text()).toBe('已把 1月～4月 共 4 欄轉成「月份」「數值」兩欄，共 36 筆；沒有匯入：全年合計、小計')
+
+    await openAdd(wrapper)
+    expect(unpivotBox(wrapper).props('modelValue')).toBe(false)
+    expect(field(wrapper, '年份')).toBeUndefined()
+    await unpivotBox(wrapper).vm.$emit('update:modelValue', true)
+    await flushPromises()
+    expect(field(wrapper, '年份').props('modelValue')).toBe('2026')
+    expect(field(wrapper, '數值欄名稱').props('modelValue')).toBe('')
+    vi.useRealTimers()
+  })
+
+  it('寬表轉長表：3 欄以內全部列出，沒拿掉欄位就不寫後半句', async () => {
+    api.listDatasources.mockResolvedValue([ds1])
+    api.uploadDatasource.mockResolvedValue({ ...budget, rowCount: 4, unpivot: { ...budget.unpivot, columns: ['Q1', 'Q2'], dropped: [], periodName: '季' } })
+    const wrapper = mountPanel()
+    await flushPromises()
+    await openAdd(wrapper)
+    await pickFile(wrapper, new File(['a,b'], 'b.csv'))
+    await unpivotBox(wrapper).vm.$emit('update:modelValue', true)
+    await click('上傳')
+
+    expect(wrapper.find('.v-alert').text()).toBe('已把 Q1、Q2 轉成「季」「數值」兩欄，共 4 筆')
+  })
+
+  it('寬表轉長表：轉過的來源，更新資料的對話框寫出會照同樣方式轉', async () => {
+    api.listDatasources.mockResolvedValue([budget])
+    const wrapper = mountPanel('b1')
+    await flushPromises()
+    await openReload(wrapper)
+
+    expect(dialogText()).toContain(
+      '「預算」目前有 36 筆資料。上傳時把 1月～4月 共 4 欄轉成「月份」「數值」兩欄。新檔案的欄位要跟第一次上傳的一樣，會照同樣方式轉。')
+    expect(dialogText()).not.toContain('新檔案的欄位名稱要跟原本一樣')
+  })
 })

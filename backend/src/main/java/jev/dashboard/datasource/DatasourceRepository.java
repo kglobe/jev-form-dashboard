@@ -25,6 +25,7 @@ public class DatasourceRepository {
     private static final TypeReference<Map<String, Object>> ROW = new TypeReference<>() {};
     private static final TypeReference<MergeDefinition> MERGE = new TypeReference<>() {};
     private static final TypeReference<List<Ratio>> RATIOS = new TypeReference<>() {};
+    private static final TypeReference<Unpivot> UNPIVOT = new TypeReference<>() {};
 
     /** 資料來源共享 spec 4.1：分享設定，users 是轉換過、排好序的帳號名稱。 */
     public record Share(boolean allUsers, List<String> users) {}
@@ -52,9 +53,9 @@ public class DatasourceRepository {
     public void insert(Datasource d) {
         jdbc.sql("""
                 insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by, merge_json,
-                                        row_count)
+                                        row_count, unpivot_json)
                 values (:id, :name, :kind, cast(:schema as jsonb), :apiUrl, cast(:headers as jsonb), :createdBy,
-                        cast(:merge as jsonb), :rowCount)""")
+                        cast(:merge as jsonb), :rowCount, cast(:unpivot as jsonb))""")
             .param("id", d.id())
             .param("name", d.name())
             .param("kind", d.kind())
@@ -66,6 +67,7 @@ public class DatasourceRepository {
             // 指定 VARCHAR，null 才會跟其他 jsonb 參數一樣走 varchar → jsonb 的轉型
             .param("merge", d.merge() == null ? null : writeMerge(d.merge()), Types.VARCHAR)
             .param("rowCount", d.rowCount(), Types.INTEGER)
+            .param("unpivot", d.unpivot() == null ? null : write(d.unpivot()), Types.VARCHAR)
             .update();
     }
 
@@ -197,6 +199,7 @@ public class DatasourceRepository {
 
     private Datasource map(ResultSet rs, int rowNum) throws SQLException {
         String merge = rs.getString("merge_json");
+        String unpivot = rs.getString("unpivot_json");
         return new Datasource(
             rs.getObject("id", UUID.class),
             rs.getString("name"),
@@ -208,7 +211,8 @@ public class DatasourceRepository {
             rs.getObject("created_at", OffsetDateTime.class),
             merge == null ? null : read(merge, MERGE),
             read(rs.getString("ratios_json"), RATIOS),
-            rs.getObject("row_count", Integer.class));
+            rs.getObject("row_count", Integer.class),
+            unpivot == null ? null : read(unpivot, UNPIVOT));
     }
 
     private String write(Object value) {
