@@ -16,6 +16,7 @@ vi.mock('./api.js', () => ({
     filterOptions: vi.fn(),
     appendCharts: vi.fn(),
     me: vi.fn(),
+    exportChart: vi.fn(),
   },
 }))
 
@@ -24,7 +25,7 @@ vi.mock('./motion.js', () => ({ prefersReducedMotion: vi.fn(() => false) }))
 vi.mock('./ChartCard.vue', () => ({
   default: {
     name: 'ChartCard',
-    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly', 'filtered', 'configurable'],
+    props: ['spec', 'data', 'highlight', 'removable', 'removeDisabled', 'source', 'readonly', 'filtered', 'configurable', 'download'],
     emits: ['remove', 'configure'],
     template: '<div class="chart-card-stub" :data-chart-id="spec.chartId">{{ JSON.stringify({ data, highlight }) }}</div>',
   },
@@ -1353,6 +1354,70 @@ describe('DashboardView', () => {
 
       await expect(form(wrapper).props('save')(kpi)).rejects.toThrow('找不到儀表板')
       expect(wrapper.emitted('updated')).toBeUndefined()
+    })
+  })
+
+  describe('匯出 spec 5.2：下載', () => {
+    const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
+    const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })
+    let clicked
+    beforeEach(() => {
+      clicked = []
+      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:x')
+      vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+      vi.spyOn(HTMLElement.prototype, 'click').mockImplementation(function () {
+        clicked.push({ href: this.getAttribute('href'), download: this.download })
+      })
+    })
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('預覽和沒登入的訪客不傳 download；已存的儀表板，擁有者和檢視者都有', async () => {
+      api.previewData.mockResolvedValue([])
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      const preview = mountView({ config: makeConfig(), preview: true })
+      const guest = mountView({ config: makeConfig(), readonly: true, guest: true })
+      const viewer = mountView({ config: makeConfig(), readonly: true })
+      const owner = mountView({ config: makeConfig() })
+      await flushPromises()
+
+      expect(chartCard(preview, 'c1').props('download')).toBeNull()
+      expect(chartCard(guest, 'c1').props('download')).toBeNull()
+      expect(chartCard(viewer, 'c1').props('download')).toBeTypeOf('function')
+      expect(chartCard(owner, 'c2').props('download')).toBeTypeOf('function')
+    })
+
+    it('帶著目前的篩選（包括臨時改的）呼叫 exportChart，用後端給的檔名存檔；沒有檔名就用卡片標題', async () => {
+      api.dashboardData.mockResolvedValue([{ chartId: 'c1', title: '金額 依 地區', rows: [['北區', 1]] }, { chartId: 'c2', rows: [] }])
+      api.highlights.mockResolvedValue([])
+      const blob = new Blob(['x'])
+      api.exportChart.mockResolvedValueOnce({ blob, filename: '營收.xlsx' }).mockResolvedValueOnce({ blob, filename: null })
+      const wrapper = mountView({ config: makeConfig() })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+
+      await chartCard(wrapper, 'c1').props('download')('xlsx')
+      expect(api.exportChart).toHaveBeenLastCalledWith('d1', 'c1', 'xlsx', NORTH)
+      expect(URL.createObjectURL).toHaveBeenCalledWith(blob)
+      await chartCard(wrapper, 'c1').props('download')('csv')
+      expect(clicked).toEqual([{ href: 'blob:x', download: '營收.xlsx' }, { href: 'blob:x', download: '金額 依 地區.csv' }])
+      expect(wrapper.find('.v-alert').exists()).toBe(false)
+    })
+
+    it('下載失敗時，最上面的錯誤寫「下載失敗：」加上後端的訊息，不存檔', async () => {
+      api.dashboardData.mockResolvedValue([])
+      api.highlights.mockResolvedValue([])
+      api.exportChart.mockRejectedValue(new Error('資料超過 Excel 的列數上限（1,048,575 列），請改下載 CSV'))
+      const wrapper = mountView({ config: makeConfig() })
+      await flushPromises()
+
+      await chartCard(wrapper, 'c1').props('download')('xlsx')
+      await flushPromises()
+      expect(wrapper.get('.v-alert').text()).toBe('下載失敗：資料超過 Excel 的列數上限（1,048,575 列），請改下載 CSV')
+      expect(clicked).toEqual([])
     })
   })
 })

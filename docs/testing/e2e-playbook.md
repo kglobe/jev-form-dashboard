@@ -250,6 +250,18 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
         cards: data.status === 200 ? summary(data.body, config) : data.body,
       }
     },
+    // 匯出 spec 3：直接打下載 API；CSV（和錯誤）把內容解成文字，ignoreBOM 留著 BOM 才看得出開頭有沒有
+    exportCard: async (id, chartId, format, filters) => {
+      const q = new URLSearchParams({ format })
+      if (filters) q.set('filters', JSON.stringify(filters))
+      const res = await (window.__jevFetch ?? fetch)(`/api/dashboards/${id}/charts/${chartId}/export?${q}`)
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      return {
+        status: res.status, type: res.headers.get('Content-Type'), disposition: res.headers.get('Content-Disposition'),
+        size: bytes.length, zip: bytes[0] === 0x50 && bytes[1] === 0x4b,
+        text: format === 'csv' || !res.ok ? new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) : undefined,
+      }
+    },
     preview: async (config = jev.last('/api/jev/analyze')?.body) => {
       const r = await api('POST', '/api/dashboards/preview/data', config)
       return { status: r.status, name: config.name, intents: config.intents, cards: r.status === 200 ? summary(r.body, config) : r.body }
@@ -281,6 +293,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
         color: getComputedStyle(el.querySelector('.tc-kpi__value')).color,
       },
       settings: !!el.querySelector('[aria-label="KPI 卡設定"]'),
+      download: !!el.querySelector('[aria-label="下載這張圖的資料"]'),
     })),
     setField: (label, value) => {
       const visible = (el) => el && el.offsetParent !== null
@@ -341,10 +354,11 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 剛才的分析結果送去 `/preview/data`，每張卡片摘要 | `async () => window.jev.preview()` |
 | 目前打開的儀表板：設定、版面、每張卡片摘要 | `async () => window.jev.dashboard()` |
 | 同上，但 `/data` 帶著篩選 | `async () => window.jev.dashboard(undefined, { period: null, fields: [{ field: '區域', values: ['北區'] }] })` |
+| 下載一張卡的資料（xlsx 只看狀態、型別和是不是 zip） | `async () => window.jev.exportCard(await window.jev.dashId('E2E 銷售總覽'), 'c1', 'csv', { period: null, fields: [{ field: '區域', values: ['北區'] }] })` |
 | 用名稱找來源 | `async () => window.jev.source('銷售')` |
 | 用名稱找儀表板 id | `async () => window.jev.dashId('E2E 銷售總覽')` |
 | 自己組一張卡片驗數字（不經過 JEV） | `async () => { const ds = await window.jev.source('退貨（補產品主檔）'); return window.jev.card(ds.id, { x: '類別', value: '退貨金額' }) }` |
-| 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告、KPI 卡的數字和「設定」 | `() => window.jev.cards()` |
+| 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告、KPI 卡的數字和「設定」、下載鈕 | `() => window.jev.cards()` |
 | 取代欄位內容（只送 `input`；顯示名稱這類靠 `change` 存檔的欄位不能用，見 2.5） | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
 | 拖拉或縮放卡片 | `async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` |
 
@@ -1106,6 +1120,36 @@ KPI 卡的本期是最後一個已經結束的月。以下預期以在 2026-10 �
 
 留下的狀態：多了「預算 2026」（30 筆）、「region-2025.csv」（12 筆）兩個來源，和「預算 2026 總覽」儀表板。
 
+### S24 下載資料
+
+- 目的：每張卡的下載鈕和格式選單、CSV 和 Excel 的內容跟畫面一樣、下載時帶著目前的篩選（臨時改的也算）、明細表下載全部的列、有錯誤的卡片不能下載、被分享的帳號和用公開連結打開的登入帳號能下載、沒登入的訪客和預覽不能下載。規則見 `docs/superpowers/specs/2026-10-12-chart-export-design.md`。
+- 帳號／context：`alice`；`bob`；`carol`；`anon`（沒登入）。
+- 前置條件：S23 完成；「E2E 銷售總覽」分享給 bob，預設篩選是「區域：北區」，有營收和毛利率（月）兩張 KPI 卡（S21）；「E2E 分店」的卡片都是「資料來源已刪除」（S12）；「E2E 對照」的公開連結開著，「不用登入也能看」關著（S22-12）；carol 的密碼是 `Carol-reset-02`（S17）。
+
+儀表板 id 和 chartId 都在執行時用 `jev.dashId()`、`jev.dashboard()` 查，不要寫死。表格裡的 `<北區>` 是 `{ period: null, fields: [{ field: '區域', values: ['北區'] }] }`，`<南區>` 照同樣寫法換成南區。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S24-1 | alice 打開「E2E 銷售總覽」，跑 helper；`jev.cards()` | 預設篩選是「區域：北區」。有資料的卡片 `download` 都是 true；下載鈕在「✕」左邊，KPI 卡的下載鈕在「設定」左邊 | 畫面、截圖 |
+| S24-2 | 按營收 KPI 卡的下載鈕 | 選單有「Excel（.xlsx）」「CSV」 | 畫面 |
+| S24-3 | 選「CSV」；`list_network_requests` | 有一筆 `GET /api/dashboards/<id>/charts/<這張卡>/export?format=csv&filters=…`，200，filters 是北區；最上面沒有錯誤 | API |
+| S24-4 | `jev.exportCard(<id>, <營收 KPI>, 'csv', <北區>)`，跟 `jev.dashboard(undefined, <北區>)` 同一張卡比 | 200；`text` 以 `\uFEFF` 開頭；第一列是那張卡的 `dims`（顯示名稱）；之後每一列跟 `data` 一樣，整數不帶 `.0` | API |
+| S24-5 | 同上，換成毛利率（月）KPI 卡、`'xlsx'` | 200；`type` 是 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`；`zip` 是 true；`disposition` 有 `filename*=UTF-8''`，`decodeURIComponent` 之後是卡片標題加 `.xlsx` | API |
+| S24-6 | 篩選改成「區域：南區」（不要存成預設），挑一張長條圖，從下載鈕選 CSV；再跑 `jev.exportCard(…, 'csv', <南區>)` 跟 `jev.dashboard(undefined, <南區>)` 比 | network 那一筆的 filters 是南區；CSV 的列跟南區的 `data` 一樣 | 畫面、API |
+| S24-7 | 建 600 筆的來源：`` async () => { const lines = ['代碼,名稱,金額']; for (let i = 1; i <= 600; i++) lines.push(`${String(i).padStart(3, '0')},品項${i},${i * 10}`); const form = new FormData(); form.append('file', new File([lines.join('\n')], 'codes.csv')); form.append('name', '代碼明細'); return window.jev.api('POST', '/api/datasources/upload', form) } ``；`jev.source('代碼明細')` | 200；`rowCount` 600；代碼是文字（string） | API |
+| S24-8 | 用 API 建儀表板：`jev.api('POST', '/api/dashboards', { name: 'E2E 代碼明細', layout: [{ chartId: 'c1', datasourceId: <代碼明細的 id>, type: 'table', title: '代碼明細', gridPos: { x: 0, y: 0, w: 12, h: 5 }, mapping: { columns: ['代碼', '名稱', '金額'] } }] })`；重新整理後打開它 | 明細表上面寫「僅顯示前 500 筆」，第一列代碼是 `001`；有下載鈕 | 畫面、截圖 |
+| S24-9 | `jev.exportCard(<id>, 'c1', 'csv')` | `text` 去掉最後的 `\r\n` 再用 `\r\n` 切開是 601 列；第 2 列 `001,品項1,10`，最後一列 `600,品項600,6000` | API |
+| S24-10 | `jev.exportCard(<id>, 'c1', 'xlsx')` | 200，`zip` 是 true | API |
+| S24-11 | 打開「E2E 分店」（卡片都是已刪除）；`jev.cards()`；`jev.exportCard(<id>, <第一張卡>, 'csv')` | 每張卡 `download` 都是 false；API 回 400，`text` 是 `{"error":"這張圖目前沒有資料可以下載"}` | 畫面、API |
+| S24-12 | bob 打開「E2E 銷售總覽」（被分享的）；`jev.cards()`；`jev.exportCard(…, 'csv')` 下載任一張有資料的卡 | `download` 是 true；200 | 畫面、API |
+| S24-13 | carol 登入（`isolatedContext: "carol"`，密碼 `Carol-reset-02`），打開「E2E 對照」的公開連結 `#/d/<id>` | 有下載鈕；`jev.exportCard` 200 | 畫面、API |
+| S24-14 | alice：先 `GET /api/dashboards/<E2E 對照>/share`，再 `PUT` 同一份設定，只把 `anonymous` 改成 true | 200 | API |
+| S24-15 | `anon` 開 `http://localhost:5181/#/d/<E2E 對照>`，跑 helper；`jev.cards()`；`jev.exportCard(…, 'csv')` | 訪客檢視，每張卡 `download` 都是 false；API 回 401，`text` 是 `{"error":"請先登入"}` | 畫面、API |
+| S24-16 | alice 把 `anonymous` 改回 false | 200；跟 S20 結束時一樣 | API |
+| S24-17 | alice 到「製圖」選「代碼明細」，需求填 `各品項金額`，按「分析」，等預覽 | 預覽的卡片都沒有下載鈕（`jev.cards()` 的 `download` 都是 false）。不用存檔〔JEV〕 | 畫面 |
+
+留下的狀態：多了「代碼明細」來源和「E2E 代碼明細」儀表板；「E2E 對照」的「不用登入也能看」還是關著。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -1147,6 +1191,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | KPI 大數字卡：分析自動放、加 KPI 卡、設定、門檻、檢視者、篩選後跟著變 | S21 |
 | 儀表板自動更新：擁有者設定間隔、最後更新時間、保留臨時篩選、檢視者和訪客、更新失敗 | S22 |
 | 寬表轉長表：上傳時轉換、合計欄不匯入、按月畫圖和 KPI 卡、更新資料照同樣方式轉、標題自己有年份 | S23 |
+| 下載資料（Excel／CSV） | S24 |
 
 ## 9. 結果範本
 

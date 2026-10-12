@@ -94,13 +94,19 @@ public final class UniversalTransformer {
         return transform(spec, rows, availableFields, ratios, dateFields, LocalDate.now());
     }
 
+    public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
+                                      List<Ratio> ratios, List<String> dateFields, LocalDate today) {
+        return transform(spec, rows, availableFields, ratios, dateFields, today, false);
+    }
+
     /**
      * ratios 是這個來源的比率定義（B3 spec 5.1）；value 是比率名稱時，每組分子、分母各自加總再相除。
      * dateFields 是這個來源的日期欄位，依 schema 順序；比率只算分子、分母都有資料的月份（期間對齊）。
      * today 只有 KPI 卡用得到：只回已經結束的期（KPI spec 4）；DashboardDataService 傳它 Clock 的今天。
+     * allRows 是匯出用的（匯出 spec 4）：明細表回傳全部的列；畫面用 false，只回前 TABLE_ROW_LIMIT 筆。
      */
     public static ChartData transform(ChartSpec spec, List<Map<String, Object>> rows, Set<String> availableFields,
-                                      List<Ratio> ratios, List<String> dateFields, LocalDate today) {
+                                      List<Ratio> ratios, List<String> dateFields, LocalDate today, boolean allRows) {
         Mapping m = spec.mapping();
         Ratio ratio = ratios.stream().filter(r -> r.name().equals(m.value())).findFirst().orElse(null);
         List<String> fields = new ArrayList<>(referencedFields(m));
@@ -114,7 +120,7 @@ public final class UniversalTransformer {
         }
         String agg = m.aggregate() != null ? m.aggregate() : defaultAggregate(spec.type());
         try {
-            return shaped(spec, rows, m, agg, ratio, dateFields, today);
+            return shaped(spec, rows, m, agg, ratio, dateFields, today, allRows ? Integer.MAX_VALUE : TABLE_ROW_LIMIT);
         } catch (DateTimeParseException e) {
             // TimeBucket 分期時遇到不是日期的值：只有這張卡出錯，其他卡照常畫
             return ChartData.notADate(spec.chartId(), spec.type(), m.x());
@@ -122,7 +128,7 @@ public final class UniversalTransformer {
     }
 
     private static ChartData shaped(ChartSpec spec, List<Map<String, Object>> rows, Mapping m, String agg, Ratio ratio,
-                                    List<String> dateFields, LocalDate today) {
+                                    List<String> dateFields, LocalDate today, int tableLimit) {
         return switch (spec.type()) {
             case "bar", "line" -> m.measures() != null
                 ? measured(spec, rows, m.x(), m.measures(), agg, m.timeGrain())
@@ -135,7 +141,7 @@ public final class UniversalTransformer {
             case "heatmap" -> grouped(spec, rows, List.of(m.x(), m.y()), m.value(), agg, m.timeGrain(), ratio, dateFields);
             case "radar" -> radar(spec, rows, m.series(), m.measures(), agg.equals("none") ? "sum" : agg);
             case "scatter" -> project(spec, rows, List.of(m.x(), m.y()), true, Integer.MAX_VALUE);
-            case "table" -> project(spec, rows, m.columns(), false, TABLE_ROW_LIMIT);
+            case "table" -> project(spec, rows, m.columns(), false, tableLimit);
             default -> throw new IllegalArgumentException("未知的圖表類型：" + spec.type());
         };
     }

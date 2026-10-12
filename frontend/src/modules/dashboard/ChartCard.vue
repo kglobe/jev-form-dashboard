@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useTheme } from 'vuetify'
 import './charts/echarts.js'
 import VChart from 'vue-echarts'
@@ -26,6 +26,8 @@ const props = defineProps({
   filtered: { type: Boolean, default: false },
   // KPI spec 6.1：擁有者看已存儀表板的 KPI 卡時才有「設定」，由 DashboardView 決定
   configurable: { type: Boolean, default: false },
+  // 匯出 spec 5.2：有這個函式才有下載鈕，由 DashboardView 決定（已存的儀表板、不是訪客）；參數是 'xlsx' 或 'csv'，回傳 Promise
+  download: { type: Function, default: null },
 })
 const emit = defineEmits(['remove', 'configure'])
 
@@ -89,6 +91,18 @@ const filterNote = computed(() =>
     ? `沒套用篩選：${props.data.filterSkipped.join('、')}（這張圖的來源沒有這些欄位）`
     : null,
 )
+// 匯出 spec 5.1：有資料才能下載。KPI 卡的 rows 只有已經結束的期，一期都還沒結束時也沒有下載鈕
+const downloadable = computed(() => !!props.download && ready.value && props.data.rows?.length > 0)
+// 等待中的狀態由卡片自己管；錯誤由 DashboardView 顯示在最上面
+const downloading = ref(false)
+async function pickFormat(format) {
+  downloading.value = true
+  try {
+    await props.download(format)
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -103,6 +117,27 @@ const filterNote = computed(() =>
         {{ highlight.severity }}
       </span>
       <!-- grid-layout-plus 的 dragIgnoreFrom 預設是 'a, button'，按「設定」「✕」不會被當成拖拉 -->
+      <!-- 匯出 spec 5.1：在「設定」「✕」左邊，樣式跟它們一樣；選單 teleport 到 body，點選項不會拖到卡片 -->
+      <v-menu v-if="downloadable" location="bottom end">
+        <template #activator="{ props: activator }">
+          <v-btn
+            v-bind="activator"
+            icon="mdi-download"
+            size="small"
+            density="default"
+            variant="text"
+            class="tc-remove ml-1"
+            aria-label="下載這張圖的資料"
+            title="下載這張圖的資料"
+            :loading="downloading"
+            :disabled="downloading"
+          />
+        </template>
+        <v-list density="compact" aria-label="下載格式">
+          <v-list-item title="Excel（.xlsx）" @click="pickFormat('xlsx')" />
+          <v-list-item title="CSV" @click="pickFormat('csv')" />
+        </v-list>
+      </v-menu>
       <v-btn
         v-if="configurable"
         icon="mdi-cog-outline"

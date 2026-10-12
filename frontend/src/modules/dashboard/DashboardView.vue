@@ -16,6 +16,8 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   // 唯讀分享 spec 7.8：檢視者只能看
   readonly: { type: Boolean, default: false },
+  // 匯出 spec 5.2：App 的訪客檢視（沒登入）傳 true，卡片沒有下載鈕
+  guest: { type: Boolean, default: false },
 })
 // remove：預覽的「✕」交給製圖頁處理；updated：已存儀表板移除一張圖後，後端回傳的新設定
 const emit = defineEmits(['remove', 'updated'])
@@ -362,6 +364,24 @@ async function saveKpi(card) {
   ownUpdatePending = true
   emit('updated', reply)
 }
+
+// 匯出 spec 5.2：帶著目前的篩選（包括臨時改的）下載這張卡；檔名用後端給的，讀不到就用畫面上的標題。
+// 失敗時訊息放在最上面那條錯誤提示；401 由 api.js 跳出重新登入
+async function download(chartId, format) {
+  error.value = ''
+  try {
+    const { blob, filename } = await api.exportChart(props.config.id, chartId, format, filters.value)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename ?? `${dataById.value[chartId]?.title ?? specById.value[chartId].title}.${format}`
+    a.click()
+    // 等瀏覽器開始下載再放掉；Safari、舊版 Firefox 立刻放掉會下載失敗，所以等 1 秒
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (e) {
+    error.value = `下載失敗：${e.message}`
+  }
+}
 </script>
 
 <template>
@@ -432,6 +452,7 @@ async function saveKpi(card) {
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
           :removable="!readonly && (!preview || specById[item.i].type !== 'table')"
           :configurable="!preview && !readonly && specById[item.i].type === 'kpi'"
+          :download="preview || guest ? null : (format) => download(item.i, format)"
           :readonly="readonly"
           :remove-disabled="busy || removing || savingFilters || savingRefresh"
           :filtered="filterCount(filters) > (dataById[item.i]?.filterSkipped?.length ?? 0)"

@@ -113,6 +113,24 @@ class UniversalTransformerTest {
     }
 
     @Test
+    void exportGetsEveryTableRowWhileTheScreenStillGetsTheFirst500() {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i <= UniversalTransformer.TABLE_ROW_LIMIT; i++) rows.add(row("2024-01-05", (double) i, "北", "A", 1.0));
+        ChartSpec spec = new ChartSpec("c1", "table", "明細", new GridPos(0, 0, 12, 5),
+            new Mapping(null, null, null, null, null, List.of("amount"), null, null), Map.of());
+        LocalDate today = LocalDate.of(2026, 10, 12);
+
+        // 匯出 spec 4：匯出用的不截斷
+        ChartData all = UniversalTransformer.transform(spec, rows, FIELDS, List.of(), List.of(), today, true);
+        assertThat(all.rows()).hasSize(UniversalTransformer.TABLE_ROW_LIMIT + 1);
+        assertThat(all.truncated()).isNull();
+        // 畫面用的照舊
+        ChartData shown = UniversalTransformer.transform(spec, rows, FIELDS, List.of(), List.of(), today, false);
+        assertThat(shown.rows()).hasSize(UniversalTransformer.TABLE_ROW_LIMIT);
+        assertThat(shown.truncated()).isTrue();
+    }
+
+    @Test
     void radarAggregatesEachMeasurePerSeries() {
         ChartData d = run("radar", new Mapping(null, null, "region", null, List.of("amount", "qty"), null, null, null));
         assertThat(d.dimensions()).containsExactly("region", "amount", "qty");

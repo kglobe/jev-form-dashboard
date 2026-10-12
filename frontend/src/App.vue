@@ -262,7 +262,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', openFromHash))
             <p class="cc-desc">「{{ guest.createdBy }}」分享的儀表板，只能檢視。</p>
           </div>
         </header>
-        <DashboardView :key="guest.id" :config="guest" :readonly="true" />
+        <DashboardView :key="guest.id" :config="guest" :readonly="true" :guest="true" />
       </section>
     </v-main>
     <v-main v-else>

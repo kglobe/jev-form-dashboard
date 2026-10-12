@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createVuetify } from 'vuetify'
 import ChartCard from './ChartCard.vue'
 import { vuetify } from './test-vuetify.js'
@@ -427,5 +427,64 @@ describe('ChartCard', () => {
     expect(card.emitted('configure')).toHaveLength(1)
 
     expect(kpiCard({ data: null, removable: true }).find('button[aria-label="KPI 卡設定"]').exists()).toBe(false)
+  })
+
+  describe('匯出 spec 5.1：下載鈕', () => {
+    afterEach(() => {
+      document.body.innerHTML = ''
+    })
+    const downloadButton = (card) => card.find('button[aria-label="下載這張圖的資料"]')
+    // 選單內容 teleport 到 document.body
+    const menuItems = () => [...document.body.querySelectorAll('.v-overlay-container .v-list-item')]
+
+    it('有 download 而且卡片有資料才有，在「設定」「✕」左邊，圖示 mdi-download，title 跟名稱一樣', () => {
+      const download = vi.fn()
+      const card = kpiCard({ data: kpiData([['2026-09', 1]]), download, configurable: true, removable: true })
+      expect(card.findAll('.tc-card-title button').map((b) => b.attributes('aria-label')))
+        .toEqual(['下載這張圖的資料', 'KPI 卡設定', '移除這張圖'])
+      expect(downloadButton(card).attributes('title')).toBe('下載這張圖的資料')
+      expect(downloadButton(card).find('.mdi-download').exists()).toBe(true)
+      expect(downloadButton(mountCard({ spec: barSpec, data: barData, highlight: null, download })).exists()).toBe(true)
+
+      // 沒有 download（預覽、訪客）、還在載入、有錯誤、沒有資料、KPI 卡一期都還沒結束：都沒有
+      for (const props of [
+        { spec: barSpec, data: barData },
+        { spec: barSpec, data: null, download },
+        { spec: barSpec, data: { chartId: 'c1', type: 'bar', error: 'FIELD_MISSING', missingField: 'profit' }, download },
+        { spec: barSpec, data: { ...barData, rows: [] }, download },
+        { spec: kpiSpec, data: kpiData([]), download },
+      ]) {
+        expect(downloadButton(mountCard({ highlight: null, ...props })).exists()).toBe(false)
+      }
+    })
+
+    it('選單有「Excel（.xlsx）」「CSV」；選 Excel 呼叫 download("xlsx")，等待時按鈕停用，完成後恢復', async () => {
+      let finish
+      const download = vi.fn(() => new Promise((resolve) => (finish = resolve)))
+      const card = mountCard({ spec: barSpec, data: barData, highlight: null, download })
+      await downloadButton(card).trigger('click')
+      await flushPromises()
+      expect(menuItems().map((el) => el.textContent.trim())).toEqual(['Excel（.xlsx）', 'CSV'])
+
+      menuItems()[0].click()
+      await flushPromises()
+      expect(download).toHaveBeenCalledWith('xlsx')
+      expect(downloadButton(card).attributes('disabled')).toBeDefined()
+      finish()
+      await flushPromises()
+      expect(downloadButton(card).attributes('disabled')).toBeUndefined()
+      card.unmount()
+    })
+
+    it('選 CSV 呼叫 download("csv")', async () => {
+      const download = vi.fn().mockResolvedValue()
+      const card = mountCard({ spec: barSpec, data: barData, highlight: null, download })
+      await downloadButton(card).trigger('click')
+      await flushPromises()
+      menuItems().find((el) => el.textContent.trim() === 'CSV').click()
+      await flushPromises()
+      expect(download).toHaveBeenCalledWith('csv')
+      card.unmount()
+    })
   })
 })

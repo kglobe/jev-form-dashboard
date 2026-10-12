@@ -3,6 +3,7 @@ package jev.dashboard.dashboard;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -10,13 +11,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.UUID;
 import jev.dashboard.TestData;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -846,5 +853,121 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboards/" + id + "/data").param("filters", "{\"fields\":[{\"field\":\"region\",\"values\":[\"北區\"]}]}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$[2].rows.length()").value(1));
+    }
+
+    // 匯出 spec 3
+
+    static MockHttpServletRequestBuilder export(String id, String chartId, String format) {
+        MockHttpServletRequestBuilder req = get("/api/dashboards/" + id + "/charts/" + chartId + "/export");
+        return format == null ? req : req.param("format", format);
+    }
+
+    @Test
+    void theOwnerAndAViewerDownloadACardAsXlsxOrCsv() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        byte[] xlsx = mvc.perform(export(id, "c1", "xlsx").with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .andExpect(header().string("Content-Disposition", startsWith("attachment;")))
+            .andExpect(header().string("Content-Disposition",
+                containsString("filename*=UTF-8''%E6%9C%88%E9%8A%B7%E5%94%AE%E9%A1%8D.xlsx")))
+            .andReturn().getResponse().getContentAsByteArray();
+        try (Workbook wb = new XSSFWorkbook(new ByteArrayInputStream(xlsx))) {
+            Sheet s = wb.getSheet("資料");
+            assertThat(s.getRow(0).getCell(0).getStringCellValue()).isEqualTo("order_date");
+            assertThat(s.getRow(0).getCell(1).getStringCellValue()).isEqualTo("amount");
+            assertThat(s.getLastRowNum()).isEqualTo(6);
+            assertThat(s.getRow(1).getCell(0).getStringCellValue()).isEqualTo("2024-01");
+            assertThat(s.getRow(1).getCell(1).getNumericCellValue()).isEqualTo(2000.0);
+        }
+
+        String csv = mvc.perform(export(id, "c3", "csv").with(TestData.as("u2")))
+            .andExpect(status().isOk())
+            .andExpect(content().contentType("text/csv;charset=UTF-8"))
+            .andExpect(header().string("Content-Disposition",
+                containsString("filename*=UTF-8''%E5%9C%B0%E5%8D%80%E4%BD%94%E6%AF%94.csv")))
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        assertThat(csv).isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
+    }
+
+    @Test
+    void exportAppliesTheFiltersLikeData() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+        String north = "{\"fields\":[{\"field\":\"region\",\"values\":[\"北區\"]}]}";
+        String productA = "{\"fields\":[{\"field\":\"product\",\"values\":[\"A\"]}]}";
+
+        assertThat(mvc.perform(export(id, "c3", "csv").param("filters", north).with(TestData.as("u1")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8))
+            .isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n");
+        // 篩選器 spec 2.3：檢視者帶了卡片沒用到的 product，不生效
+        assertThat(mvc.perform(export(id, "c3", "csv").param("filters", productA).with(TestData.as("u2")))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8))
+            .isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
+        mvc.perform(export(id, "c3", "csv").param("filters", "{").with(TestData.as("u1")))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.error").value("篩選的格式不對"));
+    }
+
+    @Test
+    void exportNeedsALoginAndTheRightToSeeTheDashboard() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        // 沒登入也能看的儀表板，匯出還是要登入（SecurityConfig 只放行 /{id}、/data、/filter-options）
+        putShare("u1", id, "{\"publicLink\":true,\"anonymous\":true,\"users\":[]}", 200);
+        mvc.perform(get("/api/dashboards/" + id + "/data")).andExpect(status().isOk());
+        mvc.perform(export(id, "c1", "csv"))
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error").value("請先登入"));
+        // 開著公開連結：任何登入的帳號都能下載
+        mvc.perform(export(id, "c1", "csv").with(TestData.as("u3"))).andExpect(status().isOk());
+
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[]}", 200);
+        notFound(export(id, "c1", "csv").with(TestData.as("u3")));
+    }
+
+    @Test
+    void exportRejectsAnUnknownCardABadFormatAndACardWithAnError() throws Exception {
+        String id = create("u1", TestData.dashboardJson(TestData.uploadSales(mvc, "u1")));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        mvc.perform(export(id, "nope", "csv").with(TestData.as("u1")))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到這張圖"));
+        for (String format : new String[] {"pdf", null}) {
+            mvc.perform(export(id, "c1", format).with(TestData.as("u1")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("format 只能是 xlsx 或 csv"));
+        }
+        // c4 用了不存在的 profit；檢視者看到的也是同一句，不會換成「資料來源載入失敗」
+        for (String user : new String[] {"u1", "u2"}) {
+            mvc.perform(export(id, "c4", "xlsx").with(TestData.as(user)))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(jsonPath("$.error").value("這張圖目前沒有資料可以下載"));
+        }
+        mvc.perform(export(id, "nope", "csv").with(TestData.as("u2")))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("找不到這張圖"));
+    }
+
+    @Test
+    void aViewerSeesAGenericMessageWhenTheExportsSourceFails() throws Exception { // 匯出 spec 2.3
+        // 跟 aViewerSeesAGenericMessageWhenTheOwnersSourcesFail 一樣：抓之前就因為環境變數不存在而失敗，不會連網路
+        UUID ds = UUID.randomUUID();
+        jdbc.sql("""
+                insert into datasource (id, name, kind, schema_json, api_url, api_headers_json, created_by)
+                values (:id, '外部', 'api', '[]', 'http://10.0.0.5/sales', '{"Authorization":"${DS_JEV_TEST_UNSET}"}', 'u1')""")
+            .param("id", ds).update();
+        String id = create("u1", TestData.dashboardJson(ds.toString()));
+        putShare("u1", id, "{\"publicLink\":false,\"users\":[\"u2\"]}", 200);
+
+        mvc.perform(export(id, "c1", "csv").with(TestData.as("u1")))
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.error").value("環境變數 DS_JEV_TEST_UNSET 未設定"));
+        mvc.perform(export(id, "c1", "csv").with(TestData.as("u2")))
+            .andExpect(status().isInternalServerError())
+            .andExpect(jsonPath("$.error").value("資料來源載入失敗，請聯絡儀表板擁有者"));
     }
 }

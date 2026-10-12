@@ -251,4 +251,36 @@ describe('api', () => {
     ])
     expect(new URLSearchParams(query).get('filters')).toBe(JSON.stringify(filters))
   })
+
+  it('匯出 spec 5.2：exportChart 帶 format 和篩選，回傳 blob 和 filename* 的檔名；沒有篩選就不帶，讀不到檔名是 null', async () => {
+    const blob = { size: 3 }
+    const disposition = `attachment; filename="=?UTF-8?Q?x?="; filename*=UTF-8''%E7%87%9F%E6%94%B6.xlsx`
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, blob: async () => blob, headers: { get: (n) => (n === 'Content-Disposition' ? disposition : null) } })
+    const filters = { period: 'last_month', fields: [{ field: '地區', values: ['北區'] }] }
+    await expect(api.exportChart('d1', 'c1', 'xlsx', filters)).resolves.toEqual({ blob, filename: '營收.xlsx' })
+    const url = new URL(fetch.mock.calls[0][0], 'http://x')
+    expect(url.pathname).toBe('/api/dashboards/d1/charts/c1/export')
+    expect(url.searchParams.get('format')).toBe('xlsx')
+    expect(JSON.parse(url.searchParams.get('filters'))).toEqual(filters)
+    expect(fetch.mock.calls[0][1].method).toBe('GET')
+
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, blob: async () => blob, headers: { get: () => null } })
+    await expect(api.exportChart('d1', 'c1', 'csv', null)).resolves.toEqual({ blob, filename: null })
+    expect(fetch.mock.calls[1][0]).toBe('/api/dashboards/d1/charts/c1/export?format=csv')
+  })
+
+  it('exportChart 失敗時丟後端的訊息和狀態碼；401 照舊呼叫 onUnauthorized', async () => {
+    const message = '資料超過 Excel 的列數上限（1,048,575 列），請改下載 CSV'
+    fetch.mockResolvedValueOnce(jsonResponse({ error: message }, { status: 400 }))
+    await expect(api.exportChart('d1', 'c1', 'xlsx', null)).rejects.toMatchObject({ message, status: 400 })
+
+    const handler = vi.fn()
+    onUnauthorized(handler)
+    fetch.mockResolvedValueOnce(jsonResponse({ error: '請先登入' }, { status: 401 }))
+    await expect(api.exportChart('d1', 'c1', 'csv', null)).rejects.toMatchObject({
+      message: '登入逾時，重新登入後請再操作一次',
+      status: 401,
+    })
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
 })
