@@ -1,5 +1,8 @@
 package jev.dashboard.dashboard;
 
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.Principal;
 import java.util.List;
 import java.util.Set;
@@ -9,6 +12,9 @@ import jev.dashboard.dashboard.DashboardRepository.DashboardSummary;
 import jev.dashboard.dashboard.DashboardRepository.Share;
 import jev.dashboard.dashboard.DashboardRepository.SharedDashboard;
 import jev.dashboard.transform.ChartData;
+import jev.dashboard.transform.ChartSpec;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -109,6 +115,42 @@ public class DashboardController {
         String viewer = principal == null ? null : principal.getName();
         DashboardConfig c = service.view(viewer, id);
         return data.filterOptions(c.createdBy(), c, !c.createdBy().equals(viewer));
+    }
+
+    /**
+     * 匯出 spec 3：一張卡的資料下載成 xlsx 或 CSV，內容跟 /data 裡這張卡一樣（同一組篩選、顯示名稱），明細表不截斷。
+     * 要登入，SecurityConfig 只放行 /{id}、/data、/filter-options；看得到這份儀表板的帳號都能下載，用擁有者的身分載入。
+     * 檢查都在寫檔之前做完。只有載入錯誤會替檢視者換成通用訊息（spec 2.3），「找不到這張圖」和卡片錯誤照原文。
+     */
+    @GetMapping("/{id}/charts/{chartId}/export")
+    public void export(Principal principal, @PathVariable UUID id, @PathVariable String chartId,
+                       @RequestParam(required = false) String format, @RequestParam(required = false) String filters,
+                       HttpServletResponse response) throws IOException {
+        if (!"xlsx".equals(format) && !"csv".equals(format)) throw new ApiException(HttpStatus.BAD_REQUEST, "format 只能是 xlsx 或 csv");
+        Filters f = Filters.parse(filters);
+        String viewer = principal.getName();
+        DashboardConfig c = service.view(viewer, id);
+        ChartSpec spec = c.layout().stream().filter(s -> s.chartId().equals(chartId)).findFirst()
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "找不到這張圖"));
+        boolean owner = c.createdBy().equals(viewer);
+        ChartData d;
+        try {
+            d = data.exportData(c.createdBy(), spec, f, owner ? Set.of() : data.denied(c.createdBy(), c, f));
+        } catch (ApiException e) {
+            if (owner) throw e;
+            throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
+        }
+        // 匯出 spec 2.4：欄位遺失、不是日期、來源已刪除或停止分享
+        if (d.error() != null) throw new ApiException(HttpStatus.BAD_REQUEST, "這張圖目前沒有資料可以下載");
+        boolean xlsx = format.equals("xlsx");
+        if (xlsx) ChartExport.requireXlsxRows(d.rows().size());
+
+        response.setContentType(xlsx ? ChartExport.XLSX_TYPE : ChartExport.CSV_TYPE);
+        String name = ChartExport.filename(d.title() != null ? d.title() : spec.title(), format);
+        response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+            ContentDisposition.attachment().filename(name, StandardCharsets.UTF_8).build().toString());
+        if (xlsx) ChartExport.xlsx(d, response.getOutputStream());
+        else ChartExport.csv(d, response.getOutputStream());
     }
 
     /** 篩選器 spec 4：預覽不收篩選。 */
