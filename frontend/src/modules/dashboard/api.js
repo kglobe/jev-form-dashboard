@@ -11,7 +11,8 @@ function xsrfToken() {
   return m ? decodeURIComponent(m[1]) : null
 }
 
-async function request(method, url, body) {
+// asResponse：回傳原始的 Response（下載檔案用），錯誤處理跟其他請求一樣
+async function request(method, url, body, asResponse = false) {
   // FormData、URLSearchParams 原樣送出，瀏覽器自己設 Content-Type
   const raw = body instanceof FormData || body instanceof URLSearchParams
   const headers = {}
@@ -38,6 +39,7 @@ async function request(method, url, body) {
     // 帶上狀態碼，呼叫端才分得出「找不到」（例如儀表板在別的分頁被刪了）
     throw Object.assign(new Error(err.error || `HTTP ${res.status}`), { status: res.status })
   }
+  if (asResponse) return res
   return res.status === 204 ? null : res.json()
 }
 
@@ -93,4 +95,12 @@ export const api = {
   filterOptions: (id) => request('GET', `/api/dashboards/${id}/filter-options`),
   previewData: (config) => request('POST', '/api/dashboards/preview/data', config),
   highlights: (id, filters) => request('GET', withFilters(`/api/jev/highlight/${id}`, filters)),
+  // 匯出 spec 5.2：回傳檔案和後端給的檔名（Content-Disposition 的 filename*），讀不到檔名是 null
+  exportChart: async (id, chartId, format, filters) => {
+    const query = new URLSearchParams({ format })
+    if (filters) query.set('filters', JSON.stringify(filters))
+    const res = await request('GET', `/api/dashboards/${id}/charts/${chartId}/export?${query}`, null, true)
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(res.headers.get('Content-Disposition') ?? '')
+    return { blob: await res.blob(), filename: m ? decodeURIComponent(m[1]) : null }
+  },
 }
