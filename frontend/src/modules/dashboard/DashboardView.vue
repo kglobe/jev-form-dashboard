@@ -376,8 +376,8 @@ async function download(chartId, format) {
     a.href = url
     a.download = filename ?? `${dataById.value[chartId]?.title ?? specById.value[chartId].title}.${format}`
     a.click()
-    // 等瀏覽器開始下載再放掉
-    setTimeout(() => URL.revokeObjectURL(url))
+    // 等瀏覽器開始下載再放掉；Safari、舊版 Firefox 立刻放掉會下載失敗，所以等 1 秒
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   } catch (e) {
     error.value = `下載失敗：${e.message}`
   }
