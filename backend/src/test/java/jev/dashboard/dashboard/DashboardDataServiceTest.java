@@ -665,4 +665,72 @@ class DashboardDataServiceTest {
         assertThat(shown.rows()).isEqualTo(List.of(List.of("北區", 5.0)));
         assertThat(shown.filterSkipped()).containsExactly("產品");
     }
+
+    // 匯出 spec 4：只拿這一張卡跑 build，明細表不截斷，套上顯示名稱，不留給異常檢查
+
+    static ChartSpec tableOf(String chartId, UUID ds, String... columns) {
+        return new ChartSpec(chartId, "table", "明細", POS,
+            new Mapping(null, null, null, null, null, List.of(columns), null, null), Map.of(), ds);
+    }
+
+    @Test
+    void exportGetsTheWholeTableLoadsOnlyThatCardsSourceAndAppliesTheFilters() {
+        Map<UUID, Integer> loads = new HashMap<>();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < 501; i++) rows.add(Map.of("region", i % 2 == 0 ? "北區" : "南區", "amount", (double) i));
+        DashboardDataService service = new DashboardDataService(sources(TWO, Map.of(SALES, rows), Set.of(), loads), CLOCK);
+        ChartSpec table = tableOf("c1", SALES, "region", "amount");
+
+        ChartData all = service.exportData("u1", table, null, Set.of());
+
+        assertThat(all.rows()).hasSize(501);
+        assertThat(all.truncated()).isNull();
+        assertThat(all.dimensions()).containsExactly("地區", "amount");
+        assertThat(all.source()).isEqualTo("銷售");
+        assertThat(loads).isEqualTo(Map.of(SALES, 1));
+        // 畫面照舊只有前 500 筆（UniversalTransformer.TABLE_ROW_LIMIT）
+        assertThat(service.display("u1", config(table), null, Set.of()).get(0).rows()).hasSize(500);
+
+        ChartData north = service.exportData("u1", table, by("地區", "北區"), Set.of());
+        assertThat(north.rows()).hasSize(251);
+        assertThat(north.rows().get(1)).isEqualTo(List.of("北區", 2.0));
+    }
+
+    @Test
+    void exportRelabelsTheAutoTitleAndADeniedFilterSlicesNothing() {
+        DashboardDataService service = new DashboardDataService(
+            sources(Map.of(ORDERS, ORDERS_DS), Map.of(ORDERS, ORDER_ROWS), Set.of(), new HashMap<>()), CLOCK);
+        Filters both = new Filters(null, List.of(new Field("地區", List.of("北區")), new Field("product", List.of("A"))));
+
+        ChartData d = service.exportData("u1", bar("c1", ORDERS, "region", "amount"), both, Set.of("地區"));
+
+        // 地區不生效，只剩 product = A：第 1、3、5 列
+        assertThat(d.title()).isEqualTo("amount 依 地區");
+        assertThat(d.dimensions()).containsExactly("地區", "amount");
+        assertThat(d.filterSkipped()).containsExactly("地區");
+        assertThat(d.rows()).isEqualTo(List.of(List.of("中區", 16.0), List.of(UniversalTransformer.BLANK, 4.0), List.of("北區", 1.0)));
+    }
+
+    @Test
+    void exportKeepsNothingForTheHighlight() {
+        Map<UUID, Integer> loads = new HashMap<>();
+        DashboardDataService service = monthly(loads);
+
+        service.exportData("u1", LINE, null, Set.of());
+        service.load("u1", saved(UUID.randomUUID(), LINE), null, Set.of());
+
+        assertThat(loads).isEqualTo(Map.of(MONTHLY, 2));
+    }
+
+    @Test
+    void exportThrowsTheLoadErrorLikeDataAndADeletedSourceComesBackAsACardError() {
+        DashboardDataService service = new DashboardDataService(sources(TWO, ROWS, Set.of(SALES), new HashMap<>()), CLOCK);
+
+        assertThatThrownBy(() -> service.exportData("u1", bar("c1", SALES, "region", "amount"), null, Set.of()))
+            .isInstanceOf(ApiException.class)
+            .hasMessage("外部 API 無法連線");
+        // 不在 byId 的來源查不到，也不存在：已刪除
+        assertThat(service.exportData("u1", bar("c1", UUID.randomUUID(), "region", "amount"), null, Set.of()).error())
+            .isEqualTo("SOURCE_DELETED");
+    }
 }

@@ -101,18 +101,27 @@ public class DashboardDataService {
         if (r != null && System.nanoTime() - r.at() < RECENT_NANOS && r.data().keySet().containsAll(c.layout())) {
             return c.layout().stream().map(r.data()::get).toList();
         }
-        return build(userId, c.layout(), filters, denied).stream().map(Built::data).toList();
+        return build(userId, c.layout(), filters, denied, false).stream().map(Built::data).toList();
     }
 
     /** 給畫面用：維度名稱和自動產生的標題換成欄位的顯示名稱。filters、denied 同 load()。 */
     public List<ChartData> display(String userId, DashboardConfig c, Filters filters, Set<String> denied) {
-        List<Built> built = build(userId, c.layout(), filters, denied);
+        List<Built> built = build(userId, c.layout(), filters, denied, false);
         if (c.id() != null) {
             Map<ChartSpec, ChartData> keep = new HashMap<>();
             built.stream().filter(b -> HighlightSummarizer.summarizable(b.spec())).forEach(b -> keep.put(b.spec(), b.data()));
             recent.put(recentKey(userId, c, filters, denied), new Recent(keep, System.nanoTime()));
         }
         return built.stream().map(b -> relabelled(b.spec(), b.data(), b.labels())).toList();
+    }
+
+    /**
+     * 匯出 spec 4：只拿這一張卡跑 build，所以只載入它的來源；明細表不截斷，套上顯示名稱，不留給異常檢查（recent）。
+     * filters、denied 同 load()。唯一的來源載入失敗時，跟 /data 一樣丟出那個錯誤。
+     */
+    public ChartData exportData(String userId, ChartSpec spec, Filters filters, Set<String> denied) {
+        Built b = build(userId, List.of(spec), filters, denied, true).getFirst();
+        return relabelled(b.spec(), b.data(), b.labels());
     }
 
     /**
@@ -186,8 +195,8 @@ public class DashboardDataService {
             .map(e -> new Filters.Field(e.getKey(), List.copyOf(e.getValue()))).toList());
     }
 
-    /** 回傳的順序跟 layout 一樣，每一筆都帶來源名稱。 */
-    private List<Built> build(String userId, List<ChartSpec> layout, Filters filters, Set<String> denied) {
+    /** 回傳的順序跟 layout 一樣，每一筆都帶來源名稱。allRows 是匯出用的：明細表不截斷（匯出 spec 4）。 */
+    private List<Built> build(String userId, List<ChartSpec> layout, Filters filters, Set<String> denied, boolean allRows) {
         Map<UUID, Source> sources = sources(userId, layout);
         LocalDate today = LocalDate.now(clock);
         List<Built> out = new ArrayList<>();
@@ -208,7 +217,7 @@ public class DashboardDataService {
             ChartData d;
             try {
                 Filtered f = filtered(s, src, filters, denied, today);
-                d = UniversalTransformer.transform(s, f.rows(), src.available(), src.ratios(), src.dates(), today)
+                d = UniversalTransformer.transform(s, f.rows(), src.available(), src.ratios(), src.dates(), today, allRows)
                     .withFilterSkipped(f.skipped());
             } catch (DateTimeParseException e) {
                 // 期間篩選遇到不是日期的值：schema 的日期欄位都整理過，只有手動編的卡片 timeGrain 的 x 不是日期才會這樣，跟轉換時一樣
