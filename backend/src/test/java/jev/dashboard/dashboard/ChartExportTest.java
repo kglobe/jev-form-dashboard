@@ -98,7 +98,7 @@ class ChartExportTest {
             row("007", 1200.0), row("北區", 0.043), row("南區", 1.0E-7), row("東區", 1.0E20),
             row(null, -5.0), row("西區", null), row("中區", 3L)), true));
 
-        assertThat(text).isEqualTo("﻿代碼,金額\r\n007,1200\r\n北區,0.043\r\n南區,0.0000001\r\n東區,100000000000000000000\r\n"
+        assertThat(text).isEqualTo("\uFEFF代碼,金額\r\n007,1200\r\n北區,0.043\r\n南區,0.0000001\r\n東區,100000000000000000000\r\n"
             + ",-5\r\n西區,\r\n中區,3\r\n");
     }
 
@@ -111,7 +111,7 @@ class ChartExportTest {
     @Test
     void csvQuotesTextAndHeadersButNotNegativeNumbers() throws IOException {
         assertThat(csv(data(List.of("=標題", "值"), List.of(row("=SUM(A1)", -5.0)), null)))
-            .isEqualTo("﻿'=標題,值\r\n'=SUM(A1),-5\r\n");
+            .isEqualTo("\uFEFF'=標題,值\r\n'=SUM(A1),-5\r\n");
     }
 
     @Test

@@ -889,7 +889,7 @@ class DashboardControllerTest {
             .andExpect(header().string("Content-Disposition",
                 containsString("filename*=UTF-8''%E5%9C%B0%E5%8D%80%E4%BD%94%E6%AF%94.csv")))
             .andReturn().getResponse().getContentAsString(UTF_8);
-        assertThat(csv).isEqualTo("﻿region,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
+        assertThat(csv).isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
     }
 
     @Test
@@ -901,11 +901,11 @@ class DashboardControllerTest {
 
         assertThat(mvc.perform(export(id, "c3", "csv").param("filters", north).with(TestData.as("u1")))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8))
-            .isEqualTo("﻿region,amount\r\n北區,7400\r\n");
+            .isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n");
         // 篩選器 spec 2.3：檢視者帶了卡片沒用到的 product，不生效
         assertThat(mvc.perform(export(id, "c3", "csv").param("filters", productA).with(TestData.as("u2")))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(UTF_8))
-            .isEqualTo("﻿region,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
+            .isEqualTo("\uFEFFregion,amount\r\n北區,7400\r\n東區,4700\r\n中區,3000\r\n南區,2400\r\n");
         mvc.perform(export(id, "c3", "csv").param("filters", "{").with(TestData.as("u1")))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.error").value("篩選的格式不對"));

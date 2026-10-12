@@ -78,7 +78,7 @@ final class ChartExport {
     /** UTF-8 加 BOM（Excel 直接打開才不會亂碼），逗號分隔、CRLF 換行；數字不用科學記號，文字擋掉公式字元，空值寫空字串。 */
     static void csv(ChartData d, OutputStream out) throws IOException {
         Writer writer = new OutputStreamWriter(out, StandardCharsets.UTF_8);
-        writer.write('﻿');
+        writer.write('\uFEFF');
         try (CSVPrinter printer = new CSVPrinter(writer, CSVFormat.EXCEL)) {
             printer.printRecord(d.dimensions().stream().map(ChartExport::csvText).toList());
             for (List<Object> row : d.rows()) printer.printRecord(row.stream().map(ChartExport::csvValue).toList());
