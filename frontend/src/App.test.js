@@ -23,7 +23,7 @@ vi.mock('./modules/dashboard/index.js', () => ({
     emits: ['saved', 'dashboards-changed'],
     template: '<div class="chart-builder-stub" />',
   },
-  DashboardView: { name: 'DashboardView', props: ['config', 'readonly'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
+  DashboardView: { name: 'DashboardView', props: ['config', 'readonly', 'guest'], emits: ['updated'], template: '<div class="dashboard-view-stub" />' },
   DatasourcePanel: {
     name: 'DatasourcePanel',
     props: ['selectedId', 'admin'],
@@ -551,6 +551,7 @@ describe('App', () => {
       expect(api.getDashboard).toHaveBeenCalledWith(ID)
       expect(wrapper.get('.cc-desc').text()).toBe('「boss」分享給你的儀表板，只能檢視。')
       expect(wrapper.findComponent({ name: 'DashboardView' }).props('readonly')).toBe(true)
+      expect(wrapper.findComponent({ name: 'DashboardView' }).props('guest')).toBeUndefined()
     })
 
     it('擁有者：說明文字照舊，DashboardView 不是 readonly', async () => {
@@ -819,6 +820,7 @@ describe('App', () => {
       const view = wrapper.findComponent({ name: 'DashboardView' })
       expect(view.props('config')).toEqual(config)
       expect(view.props('readonly')).toBe(true)
+      expect(view.props('guest')).toBe(true)
       expect(api.listDashboards).not.toHaveBeenCalled()
 
       // 訪客沒有 me，API 回 401 也不跳重新登入
