@@ -71,8 +71,8 @@ function chartCardPayload(wrapper, chartId) {
   return JSON.parse(wrapper.get(`[data-chart-id="${chartId}"]`).text())
 }
 
-function mountView(props) {
-  return mount(DashboardView, { props, global: { plugins: [vuetify] } })
+function mountView(props, options) {
+  return mount(DashboardView, { props, global: { plugins: [vuetify] }, ...options })
 }
 
 const pos = (n) => ({ x: (n % 2) * 6, y: Math.floor(n / 2) * 4, w: 6, h: 4 })
@@ -83,6 +83,9 @@ const chartCard = (wrapper, chartId) =>
   wrapper.findAllComponents({ name: 'ChartCard' }).find((c) => c.props('spec').chartId === chartId)
 const dialogButton = (label) => [...document.body.querySelectorAll('button')].find((b) => b.textContent.trim() === label)
 const withSource = (spec, datasourceId) => ({ ...spec, datasourceId })
+// /highlight 的回應（本期重點 spec 3）；flags 把有標註的卡都算成送去檢查過
+const NO_FLAGS = { checked: [], highlights: [] }
+const flags = (...highlights) => ({ checked: highlights.map((h) => h.chartId), highlights })
 
 describe('DashboardView', () => {
   beforeEach(() => {
@@ -122,7 +125,7 @@ describe('DashboardView', () => {
   it('saved mode: calls dashboardData, then highlights only after it resolves, and routes a highlight to its chart', async () => {
     let resolveData
     api.dashboardData.mockImplementation(() => new Promise((resolve) => { resolveData = resolve }))
-    api.highlights.mockResolvedValue([{ chartId: 'c1', severity: '需要關注', noul: 0.8 }])
+    api.highlights.mockResolvedValue(flags({ chartId: 'c1', severity: '需要關注', noul: 0.8 }))
 
     const wrapper = mountView({ config: makeConfig(), preview: false })
     await flushPromises()
@@ -173,7 +176,7 @@ describe('DashboardView', () => {
 
   it('shows the error message but keeps the grid and cards rendered when a layout save fails', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.updateDashboard.mockRejectedValue(new Error('存檔失敗'))
 
     const wrapper = mountView({ config: makeConfig(), preview: false })
@@ -190,7 +193,7 @@ describe('DashboardView', () => {
 
   it('clears the save-error alert once a later save succeeds', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.updateDashboard
       .mockRejectedValueOnce(new Error('無法連線到伺服器'))
       .mockResolvedValueOnce(undefined)
@@ -213,7 +216,7 @@ describe('DashboardView', () => {
 
   it('shows the no-chart notice only when every chart in the layout is a table', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
 
     const tableOnly = makeConfig()
     tableOnly.layout = tableOnly.layout.filter((s) => s.type === 'table')
@@ -228,7 +231,7 @@ describe('DashboardView', () => {
 
   it('persists moved/resized grid positions for every chart via updateDashboard', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.updateDashboard.mockResolvedValue(undefined)
 
     const wrapper = mountView({ config: makeConfig(), preview: false })
@@ -279,7 +282,7 @@ describe('DashboardView', () => {
       if (dashboardDataCalls === 1) return new Promise((resolve) => { resolveA = resolve })
       return Promise.resolve([{ chartId: 'c1', tag: 'B' }, { chartId: 'c2', tag: 'B' }])
     })
-    api.highlights.mockResolvedValue([{ chartId: 'c1', severity: 'B-severity' }])
+    api.highlights.mockResolvedValue(flags({ chartId: 'c1', severity: 'B-severity' }))
 
     const wrapper = mountView({ config: configA, preview: false })
     await flushPromises()
@@ -447,7 +450,7 @@ describe('DashboardView', () => {
 
   it('✕: every card of a saved dashboard has one, the table too; in a preview the table has none and no 依據 shows', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const saved = mountView({ config: makeConfig(), preview: false })
     await flushPromises()
     expect(saved.findAllComponents({ name: 'ChartCard' }).map((c) => c.props('removable'))).toEqual([true, true])
@@ -461,7 +464,7 @@ describe('DashboardView', () => {
 
   it('saved dashboard, first display: every card enters, staggered in on-screen (y, x) order rather than array order', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     // 陣列順序跟畫面順序不同：c1 在右上、c2 在左上，好比使用者拖過之後存的版面
     const config = { ...makeConfig(), layout: [bar('c1', 1), bar('c2', 0), table('c3', 4)] }
     const wrapper = mountView({ config, preview: false })
@@ -481,7 +484,7 @@ describe('DashboardView', () => {
 
   it('saved: ✕ asks first; 取消 does nothing; 移除 PUTs the current grid without that card and emits updated with the reply', async () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1', title: '金額 依 地區' }, { chartId: 'c2' }])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const reply = { ...makeConfig(), layout: [makeConfig().layout[1]] }
     api.updateDashboard.mockResolvedValue(reply)
     const wrapper = mountView({ config: makeConfig(), preview: false })
@@ -516,7 +519,7 @@ describe('DashboardView', () => {
 
   it('saved: a failed remove shows the error, keeps the card and emits nothing', async () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.updateDashboard.mockRejectedValue(new Error('找不到儀表板'))
     const wrapper = mountView({ config: makeConfig(), preview: false })
     await flushPromises()
@@ -532,7 +535,7 @@ describe('DashboardView', () => {
 
   it('saved: a remove waits for an earlier layout save before sending its PUT', async () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     let resolveLayout
     const reply = { ...makeConfig(), layout: [makeConfig().layout[1]] }
     api.updateDashboard
@@ -561,7 +564,7 @@ describe('DashboardView', () => {
   it('saved: when removing a card leaves the config from this view’s own PUT, the rest keep their data and highlight without fetching again', async () => {
     prefersReducedMotion.mockReturnValue(true)
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3' }])
-    api.highlights.mockResolvedValue([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+    api.highlights.mockResolvedValue(flags({ chartId: 'c2', severity: '需要關注', noul: 0.8 }))
     const config = { ...makeConfig(), layout: [bar('c1', 0), bar('c2', 1), table('c3', 4)] }
     const reply = { ...config, layout: [bar('c2', 1), table('c3', 4)] }
     api.updateDashboard.mockResolvedValue(reply)
@@ -585,7 +588,7 @@ describe('DashboardView', () => {
 
   it('saved: re-opening the same dashboard (a new object, same id) refetches data and highlights instead of taking the drop-a-card shortcut', async () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const config = makeConfig()
     const wrapper = mountView({ config, preview: false })
     await flushPromises()
@@ -604,7 +607,7 @@ describe('DashboardView', () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
     api.highlights
       .mockImplementationOnce(() => new Promise(() => {})) // 一直不回應，模擬還在等 JEV
-      .mockResolvedValueOnce([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+      .mockResolvedValueOnce(flags({ chartId: 'c2', severity: '需要關注', noul: 0.8 }))
     const config = makeConfig()
     const wrapper = mountView({ config, preview: false })
     await flushPromises()
@@ -625,7 +628,7 @@ describe('DashboardView', () => {
 
   it('saved: while a remove PUT is in flight, ✕ is disabled and a grid move in the meantime is not persisted', async () => {
     api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     let resolvePut
     api.updateDashboard.mockImplementation(() => new Promise((resolve) => { resolvePut = resolve }))
     const wrapper = mountView({ config: makeConfig(), preview: false })
@@ -650,7 +653,7 @@ describe('DashboardView', () => {
 
   it('a saved dashboard with no cards says how to add charts back, instead of 找不到適合的圖表', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const wrapper = mountView({ config: { ...makeConfig(), layout: [] }, preview: false })
     await flushPromises()
     expect(wrapper.text()).toContain('這份儀表板沒有圖表了。到「製圖」分析後，用「加到既有儀表板」把圖加回來。')
@@ -658,7 +661,7 @@ describe('DashboardView', () => {
   })
 
   it('依據: one line per group; one source reads 依據：a → b, several sources name each source once /data is back (no name, no brackets)', async () => {
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.dashboardData.mockResolvedValue([])
     const single = mountView({ config: { ...makeConfig(), basis: [{ datasourceId: 'ds1', intents: ['各區每月營收', '不要圓餅圖'] }] }, preview: false })
     await flushPromises()
@@ -696,7 +699,7 @@ describe('DashboardView', () => {
   })
 
   it('names the source on each card only when the dashboard mixes sources', async () => {
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.dashboardData.mockResolvedValue([{ chartId: 'c1', source: '銷售' }, { chartId: 'c2', source: '退貨' }])
     const mixed = mountView({ config: { id: 'd1', name: 'n', layout: [withSource(bar('c1', 0), 'ds1'), withSource(bar('c2', 1), 'ds2')] }, preview: false })
     await flushPromises()
@@ -710,7 +713,7 @@ describe('DashboardView', () => {
 
   it('readonly 時不能拖拉、不能縮放、卡片沒有 ✕，也把 readonly 傳給卡片', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const wrapper = mountView({ config: makeConfig(), readonly: true })
     await flushPromises()
 
@@ -723,7 +726,7 @@ describe('DashboardView', () => {
 
   it('readonly 時 moved、resized 不送 PUT', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     api.updateDashboard.mockResolvedValue(undefined)
     const wrapper = mountView({ config: makeConfig(), readonly: true })
     await flushPromises()
@@ -737,10 +740,180 @@ describe('DashboardView', () => {
 
   it('readonly 而且沒有圖表時顯示「這份儀表板沒有圖表。」', async () => {
     api.dashboardData.mockResolvedValue([])
-    api.highlights.mockResolvedValue([])
+    api.highlights.mockResolvedValue(NO_FLAGS)
     const wrapper = mountView({ config: { ...makeConfig(), layout: [] }, readonly: true })
     await flushPromises()
     expect(wrapper.get('.v-alert').text()).toBe('這份儀表板沒有圖表。')
+  })
+
+  describe('本期重點', () => {
+    const NORTH = { period: null, fields: [{ field: '地區', values: ['北區'] }] }
+    const LAYOUT = [bar('c1', 0), bar('c2', 1), bar('c3', 2), bar('c4', 3)]
+    const DATA = LAYOUT.map((s) => ({ chartId: s.chartId }))
+    const saved = (extra = {}) => ({ ...makeConfig(), layout: LAYOUT, ...extra })
+    const flag = (chartId, severity, level) => ({
+      chartId,
+      severity,
+      level,
+      noul: 0.8,
+      change: { previousPeriod: '2026-08', period: '2026-09', measure: null, series: null, previous: 100, current: 120, percent: false },
+    })
+    // 四張都送去檢查過，只標了其中幾張
+    const allChecked = (...highlights) => ({ checked: LAYOUT.map((s) => s.chartId), highlights })
+    const CHECK = flags(flag('c1', '值得注意', 1), flag('c2', '嚴重警示', 3), flag('c3', '正常波動', 0), flag('c4', '需要關注', 2))
+    const UP = '2026-09 比 2026-08 ▲ 20%'
+    // 每一筆：[徽章, 標題, 變化]
+    const rows = (wrapper) => wrapper.findAll('.dash-digest__item').map((b) => [...b.element.children].map((s) => s.textContent.trim()))
+    const panel = (wrapper) => wrapper.find('.dash-digest')
+    const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })
+
+    it('已存的儀表板：照等級列出，正常波動不列；按一筆捲到那張卡、焦點移到卡片上，減少動態效果時不平滑捲動', async () => {
+      const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {})
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockResolvedValue(CHECK)
+      const wrapper = mountView({ config: saved() }, { attachTo: document.body })
+      await flushPromises()
+
+      expect(panel(wrapper).get('h2').text()).toBe('本期重點')
+      expect(rows(wrapper)).toEqual([['嚴重警示', 'c2', UP], ['需要關注', 'c4', UP], ['值得注意', 'c1', UP]])
+      expect(wrapper.get('.dash-digest .tc-badge').classes()).toContain('tc-badge--err')
+
+      await wrapper.findAll('.dash-digest__item')[1].trigger('click')
+      const c4 = wrapper.get('[data-chart-id="c4"]').element
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      expect(scrollIntoView.mock.contexts[0]).toBe(c4)
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'nearest' })
+      expect(document.activeElement).toBe(c4)
+
+      prefersReducedMotion.mockReturnValue(true)
+      await wrapper.findAll('.dash-digest__item')[0].trigger('click')
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'nearest' })
+      expect(document.activeElement).toBe(wrapper.get('[data-chart-id="c2"]').element)
+      scrollIntoView.mockRestore()
+    })
+
+    it('/highlight 失敗、回 204、沒有卡送去檢查：沒有本期重點，也沒有徽章', async () => {
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(null).mockResolvedValueOnce(NO_FLAGS)
+      for (let i = 0; i < 3; i++) {
+        const wrapper = mountView({ config: saved() })
+        await flushPromises()
+        expect(panel(wrapper).exists()).toBe(false)
+        expect(chartCardPayload(wrapper, 'c2').highlight).toBeUndefined()
+      }
+      expect(api.highlights).toHaveBeenCalledTimes(3)
+    })
+
+    it('檢查了 N 張、沒有符合的：寫出那句話和 N', async () => {
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockResolvedValue({ checked: ['c1', 'c2', 'c3'], highlights: [flag('c3', '正常波動', 0)] })
+      const wrapper = mountView({ config: saved() })
+      await flushPromises()
+      expect(panel(wrapper).text()).toContain('本期沒有需要注意的變化（檢查了 3 張卡）')
+      expect(rows(wrapper)).toEqual([])
+    })
+
+    it('改篩選：本期重點先消失，新的結果回來才出現，中間不會閃出「沒有需要注意的變化」', async () => {
+      api.dashboardData.mockResolvedValueOnce(DATA)
+      api.highlights.mockResolvedValueOnce(CHECK)
+      const wrapper = mountView({ config: saved() })
+      await flushPromises()
+      expect(rows(wrapper)).toHaveLength(3)
+
+      let resolveData
+      let resolveHighlights
+      api.dashboardData.mockImplementationOnce(() => new Promise((resolve) => { resolveData = resolve }))
+      api.highlights.mockImplementationOnce(() => new Promise((resolve) => { resolveHighlights = resolve }))
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      expect(panel(wrapper).exists()).toBe(false)
+
+      resolveData(DATA)
+      await flushPromises()
+      expect(panel(wrapper).exists()).toBe(false)
+
+      resolveHighlights(allChecked(flag('c3', '值得注意', 1)))
+      await flushPromises()
+      expect(rows(wrapper)).toEqual([['值得注意', 'c3', UP]])
+    })
+
+    it('自動更新：新的結果回來前舊的留著，回來才換', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockResolvedValueOnce(CHECK)
+      const wrapper = mountView({ config: saved({ refreshMinutes: 5 }) })
+      await flushPromises()
+
+      let resolveHighlights
+      api.highlights.mockImplementationOnce(() => new Promise((resolve) => { resolveHighlights = resolve }))
+      vi.advanceTimersByTime(5 * 60_000)
+      await flushPromises()
+      expect(rows(wrapper)).toHaveLength(3)
+
+      resolveHighlights(allChecked(flag('c1', '嚴重警示', 3)))
+      await flushPromises()
+      expect(rows(wrapper)).toEqual([['嚴重警示', 'c1', UP]])
+    })
+
+    it('拿掉一張列出的卡：卡片一開始退場那一筆就消失、張數少一，不重新檢查', async () => {
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockResolvedValue(allChecked(flag('c2', '需要關注', 2)))
+      const config = saved()
+      const reply = { ...config, layout: LAYOUT.filter((s) => s.chartId !== 'c2') }
+      api.updateDashboard.mockResolvedValue(reply)
+      const wrapper = mountView({ config })
+      await flushPromises()
+      expect(rows(wrapper).map(([, title]) => title)).toEqual(['c2'])
+
+      chartCard(wrapper, 'c2').vm.$emit('remove')
+      await flushPromises()
+      dialogButton('移除').click()
+      await flushPromises()
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      await wrapper.setProps({ config: reply })
+
+      expect(wrapper.get('[data-chart-id="c2"]').classes()).toContain('tc-card-leave')
+      expect(rows(wrapper)).toEqual([])
+      expect(panel(wrapper).text()).toContain('本期沒有需要注意的變化（檢查了 3 張卡）')
+
+      vi.advanceTimersByTime(120)
+      await flushPromises()
+      expect(wrapper.find('[data-chart-id="c2"]').exists()).toBe(false)
+      expect(panel(wrapper).text()).toContain('（檢查了 3 張卡）')
+      expect(api.highlights).toHaveBeenCalledTimes(1)
+    })
+
+    it('先送出的舊 /highlight 晚到：不蓋掉新的本期重點', async () => {
+      let resolveOld
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve }))
+        .mockResolvedValueOnce(allChecked(flag('c4', '值得注意', 1)))
+      const wrapper = mountView({ config: saved() })
+      await flushPromises()
+      await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
+      await flushPromises()
+      expect(rows(wrapper)).toEqual([['值得注意', 'c4', UP]])
+
+      resolveOld(CHECK)
+      await flushPromises()
+      expect(rows(wrapper)).toEqual([['值得注意', 'c4', UP]])
+    })
+
+    it('唯讀的檢視者、沒登入的訪客看得到；製圖頁的預覽沒有', async () => {
+      api.dashboardData.mockResolvedValue(DATA)
+      api.highlights.mockResolvedValue(CHECK)
+      for (const props of [{ readonly: true }, { readonly: true, guest: true }]) {
+        const wrapper = mountView({ config: saved(), ...props })
+        await flushPromises()
+        expect(rows(wrapper)).toHaveLength(3)
+      }
+
+      api.previewData.mockResolvedValue(DATA)
+      const preview = mountView({ config: previewOf(...LAYOUT), preview: true })
+      await flushPromises()
+      expect(panel(preview).exists()).toBe(false)
+    })
   })
 
   describe('篩選器', () => {
@@ -751,7 +924,7 @@ describe('DashboardView', () => {
 
     it('打開時篩選是存著的預設，第一次 /data、/highlight 就帶著它', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: withDefault(NORTH) })
       await flushPromises()
 
@@ -764,14 +937,14 @@ describe('DashboardView', () => {
 
     it('篩選一變就帶著新的篩選重抓；新資料回來前卡片留著舊資料，異常標註馬上清掉', async () => {
       api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', rows: [['北區', 1]] }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValueOnce([{ chartId: 'c1', severity: '需要關注', noul: 0.8 }])
+      api.highlights.mockResolvedValueOnce(flags({ chartId: 'c1', severity: '需要關注', noul: 0.8 }))
       const wrapper = mountView({ config: makeConfig() })
       await flushPromises()
       expect(chartCardPayload(wrapper, 'c1').highlight).toBeTruthy()
 
       let resolveData
       api.dashboardData.mockImplementationOnce(() => new Promise((resolve) => { resolveData = resolve }))
-      api.highlights.mockResolvedValueOnce([])
+      api.highlights.mockResolvedValueOnce(NO_FLAGS)
       await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
       await flushPromises()
 
@@ -788,7 +961,7 @@ describe('DashboardView', () => {
 
     it('拖拉存檔帶的是存著的預設，不是臨時的篩選', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.updateDashboard.mockResolvedValue(undefined)
       const wrapper = mountView({ config: withDefault(LAST_YEAR) })
       await flushPromises()
@@ -804,7 +977,7 @@ describe('DashboardView', () => {
     it('存成預設：PUT 格線上目前的版面和目前的篩選，交給 App 換設定，不重抓資料', async () => {
       prefersReducedMotion.mockReturnValue(true)
       api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const config = makeConfig()
       const wrapper = mountView({ config })
       await flushPromises()
@@ -846,7 +1019,7 @@ describe('DashboardView', () => {
 
     it('存成預設失敗時錯誤顯示在上面的錯誤區', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.updateDashboard.mockRejectedValue(new Error('存檔失敗'))
       const wrapper = mountView({ config: makeConfig() })
       await flushPromises()
@@ -860,7 +1033,7 @@ describe('DashboardView', () => {
 
     it('重新打開同一份儀表板（新的設定物件）時，臨時的篩選回到預設', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const config = withDefault(LAST_YEAR)
       const wrapper = mountView({ config })
       await flushPromises()
@@ -876,7 +1049,7 @@ describe('DashboardView', () => {
     it('移除卡片時新篩選的資料還沒回來：不走「只少了卡片」的捷徑，用目前的篩選重抓', async () => {
       prefersReducedMotion.mockReturnValue(true)
       api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const config = makeConfig()
       const wrapper = mountView({ config })
       await flushPromises()
@@ -905,14 +1078,14 @@ describe('DashboardView', () => {
       api.highlights
         .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
         .mockImplementationOnce(() => new Promise(() => {})) // 換篩選之後的那次一直沒回來
-        .mockResolvedValueOnce([{ chartId: 'c2', severity: '需要關注', noul: 0.8 }])
+        .mockResolvedValueOnce(flags({ chartId: 'c2', severity: '需要關注', noul: 0.8 }))
       const config = makeConfig()
       const wrapper = mountView({ config })
       await flushPromises()
       await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
       await flushPromises()
       expect(api.highlights).toHaveBeenCalledTimes(2)
-      resolveFirst([])
+      resolveFirst(NO_FLAGS)
       await flushPromises()
 
       const reply = { ...config, layout: [config.layout[1]] }
@@ -931,7 +1104,7 @@ describe('DashboardView', () => {
 
     it('移除卡片退場的 120ms 裡換了篩選：退場結束照樣套上新版面，再用新的篩選抓資料', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const config = makeConfig()
       const wrapper = mountView({ config })
       await flushPromises()
@@ -957,7 +1130,7 @@ describe('DashboardView', () => {
 
     it('卡片的 filtered：有任何篩選對這張圖生效才是 true', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1', filterSkipped: ['地區'] }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: withDefault(NORTH) })
       await flushPromises()
       expect(chartCard(wrapper, 'c1').props('filtered')).toBe(false)
@@ -971,7 +1144,7 @@ describe('DashboardView', () => {
     it('預覽、沒有卡片時沒有篩選列；檢視者有篩選列但沒有「存成預設」', async () => {
       api.previewData.mockResolvedValue([])
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       expect(filterBar(mountView({ config: makeConfig(), preview: true })).exists()).toBe(false)
       expect(filterBar(mountView({ config: { ...makeConfig(), layout: [] } })).exists()).toBe(false)
       const viewer = mountView({ config: makeConfig(), readonly: true })
@@ -1001,11 +1174,11 @@ describe('DashboardView', () => {
 
     it('時間到了照目前臨時改的篩選重抓 /data、再抓 /highlight；新的回來前卡片和標註都留著', async () => {
       api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'default' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValueOnce([])
+      api.highlights.mockResolvedValueOnce(NO_FLAGS)
       const wrapper = mountView({ config: every(5, { filters: LAST_YEAR }) })
       await flushPromises()
       api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'north' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValueOnce([{ chartId: 'c1', severity: '需要關注' }])
+      api.highlights.mockResolvedValueOnce(flags({ chartId: 'c1', severity: '需要關注' }))
       await filterBar(wrapper).vm.$emit('update:modelValue', NORTH)
       await flushPromises()
 
@@ -1025,7 +1198,7 @@ describe('DashboardView', () => {
       expect(api.highlights).toHaveBeenLastCalledWith('d1', NORTH)
       expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'fresh' }, highlight: { chartId: 'c1', severity: '需要關注' } })
 
-      resolveHighlights([])
+      resolveHighlights(NO_FLAGS)
       await flushPromises()
       expect(chartCardPayload(wrapper, 'c1')).toEqual({ data: { chartId: 'c1', v: 'fresh' } })
       expect(filterBar(wrapper).props('modelValue')).toEqual(NORTH)
@@ -1033,7 +1206,7 @@ describe('DashboardView', () => {
 
     it('沒設間隔就不自動更新；預覽也不排', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.previewData.mockResolvedValue([])
       mountView({ config: makeConfig() })
       mountView({ config: { ...previewOf(bar('c1', 0)), refreshMinutes: 1 }, preview: true })
@@ -1045,7 +1218,7 @@ describe('DashboardView', () => {
 
     it('改篩選也算抓了一次，從改的時候重新計時', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: every(5) })
       await flushPromises()
       await tick(3 * MIN)
@@ -1059,7 +1232,7 @@ describe('DashboardView', () => {
 
     it('分頁在背景時不抓；回到前景時已經超過間隔就馬上抓，沒超過就不抓', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
       mountView({ config: every(1) })
       await flushPromises()
@@ -1081,7 +1254,7 @@ describe('DashboardView', () => {
 
     it('自動更新失敗：卡片和標註留著，寫出「更新失敗」，下一個間隔再試，成功後換回「最後更新」', async () => {
       api.dashboardData.mockResolvedValueOnce([{ chartId: 'c1', v: 'old' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([{ chartId: 'c1', severity: '需要關注' }])
+      api.highlights.mockResolvedValue(flags({ chartId: 'c1', severity: '需要關注' }))
       const wrapper = mountView({ config: every(1) })
       await flushPromises()
       expect(statusText(wrapper)).toBe('最後更新 14:05')
@@ -1104,7 +1277,7 @@ describe('DashboardView', () => {
 
     it('打開時就失敗的照舊顯示錯誤；有開自動更新的話下一個間隔再試，成功就把格線放回來', async () => {
       api.dashboardData.mockRejectedValueOnce(new Error('資料來源載入失敗'))
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: every(1) })
       await flushPromises()
       expect(wrapper.get('.v-alert').text()).toBe('資料來源載入失敗')
@@ -1123,7 +1296,7 @@ describe('DashboardView', () => {
     it('不是今天的時間寫上日期', async () => {
       vi.setSystemTime(new Date(2026, 9, 6, 23, 59))
       api.dashboardData.mockResolvedValueOnce([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: every(1) })
       await flushPromises()
       api.dashboardData.mockRejectedValueOnce(new Error('x'))
@@ -1133,7 +1306,7 @@ describe('DashboardView', () => {
 
     it('間隔超過 15 分鐘時，前景每 15 分鐘打一次 me 續住工作階段；背景不打，15 分鐘以內不打，卸載後停掉', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.me.mockResolvedValue({})
       const short = mountView({ config: every(15) })
       await flushPromises()
@@ -1167,7 +1340,7 @@ describe('DashboardView', () => {
 
     it('卸載之後不再自動更新', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: every(1) })
       await flushPromises()
       wrapper.unmount()
@@ -1177,7 +1350,7 @@ describe('DashboardView', () => {
 
     it('檢視者沒有選單，看到間隔和時間；擁有者看到選單和時間', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const viewer = mountView({ config: every(5), readonly: true })
       const hourViewer = mountView({ config: every(180), readonly: true })
       const plainViewer = mountView({ config: makeConfig(), readonly: true })
@@ -1197,7 +1370,7 @@ describe('DashboardView', () => {
 
     it('擁有者改間隔：PUT 格線上的版面、存著的預設篩選和新的間隔，交給 App 換設定，不重抓；從那時重新計時', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const wrapper = mountView({ config: every(null, { filters: LAST_YEAR }) })
       await flushPromises()
       expect(refreshSelect(wrapper).props('modelValue')).toBe(null)
@@ -1235,7 +1408,7 @@ describe('DashboardView', () => {
 
     it('改間隔失敗時錯誤顯示在上面，選單還是存著的值', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.updateDashboard.mockRejectedValue(new Error('自動更新只能選 1、5、10、15 分鐘或 1、3、6、12、24 小時'))
       const wrapper = mountView({ config: every(5) })
       await flushPromises()
@@ -1263,7 +1436,7 @@ describe('DashboardView', () => {
     beforeEach(() => {
       prefersReducedMotion.mockReturnValue(true)
       api.dashboardData.mockResolvedValue([{ chartId: 'c1' }, { chartId: 'c2' }, { chartId: 'c3', rows: [] }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.previewData.mockResolvedValue([])
     })
 
@@ -1376,7 +1549,7 @@ describe('DashboardView', () => {
     it('預覽和沒登入的訪客不傳 download；已存的儀表板，擁有者和檢視者都有', async () => {
       api.previewData.mockResolvedValue([])
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const preview = mountView({ config: makeConfig(), preview: true })
       const guest = mountView({ config: makeConfig(), readonly: true, guest: true })
       const viewer = mountView({ config: makeConfig(), readonly: true })
@@ -1391,7 +1564,7 @@ describe('DashboardView', () => {
 
     it('帶著目前的篩選（包括臨時改的）呼叫 exportChart，用後端給的檔名存檔；沒有檔名就用卡片標題', async () => {
       api.dashboardData.mockResolvedValue([{ chartId: 'c1', title: '金額 依 地區', rows: [['北區', 1]] }, { chartId: 'c2', rows: [] }])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       const blob = new Blob(['x'])
       api.exportChart.mockResolvedValueOnce({ blob, filename: '營收.xlsx' }).mockResolvedValueOnce({ blob, filename: null })
       const wrapper = mountView({ config: makeConfig() })
@@ -1409,7 +1582,7 @@ describe('DashboardView', () => {
 
     it('下載失敗時，最上面的錯誤寫「下載失敗：」加上後端的訊息，不存檔', async () => {
       api.dashboardData.mockResolvedValue([])
-      api.highlights.mockResolvedValue([])
+      api.highlights.mockResolvedValue(NO_FLAGS)
       api.exportChart.mockRejectedValue(new Error('資料超過 Excel 的列數上限（1,048,575 列），請改下載 CSV'))
       const wrapper = mountView({ config: makeConfig() })
       await flushPromises()

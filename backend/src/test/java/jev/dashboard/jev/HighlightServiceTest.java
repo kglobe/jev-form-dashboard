@@ -1,6 +1,7 @@
 package jev.dashboard.jev;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -37,11 +38,16 @@ class HighlightServiceTest {
         return new HighlightService(new JevClient(server.url(), "k", "jev-1.13.0", Duration.ofSeconds(5)));
     }
 
+    static final Highlight C1 = new Highlight("c1", "需要關注", 2, 0.85,
+        new Highlight.Change("2024-05", "2024-06", null, null, 3200.0, 4300.0, false));
+
     @Test
     void flagsCardsAboveThresholdWithSeverityLabel() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            List<Highlight> result = service(server).check(UUID.randomUUID(), TODAY, List.of(LINE, BAR, PIE), DATA);
-            assertThat(result).containsExactly(new Highlight("c1", "需要關注", 0.85));
+            HighlightService.Check result = service(server).check(UUID.randomUUID(), TODAY, List.of(LINE, BAR, PIE), DATA);
+            // 本期重點 spec 3：checked 是送去 JEV 的卡片，照 layout 的順序；圓餅圖摘要不了，不在裡面
+            assertThat(result.checked()).containsExactly("c1", "c2");
+            assertThat(result.highlights()).containsExactly(C1);
             assertThat(server.bodies).hasSize(1);
             assertThat(server.bodies.get(0))
                 .contains("\"anomaly_c1\"").contains("\"severity_c2\"").doesNotContain("anomaly_c3")
@@ -59,7 +65,8 @@ class HighlightServiceTest {
     @Test
     void noTimeAxisCardsSkipsJev() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
-            assertThat(service(server).check(UUID.randomUUID(), TODAY, List.of(PIE), List.of(DATA.get(2)))).isEmpty();
+            assertThat(service(server).check(UUID.randomUUID(), TODAY, List.of(PIE), List.of(DATA.get(2))))
+                .isEqualTo(new HighlightService.Check(List.of(), List.of()));
             assertThat(server.bodies).isEmpty();
         }
     }
@@ -71,8 +78,7 @@ class HighlightServiceTest {
             UUID dashboard = UUID.randomUUID();
             service.check(dashboard, TODAY, List.of(LINE, PIE), List.of(DATA.get(0), DATA.get(2)));
             // 圓餅圖沒被摘要，不算在送出去的內容裡；少了它還是同一份內容
-            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0))))
-                .containsExactly(new Highlight("c1", "需要關注", 0.85));
+            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0))).highlights()).containsExactly(C1);
             assertThat(server.bodies).hasSize(1);
 
             // 標題會送給 JEV，改了就要重問
@@ -113,8 +119,50 @@ class HighlightServiceTest {
             UUID dashboard = UUID.randomUUID();
             assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNull();
             reply[0] = FakeJevServer.route("\"anomaly_");
-            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0)))).isNotEmpty();
+            assertThat(service.check(dashboard, TODAY, List.of(LINE), List.of(DATA.get(0))).highlights()).containsExactly(C1);
             assertThat(server.bodies).hasSize(2);
+        }
+    }
+
+    @Test
+    void theCacheKeepsJevsAnswersButEachResponseCarriesItsOwnNumbers() {
+        ChartSpec rate = new ChartSpec("c1", "line", "退貨率", new GridPos(0, 0, 6, 4),
+            new Mapping("order_date", null, null, "退貨率", null, null, "sum", "month"), Map.of());
+        List<String> dims = List.of("order_date", "退貨率");
+        // 兩次四捨五入後都是 5.2% → 6.5%、變了 1.3 個百分點，送給 JEV 的內容一樣
+        ChartData a = new ChartData("c1", "line", dims, List.of(r("2024-05", 0.0521), r("2024-06", 0.0649)),
+            null, null, null, null, null, true);
+        ChartData b = new ChartData("c1", "line", dims, List.of(r("2024-05", 0.0522), r("2024-06", 0.0648)),
+            null, null, null, null, null, true);
+        try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
+            HighlightService service = service(server);
+            UUID dashboard = UUID.randomUUID();
+            HighlightService.Check first = service.check(dashboard, TODAY, List.of(rate), List.of(a));
+            HighlightService.Check second = service.check(dashboard, TODAY, List.of(rate), List.of(b));
+
+            assertThat(server.bodies).hasSize(1);
+            assertThat(first.highlights()).extracting(Highlight::change)
+                .containsExactly(new Highlight.Change("2024-05", "2024-06", null, null, 0.0521, 0.0649, true));
+            assertThat(second.highlights()).extracting(Highlight::change)
+                .containsExactly(new Highlight.Change("2024-05", "2024-06", null, null, 0.0522, 0.0648, true));
+        }
+    }
+
+    @Test
+    void aMissingScoreMeansWorthNotingAndScoresAreClampedToTheFourLevels() {
+        ChartSpec third = new ChartSpec("c4", "line", "月營收", new GridPos(0, 4, 6, 4), LINE.mapping(), Map.of());
+        ChartData thirdData = new ChartData("c4", "line", List.of("order_date", "amount"),
+            List.of(r("2024-05", 10.0), r("2024-06", 1.0)), null, null);
+        String reply = """
+            {"model":"jev-1.13.0","answers":{
+              "anomaly_c1":{"type":"noul","noul":0.9},
+              "anomaly_c2":{"type":"noul","noul":0.9},"severity_c2":{"type":"score","score":3.7},
+              "anomaly_c4":{"type":"noul","noul":0.9},"severity_c4":{"type":"score","score":-0.6}}}""";
+        try (FakeJevServer server = FakeJevServer.start(body -> reply)) {
+            HighlightService.Check result = service(server).check(UUID.randomUUID(), TODAY, List.of(LINE, BAR, third),
+                List.of(DATA.get(0), DATA.get(1), thirdData));
+            assertThat(result.highlights()).extracting(Highlight::chartId, Highlight::severity, Highlight::level)
+                .containsExactly(tuple("c1", "值得注意", 1), tuple("c2", "嚴重警示", 3), tuple("c4", "正常波動", 0));
         }
     }
 }
