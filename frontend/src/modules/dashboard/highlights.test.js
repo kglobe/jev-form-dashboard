@@ -25,7 +25,7 @@ describe('digest', () => {
       checked: ['c1', 'c2', 'c3', 'c4', 'c5'],
       highlights: [flag('c1', 1, 0.9), flag('c2', 0, 0.99), flag('c3', 2, 0.75), flag('c4', 1, 0.95), flag('c5', 3, 0.71)],
     }, cards)
-    expect(d.checked).toBe(5)
+    expect(d.checkedCount).toBe(5)
     expect(ids(d)).toEqual(['c5', 'c3', 'c4'])
   })
 
@@ -39,11 +39,11 @@ describe('digest', () => {
     const check = { checked: ['c1', 'c2', 'c3', 'c4'], highlights: [flag('c1', 3), flag('c2', 2), flag('c3', 2, 0.75), flag('c4', 1)] }
     const cards = ['c1', 'c2', 'c3', 'c4'].map(card)
     const all = digest(check, cards)
-    expect(all.checked).toBe(4)
+    expect(all.checkedCount).toBe(4)
     expect(ids(all)).toEqual(['c1', 'c2', 'c3'])
 
     const left = digest(check, cards.filter((c) => c.spec.chartId !== 'c2'))
-    expect(left.checked).toBe(3)
+    expect(left.checkedCount).toBe(3)
     expect(ids(left)).toEqual(['c1', 'c3', 'c4'])
   })
 
@@ -71,7 +71,6 @@ describe('digest', () => {
   it('變化的寫法跟 KPI 卡一樣：百分比、比率用原始值算百分點、前一期是 0、持平、季', () => {
     const text = (change) => digest({ checked: ['c1'], highlights: [flag('c1', 1, 0.8, change)] }, [card('c1')]).entries[0].text
     expect(text({ previous: 1250, current: 1000 })).toBe('2026-09 比 2026-08 ▼ 20%')
-    // 5.24% → 6.06% 是 0.82 個百分點；四捨五入後再相減（6.1 − 5.2）會變成 0.9
     expect(text({ previous: 0.0524, current: 0.0606, percent: true })).toBe('2026-09 比 2026-08 ▲ 0.8 個百分點')
     expect(text({ previous: 0, current: 1200 })).toBe('2026-09 比 2026-08 增加 1,200')
     expect(text({ previous: 10000, current: 10004 })).toBe('2026-09 比 2026-08 持平')
@@ -84,6 +83,6 @@ describe('digest', () => {
   })
 
   it('檢查了 N 張、沒有符合的：張數是 N，沒有任何一筆', () => {
-    expect(digest({ checked: ['c1', 'c2'], highlights: [flag('c1', 0)] }, [card('c1'), card('c2')])).toEqual({ checked: 2, entries: [] })
+    expect(digest({ checked: ['c1', 'c2'], highlights: [flag('c1', 0)] }, [card('c1'), card('c2')])).toEqual({ checkedCount: 2, entries: [] })
   })
 })

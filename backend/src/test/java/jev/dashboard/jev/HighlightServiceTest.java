@@ -45,7 +45,6 @@ class HighlightServiceTest {
     void flagsCardsAboveThresholdWithSeverityLabel() {
         try (FakeJevServer server = FakeJevServer.start(FakeJevServer::route)) {
             HighlightService.Check result = service(server).check(UUID.randomUUID(), TODAY, List.of(LINE, BAR, PIE), DATA);
-            // 本期重點 spec 3：checked 是送去 JEV 的卡片，照 layout 的順序；圓餅圖摘要不了，不在裡面
             assertThat(result.checked()).containsExactly("c1", "c2");
             assertThat(result.highlights()).containsExactly(C1);
             assertThat(server.bodies).hasSize(1);
@@ -129,7 +128,6 @@ class HighlightServiceTest {
         ChartSpec rate = new ChartSpec("c1", "line", "退貨率", new GridPos(0, 0, 6, 4),
             new Mapping("order_date", null, null, "退貨率", null, null, "sum", "month"), Map.of());
         List<String> dims = List.of("order_date", "退貨率");
-        // 兩次四捨五入後都是 5.2% → 6.5%、變了 1.3 個百分點，送給 JEV 的內容一樣
         ChartData a = new ChartData("c1", "line", dims, List.of(r("2024-05", 0.0521), r("2024-06", 0.0649)),
             null, null, null, null, null, true);
         ChartData b = new ChartData("c1", "line", dims, List.of(r("2024-05", 0.0522), r("2024-06", 0.0648)),

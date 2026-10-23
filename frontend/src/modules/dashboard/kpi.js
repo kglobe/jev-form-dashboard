@@ -6,7 +6,7 @@ const full = new Intl.NumberFormat('zh-TW')
 const oneDecimal = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 1 })
 
 /**
- * 跟上期比變了多少。比率寫百分點；上期是 0 時不算百分比，寫增加或減少多少（KPI spec 2.1）。
+ * 比率寫百分點；上期是 0 時不算百分比，寫增加或減少多少（KPI spec 2.1）。
  * 兩期相減常有 1e-17 這種浮點誤差，用格式化後的數字判斷：是「0」就寫持平
  */
 export function delta(value, before, percent) {

@@ -28,14 +28,11 @@ public class HighlightService {
         this.jev = jev;
     }
 
-    /** 本期重點 spec 3：checked 是這次送去 JEV 的卡片，照 layout 的順序；highlights 是 noul 超過門檻的卡片。 */
     public record Check(List<String> checked, List<Highlight> highlights) {}
 
     /**
      * 快取的 key 是儀表板加上實際送給 JEV 的內容（每張圖的摘要和題目）：標題、資料、今天算到哪一期變了就重問；
      * 沒被摘要的卡片、資料列的順序不影響。內容一樣，JEV 的答案就一樣，所以不設過期。
-     * 存的是 JEV 的答案，標註每次用這次的資料重組（本期重點 spec 4）：比率的摘要四捨五入過，
-     * 原始值差在四捨五入以下時 key 一樣，change 的數字還是要用這次的。
      * ponytail: 單機、最多 CACHE_MAX 份的 LRU；後端多台時各自一份，要共用再換 Redis
      */
     static final int CACHE_MAX = 500;
@@ -47,7 +44,7 @@ public class HighlightService {
             }
         });
 
-    /** JEV 失敗時回傳 null，不快取，下次再問。沒有卡片摘要得了時 checked 是空的，不問 JEV。 */
+    /** JEV 失敗時回傳 null，不快取，下次再問。 */
     public Check check(UUID dashboardId, LocalDate today, List<ChartSpec> specs, List<ChartData> data) {
         Map<String, Object> state = new LinkedHashMap<>();
         Map<String, Highlight.Change> changes = new LinkedHashMap<>();

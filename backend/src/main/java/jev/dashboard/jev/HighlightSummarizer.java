@@ -19,12 +19,10 @@ public final class HighlightSummarizer {
     private static final Set<String> SUMMARIZABLE_TYPES = Set.of("line", "bar", "stacked_bar", "heatmap", "kpi");
     // 高基數的 series（例如客戶）逐一送出會接近逐筆資料、請求也跟著變大
     private static final int MAX_SERIES = 10;
-    // 變化 |本期 − 前期| 大的先，同分照名稱；超過 MAX_SERIES 條時留哪幾條、本期重點挑哪一條都照這個排
     private static final Comparator<Map.Entry<String, double[]>> BIGGEST_CHANGE_FIRST =
         Comparator.comparingDouble((Map.Entry<String, double[]> e) -> -Math.abs(e.getValue()[1] - e.getValue()[0]))
             .thenComparing(Map.Entry::getKey);
 
-    /** state 是送給 JEV 的摘要；change 是本期重點要寫的那條系列，不送 JEV。 */
     public record Summary(Map<String, Object> state, Highlight.Change change) {}
 
     private HighlightSummarizer() {}
@@ -70,16 +68,14 @@ public final class HighlightSummarizer {
             bySeries.values().removeIf(v -> Double.isNaN(v[0]) || Double.isNaN(v[1]));
             if (bySeries.isEmpty()) return null;
         }
-        // 本期重點 spec 4：在合併成「其他」之前挑，挑到的一定是卡片上畫得出來的系列；比率用原始值，不用四捨五入過的百分點。
-        // 兩個數值的圖 dimensions 是 [x, ...measures]，measure 是扣掉 x 之後的位置
         Map.Entry<String, double[]> top = bySeries.entrySet().stream().min(BIGGEST_CHANGE_FIRST).orElseThrow();
         Highlight.Change change = new Highlight.Change(previous, current,
             measures != null ? data.dimensions().indexOf(top.getKey()) - 1 : null, hasSeries ? top.getKey() : null,
             top.getValue()[0], top.getValue()[1], percent);
-        if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries, !percent);
+        Map<String, double[]> sent = bySeries.size() > MAX_SERIES ? keepBiggestChanges(bySeries, !percent) : bySeries;
 
         List<Map<String, Object>> series = new ArrayList<>();
-        bySeries.forEach((name, v) -> {
+        sent.forEach((name, v) -> {
             Map<String, Object> s = new LinkedHashMap<>();
             s.put("name", name);
             if (percent) {

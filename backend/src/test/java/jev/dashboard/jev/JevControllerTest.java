@@ -37,7 +37,6 @@ import org.springframework.test.web.servlet.ResultActions;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class JevControllerTest {
-    // JEV 失敗的測試設成 true，假伺服器回 500
     static volatile boolean jevDown;
     static final FakeJevServer JEV = FakeJevServer.start(body -> jevDown ? null : FakeJevServer.route(body));
 
@@ -122,7 +121,6 @@ class JevControllerTest {
         String id = JsonPath.read(body, "$.id");
 
         for (int i = 0; i < 2; i++) {
-            // 本期重點 spec 3：圓餅圖和沒有時間軸的長條圖摘要不了，不在 checked 裡；全部的列最後兩期是 5 月 3200、6 月 4300
             mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
@@ -197,7 +195,6 @@ class JevControllerTest {
             .andExpect(status().isOk());
         jevDown = true;
 
-        // 本期重點 spec 3：沒有檢查結果，跟「檢查了、沒有異常」分得開
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
             .andExpect(status().isNoContent()).andExpect(content().string(""));
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u2")))
@@ -305,7 +302,6 @@ class JevControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
             .andExpect(status().isOk());
 
-        // 錄好的 JEV 回應有標 c1，但 c1 沒送出去，不會出現在本期重點
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.checked").value(contains("c2")))

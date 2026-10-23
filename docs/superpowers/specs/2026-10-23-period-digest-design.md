@@ -100,12 +100,12 @@
 - `kpi.js`：把 `change()` 算變化的部分抽成 `export function delta(value, before, percent)`，回傳「▲ 18%」「▼ 0.8 個百分點」「增加 1,200」「持平」這幾種。`change()` 改成 `比 ${period} ${delta(…)}`，KPI 卡的字不變。
 - 新增 `highlights.js`：
   - `SEVERITY_CLASS` 從 `ChartCard.vue` 搬過來，卡片徽章和本期重點共用。
-  - `digest(check, cards)`：`check` 是 `/highlight` 的回應（沒有結果時是 null）；`cards` 是畫面上的卡片 `[{ spec, data }]`，照畫面順序。回傳 null 時整塊不顯示，否則回傳 `{ checked: N, entries: [{ chartId, severity, title, text }] }`。2.1～2.3 的規則都在這個函式裡。
+  - `digest(check, cards)`：`check` 是 `/highlight` 的回應（沒有結果時是 null）；`cards` 是畫面上的卡片 `[{ spec, data }]`，照畫面順序。回傳 null 時整塊不顯示，否則回傳 `{ checkedCount: N, entries: [{ chartId, severity, title, text }] }`。2.1～2.3 的規則都在這個函式裡。
 - `DashboardView.vue`：
   - `highlightById` 從 ref 改成從 `check`（新的 ref，存 `/highlight` 的回應）算出來。卡片徽章和本期重點都從 `check` 來。
   - 原本拿掉卡片時另外過濾 `highlightById` 的那一行刪掉，兩邊都照目前的 `layout` 算。
   - 改篩選時 `check` 設成 null，`/highlight` 失敗也是 null。
-  - `scrollToCard(chartId)`：用 `data-chart-id` 找到卡片，`scrollIntoView`（減少動態效果時不平滑捲動），再把焦點移到卡片上（卡片加 `tabindex="-1"`）。
+  - `focusCard(chartId)`：用 `data-chart-id` 找到卡片，`scrollIntoView`（減少動態效果時不平滑捲動），再把焦點移到卡片上（卡片加 `tabindex="-1"`）。
 - `ChartCard.vue`：`SEVERITY_CLASS` 改從 `highlights.js` 匯入。
 
 ### 5.2 版面
@@ -152,7 +152,7 @@
   - 標題用 `data.title`，沒有就用 `spec.title`；兩個數值的圖用 `dimensions[measure + 1]`；`series` 照原樣寫；都是 null 不寫名稱也不加逗號。
   - 文字跟 KPI 卡一樣：一般百分比、比率百分點（原始值 5.24% → 6.06% 寫 0.8 個百分點，不是四捨五入後相減的 0.9）、前一期是 0、持平、季的期別。
   - 卡片這次的資料有 `error` 時不列，也不丟例外。
-  - 檢查了 N 張、沒有符合的：回 `{ checked: N, entries: [] }`。
+  - 檢查了 N 張、沒有符合的：回 `{ checkedCount: N, entries: [] }`。
 - `DashboardView.test.js`：
   - `/highlight` 的假資料從 `[]` 改成 `{ checked: [], highlights: [] }`。
   - 已存的儀表板：本期重點照順序列出；按一筆會對那張卡呼叫 `scrollIntoView` 並把焦點移過去，減少動態效果時不平滑捲動。

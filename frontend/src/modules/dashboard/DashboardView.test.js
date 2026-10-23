@@ -83,7 +83,6 @@ const chartCard = (wrapper, chartId) =>
   wrapper.findAllComponents({ name: 'ChartCard' }).find((c) => c.props('spec').chartId === chartId)
 const dialogButton = (label) => [...document.body.querySelectorAll('button')].find((b) => b.textContent.trim() === label)
 const withSource = (spec, datasourceId) => ({ ...spec, datasourceId })
-// /highlight 的回應（本期重點 spec 3）；flags 把有標註的卡都算成送去檢查過
 const NO_FLAGS = { checked: [], highlights: [] }
 const flags = (...highlights) => ({ checked: highlights.map((h) => h.chartId), highlights })
 
@@ -758,11 +757,9 @@ describe('DashboardView', () => {
       noul: 0.8,
       change: { previousPeriod: '2026-08', period: '2026-09', measure: null, series: null, previous: 100, current: 120, percent: false },
     })
-    // 四張都送去檢查過，只標了其中幾張
     const allChecked = (...highlights) => ({ checked: LAYOUT.map((s) => s.chartId), highlights })
     const CHECK = flags(flag('c1', '值得注意', 1), flag('c2', '嚴重警示', 3), flag('c3', '正常波動', 0), flag('c4', '需要關注', 2))
     const UP = '2026-09 比 2026-08 ▲ 20%'
-    // 每一筆：[徽章, 標題, 變化]
     const rows = (wrapper) => wrapper.findAll('.dash-digest__item').map((b) => [...b.element.children].map((s) => s.textContent.trim()))
     const panel = (wrapper) => wrapper.find('.dash-digest')
     const filterBar = (wrapper) => wrapper.findComponent({ name: 'DashboardFilters' })

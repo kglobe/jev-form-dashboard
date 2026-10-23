@@ -128,8 +128,6 @@ public class JevController {
         }
 
         HighlightService.Check result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
-        // 本期重點 spec 3：沒有檢查結果，不能說成「沒有需要注意的變化」；不回 5xx，沒設 TYPESAFE_API_KEY 的環境
-        // 每次打開儀表板，瀏覽器 console 都會多一條錯誤
         return result == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(result);
     }
 }

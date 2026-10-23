@@ -37,7 +37,6 @@ class HighlightSummarizerTest {
             .containsEntry("previousPeriod", "2024-05").containsEntry("period", "2024-06");
         assertThat(s.get("series")).isEqualTo(List.of(
             Map.of("name", "全部", "previous", 100.0, "current", 150.0, "changePercent", 50.0)));
-        // 只有一條系列：本期重點不寫系列名稱
         assertThat(summary.change()).isEqualTo(new Highlight.Change("2024-05", "2024-06", null, null, 100.0, 150.0, false));
     }
 
@@ -151,9 +150,9 @@ class HighlightSummarizerTest {
     @Test
     void theChangeIsTheSeriesThatMovedTheMostTiesGoByNameWhateverTheRowOrder() {
         List<List<Object>> rows = new ArrayList<>();
-        addSeries(rows, "南", 200, 170); // 跌 30
-        addSeries(rows, "北", 100, 130); // 漲 30，跟南一樣多，名稱「北」排前面
-        addSeries(rows, "東", 10, 30);   // 漲 200%，但只多了 20：比的是絕對值
+        addSeries(rows, "南", 200, 170);
+        addSeries(rows, "北", 100, 130);
+        addSeries(rows, "東", 10, 30);
         Highlight.Change north = new Highlight.Change("2024-05", "2024-06", null, "北", 100.0, 130.0, false);
 
         assertThat(summary(rows).change()).isEqualTo(north);
@@ -189,15 +188,14 @@ class HighlightSummarizerTest {
 
         assertThat(series).hasSize(10);
         assertThat(series.getFirst()).containsEntry("name", "其他").containsEntry("previous", 300.0).containsEntry("current", 362.0);
-        // 本期重點挑到真的「其他」：數字是它自己的，不含合併進去的 s01、tiny
         assertThat(summary(rows).change()).isEqualTo(new Highlight.Change("2024-05", "2024-06", null, "其他", 100.0, 150.0, false));
     }
 
     @Test
     void withMoreThanTenSeriesTheChangeIsARealSeriesNotTheMergedOther() {
         List<List<Object>> rows = new ArrayList<>();
-        for (int i = 5; i <= 14; i++) addSeries(rows, "s%02d".formatted(i), 100, 100 + i); // 變化 5..14，留下來
-        for (int i = 1; i <= 6; i++) addSeries(rows, "r" + i, 100, 104);                    // 各漲 4，合併成「其他」漲 24
+        for (int i = 5; i <= 14; i++) addSeries(rows, "s%02d".formatted(i), 100, 100 + i);
+        for (int i = 1; i <= 6; i++) addSeries(rows, "r" + i, 100, 104);
 
         assertThat(series(rows).getLast()).isEqualTo(Map.of("name", "其他", "previous", 600.0, "current", 624.0, "changePercent", 4.0));
         assertThat(summary(rows).change()).isEqualTo(new Highlight.Change("2024-05", "2024-06", null, "s14", 100.0, 114.0, false));
@@ -254,7 +252,6 @@ class HighlightSummarizerTest {
             .containsEntry("previousPeriod", "2024-05").containsEntry("period", "2024-06");
         assertThat(s.get("series")).isEqualTo(List.of(
             Map.of("name", "全部", "previous", 5.2, "current", 6.5, "changePoints", 1.3)));
-        // 本期重點的數字是原始小數，前端照 KPI 卡的寫法算百分點
         assertThat(summary.change()).isEqualTo(new Highlight.Change("2024-05", "2024-06", null, null, 0.0521, 0.0649, true));
     }
 
@@ -269,7 +266,6 @@ class HighlightSummarizerTest {
         HighlightSummarizer.Summary summary = HighlightSummarizer.summarize(spec("stacked_bar", bySeries), d, TODAY);
         assertThat(summary.state().get("series")).isEqualTo(List.of(
             Map.of("name", "北", "previous", 4.0, "current", 5.0, "changePoints", 1.0)));
-        // 東區當成從 0 漲到 10% 的話會是變化最大的；不比的系列本期重點也挑不到
         assertThat(summary.change()).isEqualTo(new Highlight.Change("2024-05", "2024-06", null, "北", 0.04, 0.05, true));
 
         ChartData empty = percent("line", List.of("date", "退貨率"), List.of(r("2024-05", null), r("2024-06", 0.05)));

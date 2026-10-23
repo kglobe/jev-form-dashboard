@@ -30,7 +30,6 @@ const layout = ref([])
 // 退場那 120ms 裡，消失的卡片還要用舊的 spec 畫，所以不能直接從 props.config 算
 const specById = ref({})
 const dataById = ref({})
-// 本期重點 spec 5.1：/highlight 的回應；還沒回來、改了篩選、檢查失敗時是 null。卡片徽章和本期重點都從這裡算
 const check = ref(null)
 const highlightById = computed(() => Object.fromEntries((check.value?.highlights ?? []).map((h) => [h.chartId, h])))
 const error = ref('')
@@ -79,7 +78,6 @@ const basisLines = computed(() => {
 const byScreen = computed(() => [...layout.value].sort((a, b) => a.y - b.y || a.x - b.x))
 const screenOrder = computed(() => Object.fromEntries(byScreen.value.map((l, n) => [l.i, n])))
 
-// 本期重點 spec 2.1、2.4：同分照畫面順序；拿掉的卡片一開始退場就不列也不算張數，不用重新檢查
 const periodDigest = computed(() => digest(check.value, byScreen.value
   .filter((l) => !leaving.value.has(l.i))
   .map((l) => ({ spec: specById.value[l.i], data: dataById.value[l.i] }))))
@@ -254,7 +252,7 @@ document.addEventListener('visibilitychange', onVisibilityChange)
 // 擁有者改了間隔、最後一張卡片拿掉了：從現在重新計時，或停掉
 watch(refreshMs, scheduleRefresh)
 
-// 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷。JEV 失敗是 204，api.js 轉成 null
+// 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷
 async function fetchHighlights(seq) {
   highlightsPending = seq
   const found = await api.highlights(props.config.id, filters.value).catch(() => null)
@@ -263,9 +261,9 @@ async function fetchHighlights(seq) {
   check.value = found
 }
 
+const GRID_GAP = 14
 const gridEl = ref(null)
-// 本期重點 spec 5.1：捲到那張卡，焦點也移過去（卡片有 tabindex="-1"），鍵盤和螢幕閱讀器才跟得上
-function scrollToCard(chartId) {
+function focusCard(chartId) {
   const card = gridEl.value.querySelector(`[data-chart-id="${CSS.escape(chartId)}"]`)
   card.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'nearest' })
   card.focus({ preventScroll: true })
@@ -433,18 +431,17 @@ async function download(chartId, format) {
       @update:model-value="saveRefresh"
     />
   </DashboardFilters>
-  <!-- 本期重點 spec 5.2：篩選列下面、格線上面，不放進格線（卡片可以拖拉）；結果回來才出現，不讀給螢幕閱讀器聽 -->
   <section v-if="periodDigest" class="dash-digest cc-panel tc-fade-in">
     <h2 class="dash-digest__title">本期重點</h2>
     <p v-if="!periodDigest.entries.length" class="dash-digest__empty">
-      本期沒有需要注意的變化（檢查了 {{ periodDigest.checked }} 張卡）
+      本期沒有需要注意的變化（檢查了 {{ periodDigest.checkedCount }} 張卡）
     </p>
     <button
       v-for="e in periodDigest.entries"
       :key="e.chartId"
       type="button"
       class="dash-digest__item"
-      @click="scrollToCard(e.chartId)"
+      @click="focusCard(e.chartId)"
     >
       <span class="tc-badge" :class="SEVERITY_CLASS[e.severity]">{{ e.severity }}</span>
       <span class="dash-digest__name text-truncate">{{ e.title }}</span>
@@ -458,7 +455,7 @@ async function download(chartId, format) {
       :class="{ 'is-settled': settled }"
       :col-num="12"
       :row-height="80"
-      :margin="[14, 14]"
+      :margin="[GRID_GAP, GRID_GAP]"
       :is-draggable="!preview && !readonly"
       :is-resizable="!preview && !readonly"
       @layout-ready="onLayoutReady"
@@ -517,12 +514,9 @@ async function download(chartId, format) {
 <style scoped>
 /* 自動更新 spec 6.1：選單寬約 150px */
 .dash-refresh { flex: 0 0 150px; }
-/* 本期重點 spec 5.2：跟卡片同材質（cc-panel）；左右對齊格線裡的卡片（GridLayout 的 margin 是 14px），
-   跟卡片之間的 14px 由格線自己留 */
-.dash-digest { margin: 0 14px; padding: 12px 12px 4px; }
+.dash-digest { margin: 0 calc(v-bind(GRID_GAP) * 1px); padding: 12px 12px 4px; }
 .dash-digest__title { margin: 0 8px 4px; font-size: 14px; font-weight: 600; }
 .dash-digest__empty { margin: 0 8px 8px; font-size: 13px; color: var(--tc-muted); }
-/* 一筆一列，hover 跟清單項目一樣；窄螢幕放不下時，變化換到下一行 */
 .dash-digest__item {
   display: flex;
   flex-wrap: wrap;
@@ -536,8 +530,6 @@ async function download(chartId, format) {
 .dash-digest__item:hover { background: var(--tc-hover); }
 .dash-digest__item:focus-visible { outline: 2px solid var(--tc-ring-color); outline-offset: -2px; }
 .dash-digest__name { min-width: 0; font-size: 14px; font-weight: 600; }
-/* 變化不分好壞，箭頭跟數字一樣用中性色 */
 .dash-digest__change { font-size: 13px; color: var(--tc-muted); font-variant-numeric: tabular-nums; }
-/* 按本期重點捲過來的卡片拿到焦點；只有鍵盤操作時才畫外框，樣式跟按鈕一樣 */
 .dash-grid :deep([data-chart-id]:focus-visible) { outline: 2px solid var(--tc-ring-color); outline-offset: 2px; }
 </style>
