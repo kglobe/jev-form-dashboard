@@ -19,6 +19,13 @@ public final class HighlightSummarizer {
     private static final Set<String> SUMMARIZABLE_TYPES = Set.of("line", "bar", "stacked_bar", "heatmap", "kpi");
     // 高基數的 series（例如客戶）逐一送出會接近逐筆資料、請求也跟著變大
     private static final int MAX_SERIES = 10;
+    // 變化 |本期 − 前期| 大的先，同分照名稱；超過 MAX_SERIES 條時留哪幾條、本期重點挑哪一條都照這個排
+    private static final Comparator<Map.Entry<String, double[]>> BIGGEST_CHANGE_FIRST =
+        Comparator.comparingDouble((Map.Entry<String, double[]> e) -> -Math.abs(e.getValue()[1] - e.getValue()[0]))
+            .thenComparing(Map.Entry::getKey);
+
+    /** state 是送給 JEV 的摘要；change 是本期重點要寫的那條系列，不送 JEV。 */
+    public record Summary(Map<String, Object> state, Highlight.Change change) {}
 
     private HighlightSummarizer() {}
 
@@ -28,7 +35,7 @@ public final class HighlightSummarizer {
             && !"none".equals(spec.mapping().aggregate());
     }
 
-    public static Map<String, Object> summarize(ChartSpec spec, ChartData data, LocalDate today) {
+    public static Summary summarize(ChartSpec spec, ChartData data, LocalDate today) {
         if (!summarizable(spec) || data.error() != null || data.rows() == null) return null;
         // 接 ERP 的即時資料時，最後一期通常還沒結束（例如月初到今天），拿去比完整的前一期會一直被標成大跌；
         // 所以只比已經結束的期：今天所在的那一期和之後的期都不算
@@ -63,6 +70,12 @@ public final class HighlightSummarizer {
             bySeries.values().removeIf(v -> Double.isNaN(v[0]) || Double.isNaN(v[1]));
             if (bySeries.isEmpty()) return null;
         }
+        // 本期重點 spec 4：在合併成「其他」之前挑，挑到的一定是卡片上畫得出來的系列；比率用原始值，不用四捨五入過的百分點。
+        // 兩個數值的圖 dimensions 是 [x, ...measures]，measure 是扣掉 x 之後的位置
+        Map.Entry<String, double[]> top = bySeries.entrySet().stream().min(BIGGEST_CHANGE_FIRST).orElseThrow();
+        Highlight.Change change = new Highlight.Change(previous, current,
+            measures != null ? data.dimensions().indexOf(top.getKey()) - 1 : null, hasSeries ? top.getKey() : null,
+            top.getValue()[0], top.getValue()[1], percent);
         if (bySeries.size() > MAX_SERIES) bySeries = keepBiggestChanges(bySeries, !percent);
 
         List<Map<String, Object>> series = new ArrayList<>();
@@ -89,7 +102,7 @@ public final class HighlightSummarizer {
         out.put("previousPeriod", previous);
         out.put("period", current);
         out.put("series", series);
-        return out;
+        return new Summary(out, change);
     }
 
     /** 空值當 0。 */
@@ -113,10 +126,7 @@ public final class HighlightSummarizer {
      * sumRest 是 false 時（比率加起來沒有意義），其餘直接不送。
      */
     private static Map<String, double[]> keepBiggestChanges(Map<String, double[]> bySeries, boolean sumRest) {
-        List<Map.Entry<String, double[]>> ranked = bySeries.entrySet().stream()
-            .sorted(Comparator.comparingDouble((Map.Entry<String, double[]> e) -> -Math.abs(e.getValue()[1] - e.getValue()[0]))
-                .thenComparing(Map.Entry::getKey))
-            .toList();
+        List<Map.Entry<String, double[]>> ranked = bySeries.entrySet().stream().sorted(BIGGEST_CHANGE_FIRST).toList();
         Map<String, double[]> kept = new LinkedHashMap<>();
         double[] rest = new double[2];
         for (int i = 0; i < ranked.size(); i++) {

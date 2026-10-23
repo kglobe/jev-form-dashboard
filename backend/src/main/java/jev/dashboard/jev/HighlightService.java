@@ -48,10 +48,10 @@ public class HighlightService {
         Map<String, Question> questions = new LinkedHashMap<>();
         for (int i = 0; i < specs.size(); i++) {
             ChartSpec spec = specs.get(i);
-            Map<String, Object> summary = HighlightSummarizer.summarize(spec, data.get(i), today);
+            HighlightSummarizer.Summary summary = HighlightSummarizer.summarize(spec, data.get(i), today);
             if (summary == null) continue;
             String id = spec.chartId();
-            state.put(id, summary);
+            state.put(id, summary.state());
             questions.put("anomaly_" + id, Question.noul("圖表「" + spec.title() + "」最新一期和前一期相比，有沒有值得標註的異常？"));
             questions.put("severity_" + id, Question.score("圖表「" + spec.title() + "」這次變化的嚴重程度？", SEVERITY));
         }
