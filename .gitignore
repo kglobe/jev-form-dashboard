@@ -2,6 +2,7 @@ backend/.env
 backend/target/
 frontend/node_modules/
 frontend/dist/
-.claude/
+.claude/*
+!.claude/skills/
 .mcp.json
 .serena/
