@@ -27,7 +27,7 @@ cp backend/.env.example backend/.env
 
 | Key | 說明 | 預設值 |
 |---|---|---|
-| `TYPESAFE_API_KEY` | 呼叫 JEV 用的金鑰，沒填的話「分析」會回 503（`未設定 TYPESAFE_API_KEY`）；「異常檢查」不會報錯，只是不顯示任何標註 | 空 |
+| `TYPESAFE_API_KEY` | 呼叫 JEV 用的金鑰，沒填的話「分析」會回 503（`未設定 TYPESAFE_API_KEY`）；「異常檢查」不會報錯，只是不顯示任何標註，也沒有本期重點 | 空 |
 | `DB_URL` | PostgreSQL JDBC 連線字串 | `jdbc:postgresql://localhost:5432/postgres` |
 | `DB_USER` | 資料庫帳號 | `postgres` |
 | `DB_PASSWORD` | 資料庫密碼 | 空 |
@@ -349,6 +349,14 @@ IdP 連不上時，帳密登入照常能用，後端也照常啟動。
 篩選器對 KPI 卡一樣有效。期別是月、篩選選了「上季」時，本期就是上季最後一個已經結束的月。還沒有任何一期結束時，大數字顯示「—」，下面寫「還沒有已經結束的期間」；有篩選時改成「篩選範圍內沒有已經結束的期間」。選了「本月」就會這樣，資料其實有，只是這個月還沒過完。
 
 KPI 卡存在儀表板的 `config_json` 裡（`type: "kpi"`，門檻放在 `options.threshold`，比率存成小數），不用 migration。`/data` 回傳的 KPI 卡只有已經結束的期，最多 13 期。完整規則見 [`docs/superpowers/specs/2026-10-07-kpi-card-design.md`](docs/superpowers/specs/2026-10-07-kpi-card-design.md)。
+
+## 本期重點
+
+已存的儀表板有異常標註時，篩選列下面會多一塊「本期重點」，列出這一期最該看的卡，最多 3 張。只列標註是「值得注意」「需要關注」「嚴重警示」的卡，照嚴重程度排。一樣嚴重時，JEV 比較確定是異常的排前面，再一樣就照卡片在畫面上的位置。每一筆寫嚴重程度、卡片標題、比的兩期和變化，例如「需要關注」的「營收 依 區域」後面寫「2026-09 比 2026-08，南區 ▼ 18%」。卡片有好幾條系列時，只寫兩期相差最多的那一條。數字的寫法跟 KPI 卡一樣。按一筆就會捲到那張卡。
+
+本期重點直接用異常檢查的結果排，不另外問 JEV，所以跟卡片上的徽章一定對得上。檢查過、但沒有需要注意的卡時，寫「本期沒有需要注意的變化（檢查了 N 張卡）」。沒有卡能做異常檢查（例如都用到敏感欄位），或這次 JEV 沒回應時，整塊不顯示，不會說成「沒有變化」。被分享的人和沒登入的訪客也看得到。改篩選、自動更新、拿掉卡片時，本期重點跟著徽章一起變。製圖頁的預覽沒有本期重點。
+
+為了這個功能，`GET /api/jev/highlight/{id}` 的回應從陣列改成 `{ checked, highlights }`。`checked` 是這次送去 JEV 的卡片，`highlights` 每一筆多了 `level`（嚴重程度的等級，0～3）和 `change`（比的兩期、變化最大的系列和兩期的原始值）。JEV 失敗時回 204。完整規則見 [`docs/superpowers/specs/2026-10-23-period-digest-design.md`](docs/superpowers/specs/2026-10-23-period-digest-design.md)。
 
 ## 下載資料
 
