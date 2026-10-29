@@ -295,6 +295,27 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
       settings: !!el.querySelector('[aria-label="KPI 卡設定"]'),
       download: !!el.querySelector('[aria-label="下載這張圖的資料"]'),
     })),
+    // 本期重點：畫面上列的每一筆，跟照這頁最後一次 /highlight 的回應算出來「應該列」的卡（等級 1 以上，照等級、noul 排，前 3 張）
+    digest: () => {
+      const box = document.querySelector('.dash-digest')
+      const res = jev.last('/api/jev/highlight/')
+      const titles = Object.fromEntries(jev.cards().map((c) => [c.chartId, c.title]))
+      const expected = res?.body?.highlights?.filter((h) => h.level >= 1)
+        .sort((a, b) => b.level - a.level || b.noul - a.noul).slice(0, 3)
+        .map((h) => ({ chartId: h.chartId, severity: h.severity, title: titles[h.chartId], change: h.change }))
+      return {
+        shown: !!box,
+        empty: box?.querySelector('.dash-digest__empty')?.textContent.trim() ?? null,
+        entries: [...(box?.querySelectorAll('.dash-digest__item') ?? [])].map((b) => ({
+          badge: b.querySelector('.tc-badge').textContent.trim(),
+          title: b.querySelector('.dash-digest__name').textContent.trim(),
+          text: b.querySelector('.dash-digest__change').textContent.trim(),
+        })),
+        status: res?.status ?? null,
+        checked: res?.body?.checked ?? null,
+        expected: expected ?? null,
+      }
+    },
     setField: (label, value) => {
       const visible = (el) => el && el.offsetParent !== null
       const ids = [...new Set([...document.querySelectorAll('label[for]')].filter((l) => visible(l) && l.textContent.trim() === label).map((l) => l.htmlFor))]
@@ -359,6 +380,7 @@ java -jar target/jev-dashboard-0.1.0-SNAPSHOT.jar --server.port=8081 '--jev.data
 | 用名稱找儀表板 id | `async () => window.jev.dashId('E2E 銷售總覽')` |
 | 自己組一張卡片驗數字（不經過 JEV） | `async () => { const ds = await window.jev.source('退貨（補產品主檔）'); return window.jev.card(ds.id, { x: '類別', value: '退貨金額' }) }` |
 | 畫面上每張卡片的標題、來源標籤、異常標註、✕、警告、KPI 卡的數字和「設定」、下載鈕 | `() => window.jev.cards()` |
+| 本期重點畫面上列的每一筆，和依 `/highlight` 回應算出來應該列哪幾張卡 | `() => window.jev.digest()` |
 | 取代欄位內容（只送 `input`；顯示名稱這類靠 `change` 存檔的欄位不能用，見 2.5） | `() => window.jev.setField('密碼', 'E2eAdmin-2026')` |
 | 拖拉或縮放卡片 | `async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)` |
 
@@ -594,7 +616,7 @@ async () => {
 | S08-1 | 打開「E2E 銷售總覽」；`navigate_page` 重新整理 | 直接回到這份儀表板（網址有 `#/d/<id>`）；副標「卡片拖標題列可以移動、拉右下角可以縮放，版面會自動存。」；標題列有「分享」「新增儀表板」 | 畫面 |
 | S08-2 | `list_network_requests` | 有 `GET /api/dashboards/<id>`、`/api/dashboards/<id>/data`、`/api/jev/highlight/<id>`；沒有 `/api/jev/analyze` | API |
 | S08-3 | 跑 helper；`jev.dashboard()` | 數字跟 S07-10 一樣（X 軸月份、總和） | API |
-| S08-4 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))`，再 `jev.cards()` | 回傳陣列，每一筆的 `severity` 是「正常波動」「值得注意」「需要關注」「嚴重警示」其中一個，`noul` 大於 0.7；畫面上有標註的卡片和陣列一一對應，文字一樣。預期至少一張被標註（北區 6 月掉了 79%）〔JEV〕。用到「數量」（敏感）的卡片一定沒有標註 | API、截圖 |
+| S08-4 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))`，再 `jev.cards()` | 回傳 `{ checked, highlights }`。`highlights` 每一筆的 `severity` 是「正常波動」「值得注意」「需要關注」「嚴重警示」其中一個，`level` 是它在這四個裡的位置（0～3），`noul` 大於 0.7，`change.period` 是 2026-06、`change.previousPeriod` 是 2026-05；每張被標註的卡都在 `checked` 裡。畫面上有標註的卡片和 `highlights` 一一對應，文字一樣。預期至少一張被標註（北區 6 月掉了 79%）〔JEV〕。用到「數量」（敏感）的卡片一定沒有標註，也不在 `checked` 裡 | API、截圖 |
 | S08-5 | 記下 `jev.dashboard()` 的 `layout`；把第一張卡片往下拖：`async () => window.jev.dragBy(document.querySelectorAll('.card-drag')[0], 0, 400)`。不要用 MCP `drag`，它拖不動（見 2.5） | 卡片移動了 | 畫面 |
 | S08-6 | `list_network_requests`；`jev.dashboard()` | 有 `PUT /api/dashboards/<id>` 回 200；`gridPos` 跟拖之前不一樣。沒有 PUT 就記 FAIL，附上截圖 | 畫面、API |
 | S08-7 | 縮放：`async () => window.jev.dragBy(document.querySelectorAll('.vgl-item__resizer')[0], 200, 120)` | 有 PUT；那張卡片的 `gridPos.w` 或 `h` 變大 | API |
@@ -837,7 +859,7 @@ async () => {
 | S18-11 | 按「取消」；`jev.source('銷售')` | 對話框關掉，`rowCount` 還是 63 | 畫面、API |
 | S18-12 | 打開「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 依月份的銷售卡片 `x` 是 2026-01～2026-07；`sum` 卡片的營收（元）394600；用到毛利的 `sum` 卡片或散佈圖（`aggregate: none`，原始資料列），`sums` 裡的毛利是 148783〔JEV〕；有毛利率卡片的話，`data` 最後一個是 0.405；退貨卡片跟 S09-3 一樣（5150）。這份儀表板沒有用到數量的卡片（數量是敏感欄位），數量 8877 在 S18-15 的明細表驗 | API |
 | S18-13 | 先 `resize_page` 拉到 1900px 寬（第 6 節），每張銷售圖卡各截一張 | X 軸多了 2026-07，排在最後，前面 6 期一個都沒少 | 截圖 |
-| S18-14 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 200，陣列每一筆只有 `chartId`、`severity`、`noul`，沒有期間欄位，看不出比的是哪兩期。後端只比最後兩個已經結束的期間，接上 7 月之後就是 2026-06 和 2026-07，依月份卡片的標註可能跟 S08-4 不一樣〔JEV〕（第一次全跑時 c2 從「嚴重警示」變成「需要關注」）。記下回傳的陣列和畫面上的標註就好 | API |
+| S18-14 | `jev.api('GET', '/api/jev/highlight/' + location.hash.slice(4))` | 200。後端只比最後兩個已經結束的期間，接上 7 月之後，`highlights` 每一筆的 `change.period` 是 2026-07、`change.previousPeriod` 是 2026-06。依月份卡片的標註可能跟 S08-4 不一樣〔JEV〕（第一次全跑時 c2 從「嚴重警示」變成「需要關注」）。記下回傳的 `highlights` 和畫面上的標註就好 | API |
 | S18-15 | 打開「E2E 對照」；`jev.dashboard()`；再跑 S11-7、S11-8 那兩個 `jev.card` | 雙數值卡片 7 列，多一列 2026-07 [73600, null]，`nulls` 2；明細表 74 列（63＋11），「銷售·數量」的 `sums` 是 8877；每月退貨率多一期 2026-07，是 null；依區域的退貨率跟 S11-8 一樣（北區約 0.0330、中區約 0.0014、南區約 0.0231），`ratioPeriod` 還是 `{ from: "2026-02", to: "2026-06" }` | API |
 | S18-16 | 一樣在 1900px 寬的視窗截雙數值那張，截完 `resize_page` 拉回原本大小 | X 軸到 2026-07，每個月份標籤都看得到，7 月只有營收 | 截圖 |
 | S18-17 | bob 重新整理「E2E 銷售總覽」；跑 helper；`jev.dashboard()` | 跟 S18-12 一樣的數字 | API |
@@ -1150,6 +1172,29 @@ KPI 卡的本期是最後一個已經結束的月。以下預期以在 2026-10 �
 
 留下的狀態：多了「代碼明細」來源和「E2E 代碼明細」儀表板；「E2E 對照」的「不用登入也能看」還是關著。
 
+### S25 本期重點
+
+- 目的：本期重點列的卡和順序跟 `/highlight` 對得上、每一筆的寫法、按了捲到卡片、跟著篩選變、拿掉卡片時馬上少一筆、檢視者和訪客看得到、預覽沒有。規則見 `docs/superpowers/specs/2026-10-23-period-digest-design.md`。
+- 帳號／context：`alice`；`bob`；`anon`（沒登入）。
+- 前置條件：S24 完成；「E2E 銷售總覽」分享給 bob，預設篩選是「區域：北區」（S19）；「E2E 對照」的公開連結開著，「不用登入也能看」關著。
+
+列哪幾張卡、是什麼等級由 JEV 決定〔JEV〕。每一步都拿 `jev.digest()` 的 `entries` 跟同一次回應算出來的 `expected` 比，不寫死卡片。
+
+| 編號 | 操作 | 預期結果 | 檢查方式 |
+|---|---|---|---|
+| S25-1 | alice 打開「E2E 銷售總覽」，跑 helper，等 `jev.seen` 有 `/api/jev/highlight/`；`jev.digest()` | `status` 是 200。`expected` 有東西時：`shown` 是 true，`entries` 的筆數和順序跟 `expected` 一樣，每一筆的 `badge` 是那張卡的 `severity`，`title` 跟那張卡的標題一樣。`expected` 是空的時：`empty` 是「本期沒有需要注意的變化（檢查了 N 張卡）」，N 等於 `checked` 的張數。用到「數量」的卡不在 `checked` 裡 | 畫面、API |
+| S25-2 | 對 `entries` 每一筆，比 `text` 跟 `expected` 裡同一張卡的 `change` | `text` 開頭是「`<period>` 比 `<previousPeriod>`」。`change.measure`、`change.series` 都是 null 時，後面直接接變化，沒有逗號；`series` 有值時接「，`<series>`」；`measure` 有值時接那張卡圖例上的名稱。變化：一般數字是「▲」或「▼」加百分比（最多一位小數），比率（`change.percent` 是 true）寫「個百分點」，前一期是 0 寫「增加」或「減少」，算出來是 0 寫「持平」 | API |
+| S25-3 | 截本期重點那一塊，再截整頁 | 面板跟卡片同材質，在篩選列下面、格線上面，左右邊跟卡片對齊；徽章顏色跟卡片上的一樣；變化和箭頭是灰色；沒有單邊的色條 | 截圖 |
+| S25-4 | 按本期重點的第一筆 | 頁面捲到那張卡；`document.activeElement.dataset.chartId` 是那張卡的 chartId | 畫面、API |
+| S25-5 | 篩選改成「區域：南區」（不要存成預設），等新的 `/api/jev/highlight/` 回來（網址的 filters 是南區）；`jev.digest()` | 照 S25-1 的規則比，比的是這次的回應。改篩選之後、新回應回來之前，畫面上沒有出現「本期沒有需要注意的變化」 | 畫面、API |
+| S25-6 | 篩選改回「區域：北區」，等 `/highlight` 回來。本期重點有列卡的話，記下第一筆那張卡和 `checked` 的張數，按那張卡的「移除這張圖」，再按「移除」 | 那一筆馬上消失，原本的第四名補上來（有的話）；有「檢查了 N 張卡」時 N 少一。移除之後 `jev.seen` 沒有新的 `/api/jev/highlight/` | 畫面、API |
+| S25-7 | bob 打開「E2E 銷售總覽」，跑 helper；`jev.digest()` | 照 S25-1 的規則比；bob 看得到本期重點 | 畫面、API |
+| S25-8 | alice：先 `GET /api/dashboards/<E2E 對照>/share`，再 `PUT` 同一份設定，只把 `anonymous` 改成 true；`anon` 開 `http://localhost:5181/#/d/<E2E 對照>`，跑 helper；`jev.digest()` | 照 S25-1 的規則比；訪客也看得到。比完 alice 把 `anonymous` 改回 false | 畫面、API |
+| S25-9 | alice 到「製圖」選「銷售」，按「分析」，等預覽；`() => !!document.querySelector('.dash-digest')` | false：預覽沒有本期重點。不用存檔 | 畫面 |
+| S25-10 | 回到「E2E 銷售總覽」，`emulate` viewport `390x844x2`，截本期重點那一塊；`() => document.documentElement.scrollWidth`；用完把 viewport 清掉 | 每一筆的變化放不下時換到下一行，標題太長會截斷；`scrollWidth` 不大於 390 | 截圖、API |
+
+留下的狀態：「E2E 銷售總覽」少了一張卡（S25-6）；「E2E 對照」的「不用登入也能看」還是關著。
+
 ### S99 收尾
 
 - 目的：停掉自己開的程序，整理結果。
@@ -1192,6 +1237,7 @@ schema 留著不刪，之後要查資料可以直接看；下次一樣開新的�
 | 儀表板自動更新：擁有者設定間隔、最後更新時間、保留臨時篩選、檢視者和訪客、更新失敗 | S22 |
 | 寬表轉長表：上傳時轉換、合計欄不匯入、按月畫圖和 KPI 卡、更新資料照同樣方式轉、標題自己有年份 | S23 |
 | 下載資料（Excel／CSV） | S24 |
+| 本期重點：列哪幾張、寫法、按了捲到卡片、跟著篩選、拿掉卡片、檢視者和訪客、預覽沒有 | S25 |
 
 ## 9. 結果範本
 

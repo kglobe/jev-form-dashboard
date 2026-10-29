@@ -10,6 +10,7 @@ import commandDark from './charts/themes/command-dark.json'
 import commandLight from './charts/themes/command-light.json'
 import { prefersReducedMotion } from './motion.js'
 import { kpiView } from './kpi.js'
+import { SEVERITY_CLASS } from './highlights.js'
 
 const props = defineProps({
   spec: { type: Object, required: true },
@@ -30,9 +31,6 @@ const props = defineProps({
   download: { type: Function, default: null },
 })
 const emit = defineEmits(['remove', 'configure'])
-
-// spec 3.5：正常波動用中性灰、不加修飾子；好消息不染綠
-const SEVERITY_CLASS = { 正常波動: '', 值得注意: 'tc-badge--info', 需要關注: 'tc-badge--warn', 嚴重警示: 'tc-badge--err' }
 
 // spec 4.3：一定要寫在 series 層。ECharts 6 的圓餅、折線在 series 預設裡有自己的時長和 easing，只寫在最外層蓋不掉
 const SERIES_ANIMATION = { animationDuration: 300, animationEasing: 'cubicOut', animationDurationUpdate: 250, animationEasingUpdate: 'cubicOut' }

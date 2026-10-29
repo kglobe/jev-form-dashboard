@@ -24,6 +24,7 @@ import jev.dashboard.transform.ChartData;
 import jev.dashboard.transform.ChartSpec;
 import jev.dashboard.transform.UniversalTransformer;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -94,8 +95,8 @@ public class JevController {
 
     /** 篩選器 spec 2.4：filters 跟 /data 一樣，異常檢查照篩選後的資料判斷。 */
     @GetMapping("/highlight/{dashboardId}")
-    public List<Highlight> highlight(Principal principal, @PathVariable UUID dashboardId,
-                                     @RequestParam(required = false) String filters) {
+    public ResponseEntity<HighlightService.Check> highlight(Principal principal, @PathVariable UUID dashboardId,
+                                                           @RequestParam(required = false) String filters) {
         Filters f = Filters.parse(filters);
         // 資料來源共享 spec 4.4：沒登入也打得到，principal 是 null
         String viewer = principal == null ? null : principal.getName();
@@ -114,7 +115,7 @@ public class JevController {
             return fields != null && HighlightSummarizer.summarizable(spec)
                 && UniversalTransformer.referencedFields(spec.mapping()).stream().noneMatch(fields::contains);
         }).toList();
-        if (eligible.isEmpty()) return List.of();
+        if (eligible.isEmpty()) return ResponseEntity.ok(new HighlightService.Check(List.of(), List.of()));
         List<ChartData> data;
         try {
             // 篩選器 spec 2.3：擁有者以外的人（沒登入也算）不能用的欄位照整份儀表板算（不只摘要得了的卡片），跟 /data 一樣
@@ -126,7 +127,7 @@ public class JevController {
             throw new ApiException(e.status(), "資料來源載入失敗，請聯絡儀表板擁有者");
         }
 
-        List<Highlight> result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
-        return result == null ? List.of() : result;
+        HighlightService.Check result = highlights.check(dashboardId, LocalDate.now(clock), eligible, data);
+        return result == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(result);
     }
 }

@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -28,6 +29,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -35,7 +37,8 @@ import org.springframework.test.web.servlet.ResultActions;
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class JevControllerTest {
-    static final FakeJevServer JEV = FakeJevServer.start(FakeJevServer::route);
+    static volatile boolean jevDown;
+    static final FakeJevServer JEV = FakeJevServer.start(body -> jevDown ? null : FakeJevServer.route(body));
 
     @DynamicPropertySource
     static void jevUrl(DynamicPropertyRegistry registry) {
@@ -68,6 +71,7 @@ class JevControllerTest {
     void clean() {
         TestData.clean(jdbc);
         JEV.bodies.clear();
+        jevDown = false;
     }
 
     @Test
@@ -119,9 +123,10 @@ class JevControllerTest {
         for (int i = 0; i < 2; i++) {
             mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].chartId").value("c1"))
-                .andExpect(jsonPath("$[0].severity").value("需要關注"));
+                .andExpect(content().json("""
+                    {"checked":["c1","c2"],"highlights":[{"chartId":"c1","severity":"需要關注","level":2,"noul":0.85,
+                      "change":{"previousPeriod":"2024-05","period":"2024-06","measure":null,"series":null,
+                                "previous":3200.0,"current":4300.0,"percent":false}}]}""", JsonCompareMode.STRICT));
         }
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c3").doesNotContain("anomaly_c4");
@@ -145,9 +150,9 @@ class JevControllerTest {
 
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u2")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].chartId").value("c1"))
-            .andExpect(jsonPath("$[0].severity").value("需要關注"));
+            .andExpect(jsonPath("$.highlights.length()").value(1))
+            .andExpect(jsonPath("$.highlights[0].chartId").value("c1"))
+            .andExpect(jsonPath("$.highlights[0].severity").value("需要關注"));
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u3")))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("找不到儀表板"));
@@ -173,8 +178,45 @@ class JevControllerTest {
             .andExpect(status().isOk());
         mvc.perform(get("/api/jev/highlight/" + id))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.length()").value(1))
-            .andExpect(jsonPath("$[0].chartId").value("c1"));
+            .andExpect(jsonPath("$.highlights.length()").value(1))
+            .andExpect(jsonPath("$.highlights[0].chartId").value("c1"));
+    }
+
+    @Test
+    void aFailedJevCheckIs204ForTheOwnerAViewerAndAGuest() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content(TestData.dashboardJson(ds)))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+        mvc.perform(put("/api/dashboards/" + id + "/share").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"publicLink\":true,\"anonymous\":true,\"users\":[\"u2\"]}"))
+            .andExpect(status().isOk());
+        jevDown = true;
+
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u2")))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+        mvc.perform(get("/api/jev/highlight/" + id))
+            .andExpect(status().isNoContent()).andExpect(content().string(""));
+    }
+
+    @Test
+    void aDashboardWithNothingToCheckIsAnEmptyCheckWithoutAskingJev() throws Exception {
+        String ds = TestData.uploadSales(mvc, "u1");
+        String body = mvc.perform(post("/api/dashboards").with(TestData.as("u1"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"明細\",\"layout\":[" + BAR_CARD.replace(
+                    "00000000-0000-0000-0000-000000000001", ds) + "]}"))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(UTF_8);
+        String id = JsonPath.read(body, "$.id");
+
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(content().string("{\"checked\":[],\"highlights\":[]}"));
+        assertThat(JEV.bodies).isEmpty();
     }
 
     @Test
@@ -192,7 +234,7 @@ class JevControllerTest {
 
         mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$[0].chartId").value("c1"));
+            .andExpect(jsonPath("$.highlights[0].chartId").value("c1"));
     }
 
     @Test
@@ -260,7 +302,10 @@ class JevControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content("{\"fields\":[\"region\"]}"))
             .andExpect(status().isOk());
 
-        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1"))).andExpect(status().isOk());
+        mvc.perform(get("/api/jev/highlight/" + id).with(TestData.as("u1")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.checked").value(contains("c2")))
+            .andExpect(jsonPath("$.highlights").isEmpty());
 
         assertThat(JEV.bodies).hasSize(1);
         assertThat(JEV.bodies.get(0)).contains("\"anomaly_c2\"").doesNotContain("anomaly_c1").doesNotContain("北區");

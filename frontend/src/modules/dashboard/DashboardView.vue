@@ -6,6 +6,7 @@ import DashboardFilters from './DashboardFilters.vue'
 import KpiForm from './KpiForm.vue'
 import { api } from './api.js'
 import { filterCount, filterKey } from './filters.js'
+import { digest, SEVERITY_CLASS } from './highlights.js'
 import { prefersReducedMotion } from './motion.js'
 import './motion.css'
 
@@ -29,7 +30,8 @@ const layout = ref([])
 // 退場那 120ms 裡，消失的卡片還要用舊的 spec 畫，所以不能直接從 props.config 算
 const specById = ref({})
 const dataById = ref({})
-const highlightById = ref({})
+const check = ref(null)
+const highlightById = computed(() => Object.fromEntries((check.value?.highlights ?? []).map((h) => [h.chartId, h])))
 const error = ref('')
 const loadError = ref('')
 const settled = ref(false)
@@ -73,9 +75,12 @@ const basisLines = computed(() => {
 })
 
 // spec 4.4：錯開的順序照畫面位置（先 y 再 x）。使用者拖過之後，layout 陣列的順序不一定等於畫面順序
-const screenOrder = computed(() =>
-  Object.fromEntries([...layout.value].sort((a, b) => a.y - b.y || a.x - b.x).map((l, n) => [l.i, n])),
-)
+const byScreen = computed(() => [...layout.value].sort((a, b) => a.y - b.y || a.x - b.x))
+const screenOrder = computed(() => Object.fromEntries(byScreen.value.map((l, n) => [l.i, n])))
+
+const periodDigest = computed(() => digest(check.value, byScreen.value
+  .filter((l) => !leaving.value.has(l.i))
+  .map((l) => ({ spec: specById.value[l.i], data: dataById.value[l.i] }))))
 
 // 自動更新 spec 2.4：今天的寫「14:05」，不是今天的寫「10/6 14:05」
 function clock(d) {
@@ -153,7 +158,6 @@ async function load() {
   // 篩選器 spec 6.3：App 換了一份設定（打開、重新打開）就回到存著的預設；自己的移除、存預設不動目前的篩選
   if (!ownRemoval) filters.value = props.config.filters ?? null
   if (ownRemoval && fetchedKey === filterKey(filters.value) && next.every((s) => dataById.value[s.chartId])) {
-    highlightById.value = Object.fromEntries(Object.entries(highlightById.value).filter(([id]) => ids.has(id)))
     // 上一次的 highlights 還沒回來：那個回應會因為 loadSeq 換了被丟掉，這裡要重問一次才看得到標註
     if (props.preview || !highlightsPending) return
     await fetchHighlights(seq)
@@ -175,7 +179,7 @@ function setFilters(next) {
 // refresh：這次是自動更新（自動更新 spec 2.2、2.3）
 async function fetchData(seq, refresh = false) {
   // 自動更新時篩選沒變，舊的標註留到新的回來；改篩選時舊標註判斷的是另一組資料，先清掉
-  if (!refresh) highlightById.value = {}
+  if (!refresh) check.value = null
   const f = filters.value
   try {
     const data = props.preview ? await api.previewData(props.config) : await api.dashboardData(props.config.id, f)
@@ -251,10 +255,18 @@ watch(refreshMs, scheduleRefresh)
 // 異常檢查失敗就不標註，不顯示錯誤；篩選器 spec 2.4：照篩選後的資料判斷
 async function fetchHighlights(seq) {
   highlightsPending = seq
-  const found = await api.highlights(props.config.id, filters.value).catch(() => [])
+  const found = await api.highlights(props.config.id, filters.value).catch(() => null)
   if (highlightsPending === seq) highlightsPending = 0
   if (seq !== loadSeq) return
-  highlightById.value = Object.fromEntries(found.map((h) => [h.chartId, h]))
+  check.value = found
+}
+
+const GRID_GAP = 14
+const gridEl = ref(null)
+function focusCard(chartId) {
+  const card = gridEl.value.querySelector(`[data-chart-id="${CSS.escape(chartId)}"]`)
+  card.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'nearest' })
+  card.focus({ preventScroll: true })
 }
 
 watch(() => props.config, load, { immediate: true })
@@ -419,14 +431,31 @@ async function download(chartId, format) {
       @update:model-value="saveRefresh"
     />
   </DashboardFilters>
-  <div class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
+  <section v-if="periodDigest" class="dash-digest cc-panel tc-fade-in">
+    <h2 class="dash-digest__title">本期重點</h2>
+    <p v-if="!periodDigest.entries.length" class="dash-digest__empty">
+      本期沒有需要注意的變化（檢查了 {{ periodDigest.checkedCount }} 張卡）
+    </p>
+    <button
+      v-for="e in periodDigest.entries"
+      :key="e.chartId"
+      type="button"
+      class="dash-digest__item"
+      @click="focusCard(e.chartId)"
+    >
+      <span class="tc-badge" :class="SEVERITY_CLASS[e.severity]">{{ e.severity }}</span>
+      <span class="dash-digest__name text-truncate">{{ e.title }}</span>
+      <span class="dash-digest__change">{{ e.text }}</span>
+    </button>
+  </section>
+  <div ref="gridEl" class="dash-grid" :class="{ 'is-busy': busy }" :aria-busy="busy || undefined">
     <GridLayout
       v-if="!loadError"
       v-model:layout="layout"
       :class="{ 'is-settled': settled }"
       :col-num="12"
       :row-height="80"
-      :margin="[14, 14]"
+      :margin="[GRID_GAP, GRID_GAP]"
       :is-draggable="!preview && !readonly"
       :is-resizable="!preview && !readonly"
       @layout-ready="onLayoutReady"
@@ -447,6 +476,7 @@ async function download(chartId, format) {
         <ChartCard
           :spec="specById[item.i]"
           :data-chart-id="item.i"
+          tabindex="-1"
           :data="dataById[item.i]"
           :highlight="highlightById[item.i]"
           :source="multiSource ? (dataById[item.i]?.source ?? null) : null"
@@ -484,4 +514,22 @@ async function download(chartId, format) {
 <style scoped>
 /* 自動更新 spec 6.1：選單寬約 150px */
 .dash-refresh { flex: 0 0 150px; }
+.dash-digest { margin: 0 calc(v-bind(GRID_GAP) * 1px); padding: 12px 12px 4px; }
+.dash-digest__title { margin: 0 8px 4px; font-size: 14px; font-weight: 600; }
+.dash-digest__empty { margin: 0 8px 8px; font-size: 13px; color: var(--tc-muted); }
+.dash-digest__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+}
+.dash-digest__item + .dash-digest__item { border-top: 1px solid var(--tc-border-subtle); }
+.dash-digest__item:hover { background: var(--tc-hover); }
+.dash-digest__item:focus-visible { outline: 2px solid var(--tc-ring-color); outline-offset: -2px; }
+.dash-digest__name { min-width: 0; font-size: 14px; font-weight: 600; }
+.dash-digest__change { font-size: 13px; color: var(--tc-muted); font-variant-numeric: tabular-nums; }
+.dash-grid :deep([data-chart-id]:focus-visible) { outline: 2px solid var(--tc-ring-color); outline-offset: 2px; }
 </style>
