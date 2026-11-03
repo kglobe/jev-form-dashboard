@@ -28,7 +28,7 @@ description: 在真的 JEV 儀表板（Spring Boot 後端加 Vite 前端的網�
 
    S00-1 查到 8081 或 5181 有人在用，就把 `BACK`／`FRONT` 改成沒人用的 port。
 2. S00-3 不用做。agent-browser 的 `upload` 可以直接讀 `docs/testing/fixtures/` 的絕對路徑。只有 S04-13 要 `products.txt`，那時再複製到 `$RUN_DIR/`。
-3. S00-5 後端：在 `backend/` 用 `run_in_background` 跑劇本那行 `java -jar`，`<schema>` 換成 `$SCHEMA`，`8081` 換成 `$BACK`，最後加 `> "$RUN_DIR/backend.log" 2>&1`。要用 `java -jar`，不要用 `mvnw spring-boot:run`：Maven 另外分出來的 java 程序，TaskStop 停不掉。
+3. S00-5 後端：在 `backend/` 用 `run_in_background` 跑劇本那行 `java -jar`，`<schema>` 換成 `$SCHEMA`，`8081` 換成 `$BACK`，最後加 `> "$RUN_DIR/backend.log" 2>&1`。要用 `java -jar`，不要用 `mvnw spring-boot:run`：Maven 另外分出來的 java 程序，TaskStop 停不掉。JEV 金鑰在 `backend/.env` 的 `TYPESAFE_API_KEY`，`application.yml` 用 `spring.config.import` 讀，所以一定要在 `backend/` 裡啟動，也不用另外設環境變數。判斷「這台有沒有金鑰」要看 `backend/.env`，不要只查環境變數；真的沒有才改用假 JEV，並在回報寫明。
 4. S00-7 前端：在 `frontend/` 用 `run_in_background` 跑 `API_TARGET=http://127.0.0.1:$BACK node node_modules/vite/bin/vite.js --port $FRONT --strictPort > "$RUN_DIR/frontend.log" 2>&1`。Vite 的 log 夾著色碼，grep `Local:` 找不到，就緒與否用 curl 判斷。
 5. 等就緒：一個 Bash 指令跑 until 迴圈，最多 180 秒，等 `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$BACK/api/auth/options` 和 `http://localhost:$FRONT/` 都回 `200`。後端要等 Flyway 建完表才會開始聽 port，所以 200 就代表能用了。逾時就看 `backend.log` 最後幾十行，回報後停下來。
 6. S00-9 不用做，agent-browser 會自己開 Chrome。
